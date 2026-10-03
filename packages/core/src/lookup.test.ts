@@ -274,7 +274,7 @@ describe("lookupOrg", () => {
         assets: 210_000_000,
         taxYear: 2024,
       },
-      notes: ["990-PF: filing facts only"],
+      notes: ["990-PF: no mission or programs on the form"],
       missionSource: null,
       financesSource: {
         ...XML_ZIP,

@@ -122,7 +122,7 @@ function notesFor(
         : "no e-filed 990 in the last 3 release years",
     );
   } else if (filing.formType === "990-PF") {
-    notes.push("990-PF: filing facts only");
+    notes.push("990-PF: no mission or programs on the form");
   } else if (mission === null) {
     notes.push(
       filing.missionOnScheduleO

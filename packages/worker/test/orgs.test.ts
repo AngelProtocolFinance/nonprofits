@@ -217,7 +217,7 @@ describe("GET /v1/orgs/:ein", () => {
         assets: 210000000,
         taxYear: 2024,
       },
-      notes: ["990-PF: filing facts only"],
+      notes: ["990-PF: no mission or programs on the form"],
     });
     expect(body.provenance.finances).toMatchObject({
       objectId: "202501239349100500",
