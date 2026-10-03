@@ -1,10 +1,25 @@
-import { createWriteStream } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
-import { dirname } from "node:path";
 import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { COLUMNS, type ImportSource, type SwappedTable } from "@nonprofits/db";
-import { CsvError, parse } from "csv-parse";
+import type { ImportSource } from "@nonprofits/db";
+import {
+  batched,
+  download,
+  IMPORT_RUNS,
+  type ImportFile,
+  insertRun,
+  literal,
+  MAX_STATEMENT_BYTES,
+  ORGS,
+  type OrgColumn,
+  type OrgUpsert,
+  org,
+  records,
+  run,
+  setRowCount,
+  text,
+  tuple,
+  upsertOrgs,
+  writeLoad,
+} from "./load.ts";
 import { applyLoad, type D1Target } from "./wrangler.ts";
 
 /** The EO BMF, split by IRS region. */
@@ -47,13 +62,6 @@ export const BMF_HEADER = [
   "SORT_NAME",
 ] as const;
 
-type OrgColumn = (typeof COLUMNS.orgs)[number];
-type RunColumn = (typeof COLUMNS.import_runs)[number];
-const org = (column: OrgColumn) => column;
-const run = (column: RunColumn) => column;
-
-const ORGS: SwappedTable = "orgs";
-const IMPORT_RUNS: SwappedTable = "import_runs";
 const SOURCE: ImportSource = "bmf";
 
 /** The `orgs` columns a BMF row fills, in VALUES order, each from its BMF field. */
@@ -74,8 +82,6 @@ const FIELDS = [
   (typeof BMF_HEADER)[number],
 ])[];
 
-type BmfColumn = (typeof FIELDS)[number][0];
-
 const BMF_FACTS = [
   "subsection",
   "ntee",
@@ -83,9 +89,6 @@ const BMF_FACTS = [
   "deductibility_code",
   "filing_requirement_code",
 ] as const satisfies readonly OrgColumn[];
-
-/** D1 rejects a statement over 100 KB. */
-const MAX_STATEMENT_BYTES = 90_000;
 
 export interface BmfImportOptions {
   urls: readonly string[];
@@ -119,141 +122,79 @@ export interface BmfImportSummary {
 export async function importBmf(
   options: BmfImportOptions,
 ): Promise<BmfImportSummary> {
-  const summary = await writeLoad(options);
+  const summary = await writeBmfLoad(options);
   await applyLoad(options.out, options.target);
   return summary;
 }
 
-async function writeLoad({
+async function writeBmfLoad({
   urls,
   minOrgs,
   out,
   maxStatementBytes = MAX_STATEMENT_BYTES,
 }: BmfImportOptions): Promise<BmfImportSummary> {
-  await mkdir(dirname(out), { recursive: true });
   const files: BmfFileSummary[] = [];
-  try {
-    await pipeline(
-      loadSql(urls, maxStatementBytes, files),
-      createWriteStream(out),
-    );
-    const orgs = files.reduce((sum, f) => sum + f.orgs, 0);
-    if (orgs < minOrgs) {
-      throw new Error(
-        `BMF import aborted: ${orgs} orgs is below the floor of ${minOrgs}; nothing was loaded`,
-      );
-    }
-    return { orgs, files };
-  } catch (error) {
-    await rm(out, { force: true });
-    throw error;
-  }
+  await writeLoad(out, loadSql(urls, minOrgs, maxStatementBytes, files));
+  return { orgs: totalOrgs(files), files };
 }
+
+const totalOrgs = (files: readonly BmfFileSummary[]) =>
+  files.reduce((sum, f) => sum + f.orgs, 0);
 
 /** The whole load, statement by statement; pushes each file's summary onto `files`. */
 async function* loadSql(
   urls: readonly string[],
+  minOrgs: number,
   maxStatementBytes: number,
   files: BmfFileSummary[],
 ): AsyncGenerator<string> {
-  for (const url of urls) files.push(yield* bmfFileSql(url, maxStatementBytes));
+  for (const url of urls) {
+    files.push(
+      yield* bmfFileSql(
+        { source: SOURCE, label: "BMF", url },
+        maxStatementBytes,
+      ),
+    );
+  }
+  const orgs = totalOrgs(files);
+  if (orgs < minOrgs) {
+    throw new Error(
+      `BMF import aborted: ${orgs} orgs is below the floor of ${minOrgs}; nothing was loaded`,
+    );
+  }
   yield clearDroppedOrgs(urls.length);
 }
 
 async function* bmfFileSql(
-  url: string,
+  file: ImportFile,
   maxStatementBytes: number,
 ): AsyncGenerator<string, BmfFileSummary> {
-  const { body, releasedAt } = await download(url);
-  const fetchedAt = new Date().toISOString();
-  const fixedBytes = Buffer.byteLength(upsertOrgs([]));
-  let header: string[] | undefined;
+  const { body, releasedAt } = await download(file);
+  yield insertRun(file, releasedAt, new Date().toISOString());
   let orgs = 0;
-  let batch: string[] = [];
-  let batchBytes = 0;
-
-  for await (const record of bmfRecords(url, body)) {
-    if (header === undefined) {
-      header = record;
-      checkHeader(url, header);
-      yield insertRun(url, releasedAt, fetchedAt);
-      continue;
+  async function* tuples(): AsyncGenerator<string> {
+    let header: string[] | undefined;
+    for await (const record of records(file, Readable.fromWeb(body), {
+      bom: true,
+    })) {
+      if (header === undefined) {
+        header = record;
+        checkHeader(file.url, header);
+        continue;
+      }
+      orgs++;
+      yield toTuple(record);
     }
-    const tuple = toTuple(record);
-    const tupleBytes = Buffer.byteLength(tuple);
-    // +2 for the ",\n" between tuples
-    if (
-      batch.length > 0 &&
-      fixedBytes + batchBytes + 2 + tupleBytes > maxStatementBytes
-    ) {
-      yield upsertOrgs(batch);
-      batch = [];
-      batchBytes = 0;
-    }
-    batchBytes += (batch.length > 0 ? 2 : 0) + tupleBytes;
-    batch.push(tuple);
-    orgs++;
+    if (header === undefined) throw new Error(`BMF file is empty: ${file.url}`);
   }
-  if (header === undefined) throw new Error(`BMF file is empty: ${url}`);
-  if (batch.length > 0) yield upsertOrgs(batch);
-  yield setRowCount(orgs);
-  return { url, releasedAt, orgs };
-}
-
-async function download(
-  url: string,
-): Promise<{ body: ReadableStream<Uint8Array>; releasedAt: string }> {
-  let response: Response;
-  try {
-    response = await fetch(url);
-  } catch (error) {
-    throw downloadFailed(url, error);
-  }
-  if (!response.ok || response.body === null) {
-    throw new Error(`BMF download failed: ${url}: HTTP ${response.status}`);
-  }
-  const lastModified = response.headers.get("last-modified");
-  if (lastModified === null) {
-    throw new Error(`BMF download failed: ${url}: no Last-Modified header`);
-  }
-  return {
-    body: response.body,
-    releasedAt: new Date(lastModified).toISOString(),
-  };
-}
-
-function downloadFailed(url: string, error: unknown): Error {
-  const detail =
-    error instanceof Error
-      ? [error.message, error.cause instanceof Error && error.cause.message]
-          .filter(Boolean)
-          .join(": ")
-      : String(error);
-  return new Error(`BMF download failed: ${url}: ${detail}`, { cause: error });
-}
-
-/** The file's CSV records; a cut-off download or malformed CSV throws naming `url`. */
-async function* bmfRecords(
-  url: string,
-  body: ReadableStream<Uint8Array>,
-): AsyncGenerator<string[]> {
-  const parser = parse({ bom: true });
-  const parsing = pipeline(Readable.fromWeb(body), parser);
-  // the same error reaches the loop below through the destroyed parser
-  parsing.catch(() => {});
-  try {
-    for await (const record of parser) yield record as string[];
-    await parsing;
-  } catch (error) {
-    throw error instanceof CsvError
-      ? new Error(`BMF parse failed in ${url}: ${error.message}`, {
-          cause: error,
-        })
-      : downloadFailed(url, error);
-  } finally {
-    // a consumer that stops early leaves the download open otherwise
-    parser.destroy();
-  }
+  yield* batched(
+    tuples(),
+    (tuple) => tuple,
+    (batch) => upsertOrgs(UPSERT, batch),
+    maxStatementBytes,
+  );
+  yield setRowCount(SOURCE, orgs);
+  return { url: file.url, releasedAt, orgs };
 }
 
 function checkHeader(url: string, header: readonly string[]): void {
@@ -281,18 +222,12 @@ const FIELD_INDEXES = FIELDS.map(([column, field]) => ({
 }));
 
 function toTuple(record: readonly string[]): string {
-  const values = FIELD_INDEXES.map(({ column, index }) => {
-    const raw = record[index] ?? "";
-    return column === "ruling_date" ? rulingDate(raw) : text(raw);
-  });
-  return `(${values.map(literal).join(",")})`;
-}
-
-const PLACEHOLDERS = new Set(["", "N/A", "NONE"]);
-
-function text(raw: string): string | null {
-  const value = raw.replaceAll("\0", "").trim();
-  return PLACEHOLDERS.has(value.toUpperCase()) ? null : value;
+  return tuple(
+    FIELD_INDEXES.map(({ column, index }) => {
+      const raw = record[index] ?? "";
+      return column === "ruling_date" ? rulingDate(raw) : text(raw);
+    }),
+  );
 }
 
 /** RULING is YYYYMM; the BMF writes 000000 for no ruling. */
@@ -303,69 +238,14 @@ function rulingDate(raw: string): string | null {
   return year === "0000" || month === "00" ? null : `${year}-${month}`;
 }
 
-function literal(value: string | null): string {
-  return value === null ? "NULL" : `'${value.replaceAll("'", "''")}'`;
-}
-
-/** The newest bmf run: the one inserted just before the statement using it. */
-const LATEST_BMF_RUN = `(SELECT max(${run("id")}) FROM ${IMPORT_RUNS} WHERE ${run("source")} = ${literal(SOURCE)})`;
-
-function insertRun(url: string, releasedAt: string, fetchedAt: string): string {
-  const columns = [
-    run("source"),
-    run("file_url"),
-    run("released_at"),
-    run("fetched_at"),
-    run("row_count"),
-  ];
-  const values = [SOURCE, url, releasedAt, fetchedAt].map(literal);
-  return `INSERT INTO ${IMPORT_RUNS} (${columns.join(", ")}) VALUES (${values.join(", ")}, 0);\n`;
-}
-
-function setRowCount(orgs: number): string {
-  return `UPDATE ${IMPORT_RUNS} SET ${run("row_count")} = ${orgs} WHERE ${run("id")} = ${LATEST_BMF_RUN};\n`;
-}
-
-const ADDRESS = [
-  "street",
-  "city",
-  "state",
-  "zip",
-] as const satisfies readonly BmfColumn[];
-
-/**
- * Upserts a batch of tuples under the newest bmf run. A BMF row with no name,
- * or no address at all, keeps what another source wrote; the four address
- * columns move together.
- */
-function upsertOrgs(tuples: readonly string[]): string {
-  const columns: BmfColumn[] = FIELDS.map(([column]) => column);
-  const v = (column: BmfColumn) => `v.column${columns.indexOf(column) + 1}`;
-  const [nameRun, addressRun, bmfRun] = [
-    org("name_run_id"),
-    org("address_run_id"),
-    org("bmf_run_id"),
-  ];
-  const select = [
-    ...columns.map(v),
-    `iif(${v("name")} IS NULL, NULL, r.id)`,
-    `iif(coalesce(${ADDRESS.map(v).join(", ")}) IS NULL, NULL, r.id)`,
-    "r.id",
-  ];
-  const keepUnlessBmf = (column: OrgColumn, runColumn: OrgColumn) =>
-    `${column} = iif(excluded.${runColumn} IS NULL, ${ORGS}.${column}, excluded.${column})`;
-  const updates = [
-    keepUnlessBmf("name", nameRun),
-    `${nameRun} = coalesce(excluded.${nameRun}, ${ORGS}.${nameRun})`,
-    ...ADDRESS.map((column) => keepUnlessBmf(column, addressRun)),
-    `${addressRun} = coalesce(excluded.${addressRun}, ${ORGS}.${addressRun})`,
-    ...[bmfRun, ...BMF_FACTS].map((column) => `${column} = excluded.${column}`),
-  ];
-  return `INSERT INTO ${ORGS} (${[...columns, nameRun, addressRun, bmfRun].join(", ")})
-SELECT ${select.join(", ")}
-FROM (VALUES ${tuples.join(",\n")}) AS v, (SELECT ${LATEST_BMF_RUN} AS id) AS r WHERE true
-ON CONFLICT (${org("ein")}) DO UPDATE SET ${updates.join(", ")};\n`;
-}
+const UPSERT: OrgUpsert = {
+  source: SOURCE,
+  columns: FIELDS.map(([column]) => column),
+  derived: [["bmf_run_id", "r.id"]],
+  facts: [org("bmf_run_id"), ...BMF_FACTS].map(
+    (column) => `${column} = excluded.${column}`,
+  ),
+};
 
 /** An org missing from this import's files keeps its name and address but loses its BMF facts. */
 function clearDroppedOrgs(runs: number): string {

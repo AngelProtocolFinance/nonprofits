@@ -1,0 +1,125 @@
+
+
+000587764|Iglesia Bethesda Inc.|Lowell|MA|United States|PC
+000635913|Ministerio Apostolico Jesucristo Es El Senor Inc.|Lawrence|MA|United States|PC
+000765634|Mercy Chapel International|Mattapan|MA|United States|PC
+000841363|Agape House of Prayer|Mattapan|MA|United States|PC
+000852649|Bethany Presbyterian Church|Brookline|MA|United States|PC
+001347537|Restoration of Hope Church Ministries|Roxbury|MA|United States|PC
+002030711|Church of Our Lord Jesus Christ of Macedonia|Newark|NJ|United States|PC
+002296179|Religious Science Church Center of San Diego|San Diego|CA|United States|PC
+007764840|Tri-County Lighthouse Baptist Church & Ministries Inc.|Deerfield St.|NJ|United States|PC
+010002847|Hulls Cove Neighborhood Association|Mount Desert|ME|United States|PC
+010011694|Massachusetts Moderators Association Inc.|Haverhill|MA|United States|PC
+010015091|Hanover Soccer Club Inc.|Cedar Knolls|NJ|United States|PC
+010017496|Agamenticus Yacht Club of York|York Harbor|ME|United States|PC
+010019705|Ancient Free & Accepted Masons of Maine Grand Lodge|Holden|ME|United States|EO,GROUP,LODGE
+010019709|Ancient Free & Accepted Masons of Maine|Houlton|ME|United States|EO,LODGE
+010024155|Bangor Band|Bangor|ME|United States|PC
+010024645|Bangor Symphony Orchestra|Bangor|ME|United States|PC
+010024907|Bar Harbor Village Improvement Association|Bar Harbor|ME|United States|POF
+010028850|Berwick Cemetery Association Inc.|Berwick|ME|United States|EO
+010060379|Healing and Deliverance Ministry Inc.|Clarksburg|MD|United States|PC
+010085716|Hancock County Agricultural Society|Blue Hill|ME|United States|PC
+010092600|Hope Cemetery Corporation|Kennebunk|ME|United States|EO
+010095329|Improved Order of Redmen of Maine|Sebago|ME|United States|EO,GROUP,LODGE
+010104976|Saint Andrew Church|Los Alamitos|CA|United States|PC
+010245341|Cornelia Warren Community Assn Inc.|Vero Beach|FL|United States|PC
+010262891|Small Point Summer School Inc.|Washington|DC|United States|PC
+010319131|Sigma Delta Pi|Charleston|SC|United States|PC
+010342663|Helen F Wylie Foundation|Dallas|TX|United States|PF
+010359130|Eternity Baptist Church|Malvery|AR|United States|PC
+010363873|National Rural Health Association|Kansas City|MO|United States|PC
+010365189|Celebration Inc.|Alpharetta|GA|United States|PC
+010372129|North American Lake Management Society|Madison|WI|United States|PC
+010384135|Friends of the Windham Public & Library|None|ME|United States|PC
+010387306|Omega Foundation|Naples|FL|United States|PC
+010414466|Smith Cove Preservation Trust|Brecksville|OH|United States|PF
+010415961|Veterans for Peace Inc.|St. Louis|MO|United States|GROUP
+010421753|Real J Daigle Evangelistic Corporation|Tucson|AZ|United States|PC
+010430328|Kanzeon Inc.|Salt Lake Cty|UT|United States|PC
+010441158|John L Hawkes Scholarship Fund|Brooklyn|OH|United States|PF
+010442171|Nathaniel Hawthorne Society|Thibodaux|LA|United States|PC
+010442447|State Risk and Insurance Management Association|Bismarck|ND|United States|PC
+010452942|Hamilton Foundation|Longwood|FL|United States|PF
+010466768|American University in Bulgaria|Washington|DC|United States|PC
+010471151|Regulatory Assistance Project|Washington|DC|United States|PC
+010477310|Christian Mission Services|Cary|NC|United States|PC
+010483770|Missing Children Alert Program|Royal Plm Bch|FL|United States|PC
+010490759|P A T T|Washington|DC|United States|PC
+010492125|Alliance of Independent Academic Medical Centers|Canton|OH|United States|PC
+010492538|World Voice of Historic Adventism Inc.|Mt. Dora|FL|United States|PC
+010494042|Maple Farms Foundation|East Ellijay|GA|United States|PF
+010494386|Institute of Maritime History|Tall Timbers|MD|United States|PC
+010495814|Wetlands Foundation|Brecksville|OH|United States|POF
+010500483|Leone R Murray Trust Uart 4|Dallas|TX|United States|PF
+010515187|Alstrom Syndrome International|Burleson|TX|United States|PC
+010515885|Lida P Underhill Charitable Tr|Dallas|TX|United States|PF
+010518008|Educational Partners International|Mooresville|NC|United States|PC
+010518429|Atlantic Residential Resource|Beaufort|SC|United States|PF
+010525400|Friends of Incontri in Terra Di Siena Inc.|Encino|CA|United States|PC
+010527749|Blue Knights Motorcycle Club of Fayetteville Ga VII|Fayetteville|GA|United States|EO,LODGE
+010530112|Mark Swiger Ministries|Crossville|TN|United States|PC
+010531628|American Chesapeake Club Charitable Tr|Santee|CA|United States|PC
+010532058|Sietar USA|Lakewood|CO|United States|PC
+010547918|Main Street Mobile Treatment Associates Inc.|Reisterstown|MD|United States|PC
+010547931|Lupient Foundation|Minneapolis|MN|United States|PF
+010548049|William & Jeanne Walsh Scholarship Fund Inc.|Philadelphia|PA|United States|PF
+010548351|Heartland Baptist Fellowship of Cass County|Harrisonville|MO|United States|PC
+010548389|St. Louis Park Football Association|St. Louis Park|MN|United States|PC
+010548657|Kuehner Brothers Foundation Inc.|Wilmington|DE|United States|PF
+010549002|Fairfield Child Development Center|Fairfield|OH|United States|PC
+010549919|Time of Grace Ministries|Silver Spring|MD|United States|PC
+010549978|The Plan Ministries Inc.|Suitland|MD|United States|PC
+010550223|Association of Forensic Quality Assurance Managers|Richmond|VA|United States|PC
+010550386|Shorefront|Evanston|IL|United States|PC
+010550458|Stockdale Volunteer Fire Department|Stockdale|PA|United States|PC
+010551546|Faithworks Inc.|Winchester|VA|United States|PC
+010551639|Revelation Knowledge Christian Church|Washington|DC|United States|PC
+010551686|Joe and Missy Walsh Foundation|Potomac|MD|United States|PF
+010551710|Downers Grove Jr Womans Club Charity Fund Inc.|Downers Grove|IL|United States|PC
+010551997|J Foundation Inc.|Havertown|PA|United States|PC
+010552134|Columbia Heights Public Library Foundation|Columbia Hts|MN|United States|PC
+010552288|Fg Foundation|Columbus|OH|United States|SOUNK
+161701355|Resonance Project Foundation|Caluses Cedex||FRANCE|FORGN
+200072423|Ministerio Vida Abuntante-Abundant Life Ministry-Inc|Mayaguez|PR|United States|PC
+200105601|Jerusalem Institute for Market Studies Inc.|Tel Aviv||ISRAEL|FORGN
+200644142|Strategic Solutions Network Inc.|Frederiksted|VI|United States|PC
+200835061|Friends of Journalists for Human Rights Inc.|Toronto on||CANADA|FORGN
+201096061|Kamien Family Foundation|Local||ISRAEL|FORGN,PF
+201430313|American Friends of the Franco American Institute Inc.|Romille Brittany||FRANCE|FORGN,SOUNK
+201445557|Huanggang High School Overseas|Calgary Alberta||CANADA|FORGN
+201567425|Imagine Global Incorporated|Herzliya||ISRAEL|FORGN
+201880890|Ossies Fair Housing and Homecare Inc.|Albany||GEORGIA|FORGN
+202032957|Old Road Fund Inc.|St. Johns Antigua||ANTIGUA & BARBUDA|FORGN
+202866021|Society for Neuroeconomics Inc.|Victoria British Colum||CANADA|FORGN
+202956696|Gusenghwe Inc.|Tamuning|GU|United States|PC
+203193115|American Friends of Uhn Inc.|to Ontario||CANADA|FORGN
+203317540|International School Psychology Association Inc.|Egkomi||CYPRUS|FORGN
+203825842|Seastar Services Inc.|St. Thomas|VI|United States|PC
+203925212|Isaiah 61 International Inc.|Quito Pichincha||ECUADOR|FORGN
+204416398|Hadden Family Foundation|Burlington Ontariol||CANADA|FORGN,PF
+204733601|American Friends of the Art Gallery of Ontario Inc.|Toronto on||CANADA|FORGN
+204859523|Marianas Racing Association|Saipan|MP|United States|PC
+205478637|Bobs and Crow Lakes Foundation|Verona Ontario||CANADA|FORGN
+205537750|Acc Keene Farm Inc.|Anjou Quebec||CANADA|FORGN,SOUNK
+205853356|Polar Education Foundation|Chelsea Quebec||CANADA|FORGN
+206652035|Randolph H Knight Charitable Foundation|St. Thomas|VI|United States|PF
+206975076|Prior Family Foundation|St. Thomas|VI|United States|PF
+208080321|American Schools International Incorporated|Oxford Kosovo||KOSOVO|FORGN
+208394751|Challengeaid Foundation|Llandovery Wales||UNITED KINGDOM|FORGN
+222514884|Institute for Research in Classical Philosophy and Science Inc.|Baysville on||CANADA|FORGN
+222530466|Ise Cultural Foundation Inc.|Tokyo||JAPAN|FORGN,PF
+232320551|Interfaith Council on the Holocaust|Philadelphia|PA|United States|PC
+233050252|Global Importune Inc.|London Ontario||CANADA|FORGN
+233070432|Haven Youth Lacrosse|Swarthmore Pa||PARAGUAY|FORGN
+237034732|Families Planning Association of Puerto Rico|San Juan|PR|United States|PC
+237067592|The Governors of the University of Calgary|Calgary Ab||CANADA|FORGN
+237069575|University of Saskatchewan|Saskatoon Saskatchewan||CANADA|FORGN
+237069576|Upper Canada College Foundation|Toronto Ontario||CANADA|FORGN,SOUNK
+237069967|York University|Toronto on||CANADA|FORGN
+237075452|Cambrian Heights Baptist Church|Calgary||CANADA|FORGN
+237088831|Carleton University|Ottawa Ontario||CANADA|FORGN
+530196605|American National Red Cross|Washington|DC|United States|PC
+999999010|Association of Fundraising Professionals|Arlington|VA|United States|PC
+

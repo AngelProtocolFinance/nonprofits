@@ -1,11 +1,15 @@
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
-import { createServer, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
-import { wrangler } from "./wrangler.ts";
+import {
+  migrate,
+  query as queryD1,
+  type Route,
+  serve,
+} from "./test-support.ts";
 
 const FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
 const FIXTURE_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
@@ -14,25 +18,6 @@ const FIXTURE_ORGS = 245;
 const RELEASED = "Mon, 07 Sep 2026 04:11:46 GMT";
 const LATEST_BMF_RUNS =
   "SELECT id FROM import_runs WHERE source = 'bmf' ORDER BY id DESC LIMIT 4";
-
-/** A body served whole, or a handler that writes the response itself. */
-type Route = string | ((res: ServerResponse) => void);
-
-/** Serves `routes` over loopback, each with `RELEASED` as its Last-Modified. */
-async function serve(routes: Map<string, Route>): Promise<Server> {
-  const server = createServer((req, res) => {
-    const route = routes.get(req.url ?? "");
-    if (route === undefined) {
-      res.writeHead(404).end();
-    } else if (typeof route === "string") {
-      res.writeHead(200, { "last-modified": RELEASED }).end(route);
-    } else {
-      route(res);
-    }
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return server;
-}
 
 /** Applies `edit` to the comma-split fields of `ein`'s row; the row must hold no quoted field. */
 function editRow(
@@ -79,20 +64,8 @@ async function counts() {
   );
 }
 
-async function query<T>(sql: string): Promise<T[]> {
-  const out = await wrangler([
-    "d1",
-    "execute",
-    "DB",
-    "--local",
-    "--persist-to",
-    persistTo,
-    "--json",
-    "--command",
-    sql,
-  ]);
-  const results = JSON.parse(out) as { results: T[] }[];
-  return results.at(-1)?.results ?? [];
+function query<T>(sql: string): Promise<T[]> {
+  return queryD1<T>(persistTo, sql);
 }
 
 beforeAll(async () => {
@@ -121,19 +94,10 @@ beforeAll(async () => {
   });
   routes.set("/odd/eo4.csv", odd);
 
-  server = await serve(routes);
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  ({ server, base } = await serve(routes, RELEASED));
   work = await mkdtemp(join(tmpdir(), "bmf-import-"));
   persistTo = join(work, "d1");
-  await wrangler([
-    "d1",
-    "migrations",
-    "apply",
-    "DB",
-    "--local",
-    "--persist-to",
-    persistTo,
-  ]);
+  await migrate(persistTo);
   await importFixture(FIXTURE_FILES, "bmf.load.sql");
 }, 60_000);
 

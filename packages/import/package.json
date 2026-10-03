@@ -6,12 +6,14 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "bmf": "node src/cli.ts",
+    "irs": "node src/cli.ts",
+    "bmf": "node src/cli.ts bmf",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@nonprofits/db": "workspace:*",
     "csv-parse": "catalog:",
+    "fflate": "catalog:",
     "wrangler": "catalog:"
   }
 }
