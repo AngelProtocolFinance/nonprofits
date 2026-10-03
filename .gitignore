@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.dev.vars
+.env
+.env.*
+.wrangler/
+# downloaded IRS bulk data and generated SQL load files
+data/
+*.sql.gz
+load/
+*.load.sql
+.DS_Store

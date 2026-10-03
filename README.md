@@ -1,0 +1,22 @@
+# irs-lookup
+
+Look up IRS exempt organizations by EIN, over REST and MCP.
+
+## Layout
+
+pnpm workspace, one package per deliverable plus shared code:
+
+- `packages/core` — response types and handlers shared by REST and MCP
+- `packages/worker` — Cloudflare Worker serving REST + MCP
+- `packages/import` — Node job that ingests IRS data
+- `packages/cli` — API key admin
+
+Node 24 (`.nvmrc`), pnpm pinned via `packageManager`. Dependency versions live in the `catalog` in `pnpm-workspace.yaml`.
+
+## Gate
+
+```sh
+pnpm check
+```
+
+Runs Biome, `tsc --noEmit` per package, and Vitest, sequentially. CI runs the same command. `pnpm format <paths>` formats only the paths given.
