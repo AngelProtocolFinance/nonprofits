@@ -1,5 +1,4 @@
 import { Readable } from "node:stream";
-import { rebuildSearchIndexSql } from "@nonprofits/db";
 import {
   batches,
   download,
@@ -17,7 +16,7 @@ import {
   webAddress,
   writeLoad,
 } from "./load.ts";
-import { applyLoad, type D1Target } from "./wrangler.ts";
+import type { D1Target } from "./wrangler.ts";
 import { firstZipEntry } from "./zip.ts";
 
 const EPOSTCARD_DOWNLOADS = "https://apps.irs.gov/pub/epostcard/";
@@ -187,8 +186,8 @@ export interface ListImportSummary {
 
 /**
  * Streams one list's zip into a SQL load file, then applies it to D1 in a
- * single `wrangler d1 execute --file`, so its rows, its `import_runs` row and,
- * for a list that writes names, the rebuilt search index commit together. A
+ * single `wrangler d1 execute --file`, so its rows and its `import_runs` row
+ * commit together; the search index is left for the caller to rebuild. A
  * failed download, any layout drift or a short count throws
  * before the apply, leaving D1 untouched and no load file behind.
  */
@@ -209,7 +208,7 @@ export async function importList(
       summary = yield* listSql(layout, file, options);
     })(),
   );
-  await applyLoad(options.out, options.target);
+  await options.target.ops.applyFile(options.target.binding, options.out);
   return summary as ListImportSummary;
 }
 
@@ -275,7 +274,6 @@ async function* listSql(
     );
   }
   yield setRowCount(layout.upsert.source, rows);
-  if (layout.upsert.columns.includes("name")) yield rebuildSearchIndexSql("");
   return { url: file.url, releasedAt, rows };
 }
 

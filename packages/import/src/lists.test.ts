@@ -7,7 +7,13 @@ import { zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
 import { importList, type ListName } from "./lists.ts";
-import { query, type Route, resetDataDb, serve } from "./test-support.ts";
+import {
+  loadTarget,
+  query,
+  type Route,
+  resetDataDb,
+  serve,
+} from "./test-support.ts";
 
 const BMF_FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
 const BMF_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
@@ -141,7 +147,7 @@ function loadBmf(persistTo: string) {
     urls: BMF_FILES.map((name) => `${base}/${name}`),
     minOrgs: 1,
     out: join(work, "bmf.load.sql"),
-    target: { remote: false, persistTo },
+    target: loadTarget(persistTo),
   });
 }
 
@@ -154,7 +160,7 @@ function loadList(
     url: `${base}${options.path ?? `/${list}.zip`}`,
     minRows: options.minRows ?? 1,
     out: join(work, `${list}.load.sql`),
-    target: { remote: false, persistTo },
+    target: loadTarget(persistTo),
     ...(options.maxStatementBytes === undefined
       ? {}
       : { maxStatementBytes: options.maxStatementBytes }),
@@ -234,18 +240,6 @@ describe("after the BMF and all three lists are imported", {
         revocation_file: `${base}/revocation.zip`,
       },
     ]);
-  });
-
-  test.each([
-    ["Pub 78", "fundraising professionals", 999999010],
-    ["the revocation list", "green valley", 10281533],
-  ])("indexes a name only %s gives for search", async (_, words, rowid) => {
-    expect(
-      await query(
-        d1,
-        `SELECT rowid FROM orgs_fts WHERE orgs_fts MATCH '${words}'`,
-      ),
-    ).toStrictEqual([{ rowid }]);
   });
 
   test("an EIN listed twice keeps its latest revocation and that one's reinstatement", async () => {

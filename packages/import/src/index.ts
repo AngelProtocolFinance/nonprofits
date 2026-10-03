@@ -16,10 +16,23 @@ export {
   importEfile,
 } from "./efile.ts";
 export {
+  type Check,
+  type RefreshOptions,
+  type RefreshReport,
+  refresh,
+  rollback,
+} from "./generation.ts";
+export {
   importList,
   LISTS,
   type ListImportOptions,
   type ListImportSummary,
   type ListName,
 } from "./lists.ts";
-export type { D1Target } from "./wrangler.ts";
+export {
+  irsSources,
+  SOURCES,
+  type Source,
+  type SourceConfig,
+} from "./sources.ts";
+export { type D1Ops, type D1Target, localD1, remoteD1 } from "./wrangler.ts";

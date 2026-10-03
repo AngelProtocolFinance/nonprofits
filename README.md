@@ -90,21 +90,35 @@ npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp --method too
 
 ## Import
 
-Loads the IRS EO BMF (`eo1.csv` … `eo4.csv`) into the worker's `DATA_DB_A`, local by default:
+`irs refresh` builds a whole new generation of the IRS data into the data DB the Worker isn't serving, checks it, and serves it; `irs rollback` serves the previous one again. Local by default, `--remote` for the deployed databases:
 
 ```sh
-pnpm --filter @nonprofits/worker db:reset:local a   # once, on a fresh local data DB
-pnpm --filter @nonprofits/import bmf                # or: bmf --remote
+pnpm --filter @nonprofits/import irs refresh             # every source: ~10 GB of downloads, about an hour
+pnpm --filter @nonprofits/import irs refresh --efile-batch 2026_TEOS_XML_03A   # local only: e-file from these batches alone
+pnpm --filter @nonprofits/import irs rollback
 ```
 
-The job streams each file into one SQL load file (`load/bmf.load.sql`) and applies it with a single `wrangler d1 execute --file`, so a header that drifted from the expected layout, or fewer orgs than the floor, aborts before anything is loaded. Re-running replaces the BMF rows in place.
+A refresh logs one line per step, with its time:
 
-The other sources go through `irs <source>`, each as its own load:
+1. Claim the slot not served in `APP_DB`'s `data_generation`; refused while another build's claim runs.
+2. Reset that slot's database empty (`resetGenerationSql`), its `data_meta` saying `building`. Within 60 s of the last flip it waits first: Worker isolates cache the pointer for 30 s, so the slot a flip left may still be served.
+3. Load bmf, pub78, revocation, epostcard and efile (the full run), in that order. Each streams into its own SQL file under `load/` and is applied with one `wrangler d1 execute --file`, holding its own floors first: a drifted layout or a short count aborts before the apply.
+4. Rebuild the search index, once.
+5. Verify: `data_meta` names this slot and build; orgs, filings and programs each within ±10% of the served generation (skipped while none is served yet); Red Cross (530196605) present with a mission; one search index row per named org; no row without an EIN.
+6. Seal the slot (read-only until its next reset), then flip the pointer to it, a compare-and-set that fails if the pointer moved during the run. Each Worker isolate picks it up within 30 s.
+
+Any failure exits 1 with the pointer unchanged and the claim released, leaving the slot as it stopped (`building`) for inspection; the Worker keeps serving the previous generation. `APP_DB` only ever gets `--command`: `--file` goes through D1's import API, which blocks its database for the whole import.
+
+`irs rollback` flips back to the other slot while it still holds a complete generation, that is until the next refresh resets it. After that it exits 1 and prints the `wrangler d1 time-travel restore` for that slot's database, which brings back the generation from before the reset; run `irs rollback` again once restored. Exit codes: 0 done, 1 failed, 2 usage.
+
+One source at a time is for development, local only, into a slot reset for it (the served slot only with `--force-active`); a sealed slot refuses every write. The search index is rebuilt after the run:
 
 ```sh
-pnpm --filter @nonprofits/import irs all                # bmf, pub78, revocation, epostcard
-pnpm --filter @nonprofits/import irs efile              # 990 e-file XML: the full 3-year run, ~10 GB and about an hour
+pnpm --filter @nonprofits/worker db:reset:local b       # claims slot b (it must not be the one served) and empties it
+pnpm --filter @nonprofits/import irs all                # bmf, pub78, revocation, epostcard into the slot not served; --slot a|b to name one
+pnpm --filter @nonprofits/import irs efile              # 990 e-file XML: the full 3-year run
 pnpm --filter @nonprofits/import irs efile --batch 2026_TEOS_XML_03A   # one batch; every other stored filing kept
+pnpm --filter @nonprofits/worker db:seal:local b        # then db:flip:local b to serve it
 ```
 
 `all` leaves out `efile`, which runs only when named. It reads the 990 e-file index of the three latest release years (the year before, when this year's index isn't published yet), keeps each EIN's latest filing (latest tax period, then latest received, amendments included), and parses those returns out of the batch zips, one zip on disk at a time under `data/efile/`: a Form 990's mission, activity summary, website, top 3 programs and finances (total revenue, expenses, assets at year end); a 990-EZ's primary exempt purpose as its mission, website, top 3 programs and finances; a 990-PF's website and finances. A mission that only points to Schedule O is stored as null and flagged `mission_on_schedule_o`. Index rows of other return types (990-T, or one the IRS adds) are counted by type in the run's output. A return whose EIN, form type, an amount or its tax year can't be read is rejected and skipped, keeping that EIN's stored filing; more than 1% rejected, or a form's returns (run-wide, or in a returnVersion with 200+ of them) under its yield floors — mission and revenue for the 990, mission and all three finances for the 990-EZ, all three finances for the 990-PF — aborts before anything is loaded, as does a full run that selects none of a form. A full run deletes the filings it didn't write and the orgs left with no fact and no filing; a `--batch` run deletes nothing.

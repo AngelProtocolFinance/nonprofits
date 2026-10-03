@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
 import {
+  loadTarget,
   query as queryD1,
   type Route,
   resetDataDb,
@@ -51,7 +52,7 @@ function importFixture(
     urls: urls(names),
     minOrgs: options.minOrgs ?? 1,
     out: join(work, out),
-    target: { remote: false, persistTo },
+    target: loadTarget(persistTo),
     ...(options.maxStatementBytes === undefined
       ? {}
       : { maxStatementBytes: options.maxStatementBytes }),
@@ -123,13 +124,6 @@ describe("importBmf", { timeout: 60_000 }, () => {
         ruling_date: "1938-12",
       },
     ]);
-  });
-
-  test("indexes the loaded names for search", async () => {
-    const rows = await query(
-      "SELECT rowid FROM orgs_fts WHERE orgs_fts MATCH 'red cross'",
-    );
-    expect(rows).toStrictEqual([{ rowid: 530196605 }]);
   });
 
   test("stores IRS placeholder text as null", async () => {

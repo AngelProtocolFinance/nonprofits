@@ -32,7 +32,7 @@ import {
   tuple,
   writeLoad,
 } from "./load.ts";
-import { applyLoad, type D1Target } from "./wrangler.ts";
+import type { D1Target } from "./wrangler.ts";
 import { zipEntries } from "./zip.ts";
 
 export const EFILE_BASE_URL = "https://apps.irs.gov/pub/epostcard/990/xml/";
@@ -183,7 +183,7 @@ export async function importEfile(
       summary = yield* efileSql(options);
     })(),
   );
-  await applyLoad(options.out, options.target);
+  await options.target.ops.applyFile(options.target.binding, options.out);
   return summary as EfileImportSummary;
 }
 

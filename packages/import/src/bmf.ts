@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { type ImportSource, rebuildSearchIndexSql } from "@nonprofits/db";
+import type { ImportSource } from "@nonprofits/db";
 import {
   batches,
   download,
@@ -20,7 +20,7 @@ import {
   upsertOrgs,
   writeLoad,
 } from "./load.ts";
-import { applyLoad, type D1Target } from "./wrangler.ts";
+import type { D1Target } from "./wrangler.ts";
 
 /** The EO BMF, split by IRS region. */
 export const BMF_URLS = [1, 2, 3, 4].map(
@@ -115,15 +115,15 @@ export interface BmfImportSummary {
 
 /**
  * Streams each BMF file into one SQL load file, then applies it to D1 in a
- * single `wrangler d1 execute --file`, so the orgs, their `import_runs` rows
- * and the rebuilt search index commit together. A failed download, any layout drift or a short count
+ * single `wrangler d1 execute --file`, so the orgs and their `import_runs` rows
+ * commit together; the search index is left for the caller to rebuild. A failed download, any layout drift or a short count
  * throws before the apply, leaving D1 untouched and no load file behind.
  */
 export async function importBmf(
   options: BmfImportOptions,
 ): Promise<BmfImportSummary> {
   const summary = await writeBmfLoad(options);
-  await applyLoad(options.out, options.target);
+  await options.target.ops.applyFile(options.target.binding, options.out);
   return summary;
 }
 
@@ -163,7 +163,6 @@ async function* loadSql(
     );
   }
   yield clearDroppedOrgs(urls.length);
-  yield rebuildSearchIndexSql("");
 }
 
 async function* bmfFileSql(

@@ -10,7 +10,13 @@ import {
   type EfileImportOptions,
   importEfile,
 } from "./efile.ts";
-import { query, type Route, resetDataDb, serve } from "./test-support.ts";
+import {
+  loadTarget,
+  query,
+  type Route,
+  resetDataDb,
+  serve,
+} from "./test-support.ts";
 
 const BMF_FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
 const BMF_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
@@ -241,7 +247,7 @@ async function d1WithBmf(name: string): Promise<string> {
     urls: BMF_FILES.map((file) => `${base}/${file}`),
     minOrgs: 1,
     out: join(work, `${name}-bmf.load.sql`),
-    target: { remote: false, persistTo },
+    target: loadTarget(persistTo),
   });
   return persistTo;
 }
@@ -269,7 +275,7 @@ function loadEfile(
     floors: floorsAt(0.9, { versionFrom: 200, rejects: 0.01 }),
     workDir: join(work, "batches"),
     out: join(work, "efile.load.sql"),
-    target: { remote: false, persistTo },
+    target: loadTarget(persistTo),
     ...options,
   });
 }

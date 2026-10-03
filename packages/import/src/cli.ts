@@ -1,140 +1,169 @@
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { BMF_MIN_ORGS, BMF_URLS, importBmf } from "./bmf.ts";
-import { EFILE_BASE_URL, EFILE_FLOORS, importEfile, percent } from "./efile.ts";
-import { importList, LISTS, type ListName } from "./lists.ts";
-import type { D1Target } from "./wrangler.ts";
+import { DATA_DB_BINDING, type DataSlot, otherSlot } from "@nonprofits/db";
+import {
+  readPointer,
+  rebuildSearchIndex,
+  refresh,
+  rollback,
+} from "./generation.ts";
+import { irsSources, isSource, loadSource, type Source } from "./sources.ts";
+import { type D1Ops, localD1, remoteD1 } from "./wrangler.ts";
 
-const SOURCES = ["bmf", "pub78", "revocation", "epostcard", "efile"] as const;
-type Source = (typeof SOURCES)[number];
 /** What `all` loads, in order. Not efile: a full 990 run downloads ~10 GB and takes about an hour, so it is asked for by name. */
 const ALL: readonly Source[] = ["bmf", "pub78", "revocation", "epostcard"];
 
-const USAGE = `usage: node src/cli.ts <${SOURCES.join("|")}|all> [--remote] [--batch <XML_BATCH_ID>]...
-  all      ${ALL.join(", ")}; efile only when named
-  --batch  efile only: load just the filings in this batch, keeping all others`;
+const USAGE = `usage: node src/cli.ts <command>
+  refresh [--remote] [--efile-batch <XML_BATCH_ID>]...
+      build the data slot not served from every IRS source, verify it, seal it
+      and serve it; --efile-batch (local only) loads just those e-file batches
+  rollback [--remote]
+      serve the other data slot again, while it still holds a complete build
+  <bmf|pub78|revocation|epostcard|efile|all> [--slot a|b] [--force-active] [--batch <XML_BATCH_ID>]...
+      dev, local only: load into a reset slot (default: the one not served),
+      then rebuild its search index; all = ${ALL.join(", ")}
+      --force-active  allow --slot to name the served slot
+      --batch         efile only: load just the filings in this batch`;
 
 function repoPath(path: string): string {
   return fileURLToPath(new URL(`../../../${path}`, import.meta.url));
 }
 
-function loadFile(source: Source): string {
-  return repoPath(`load/${source}.load.sql`);
+const LOAD_DIR = repoPath("load");
+const EFILE_WORK_DIR = repoPath("data/efile");
+
+class UsageError extends Error {}
+
+function args() {
+  try {
+    return parseArgs({
+      options: {
+        remote: { type: "boolean", default: false },
+        batch: { type: "string", multiple: true },
+        "efile-batch": { type: "string", multiple: true },
+        slot: { type: "string" },
+        "force-active": { type: "boolean", default: false },
+      },
+      allowPositionals: true,
+    });
+  } catch (error) {
+    // an unknown or malformed flag
+    throw new UsageError(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
-/** Imports one source as its own load; resolves with the lines to report. */
-async function importSource(
-  source: Source,
-  target: D1Target,
-  batches: readonly string[] | undefined,
-): Promise<string[]> {
-  const out = loadFile(source);
-  if (source === "efile") {
-    const summary = await importEfile({
-      baseUrl: EFILE_BASE_URL,
-      latestYear: new Date().getUTCFullYear(),
-      ...(batches === undefined ? {} : { batches }),
-      floors: EFILE_FLOORS,
-      workDir: repoPath("data/efile"),
-      out,
-      target,
+async function main(): Promise<void> {
+  const { values, positionals } = args();
+  const [command, ...rest] = positionals;
+  if (command === undefined || rest.length > 0) throw new UsageError();
+  const sourceFlags =
+    values.slot !== undefined ||
+    values["force-active"] ||
+    values.batch !== undefined;
+  const ops: D1Ops = values.remote ? remoteD1() : localD1();
+  const where = values.remote ? "remote" : "local";
+
+  if (command === "refresh") {
+    const batches = values["efile-batch"];
+    if (sourceFlags || (batches !== undefined && values.remote)) {
+      throw new UsageError();
+    }
+    console.log(`refresh: ${where} D1`);
+    const report = await refresh(ops, {
+      sources: irsSources({
+        workDir: EFILE_WORK_DIR,
+        ...(batches === undefined ? {} : { batches }),
+      }),
+      loadDir: LOAD_DIR,
+      log: (line) => console.log(line),
     });
-    return [
-      ...(summary.unpublished === null
-        ? []
-        : [`index_${summary.unpublished}.csv is not published yet`]),
-      `release years read: ${summary.indexes.map((i) => i.year).join(", ")}`,
-      ...summary.indexes.map(
-        (i) => `${i.url}  released ${i.releasedAt}  ${i.rows} rows`,
-      ),
-      ...Object.entries(summary.skipped).map(
-        ([type, rows]) => `not stored: ${rows} ${type} index rows`,
-      ),
-      ...summary.zips.map(
-        (z) => `${z.url}  released ${z.releasedAt}  ${z.filings} filings`,
-      ),
-      ...Object.entries(summary.rejects).map(
-        ([reason, ids]) =>
-          `rejected ${ids.length} (${reason}): ${ids.slice(0, 10).join(", ")}${ids.length > 10 ? ", …" : ""}`,
-      ),
-      `efile: ${summary.filings} filings`,
-      ...Object.entries(summary.yields).flatMap(([form, shares]) =>
-        shares === null
-          ? []
-          : [
-              `${form}: ${summary.returns[form as keyof typeof summary.returns]} selected, ${Object.entries(
-                shares,
-              )
-                .map(([name, share]) => `${percent(share)} with ${name}`)
-                .join(", ")}`,
-            ],
-      ),
-    ];
+    const counts = Object.entries(report.counts)
+      .map(([table, n]) => `${n} ${table}`)
+      .join(", ");
+    console.log(
+      `refresh: serving slot ${report.slot}, build ${report.buildId} (${counts}); irs rollback serves slot ${report.previous} again`,
+    );
+    return;
   }
-  if (source === "bmf") {
-    const summary = await importBmf({
-      urls: BMF_URLS,
-      minOrgs: BMF_MIN_ORGS,
-      out,
-      target,
-    });
-    return [
-      ...summary.files.map(
-        (f) => `${f.url}  released ${f.releasedAt}  ${f.orgs} orgs`,
-      ),
-      `bmf: ${summary.orgs} orgs`,
-    ];
+
+  if (command === "rollback") {
+    if (sourceFlags || values["efile-batch"] !== undefined) {
+      throw new UsageError();
+    }
+    const { from, to, buildId } = await rollback(ops);
+    console.log(
+      `rollback: ${where} D1 serving slot ${to} (build ${buildId}) instead of slot ${from}`,
+    );
+    return;
   }
-  const summary = await importList(source satisfies ListName, {
-    ...LISTS[source],
-    out,
-    target,
-  });
-  return [
-    `${summary.url}  released ${summary.releasedAt}  ${summary.rows} rows`,
-  ];
+
+  const slot = values.slot;
+  const sources =
+    command === "all" ? ALL : isSource(command) ? [command] : undefined;
+  if (
+    sources === undefined ||
+    values["efile-batch"] !== undefined ||
+    (values.batch !== undefined && command !== "efile") ||
+    (slot !== undefined && !isSlot(slot))
+  ) {
+    throw new UsageError();
+  }
+  if (values.remote) {
+    throw new UsageError(
+      "a single-source load is local only: remote data changes go through irs refresh",
+    );
+  }
+  await loadSources(ops, sources, slot, values["force-active"], values.batch);
 }
 
-function isSource(name: string): name is Source {
-  return (SOURCES as readonly string[]).includes(name);
+function isSlot(name: string): name is DataSlot {
+  return name === "a" || name === "b";
 }
 
 /** Each source commits on its own, so one failing in `all` still lets the rest load. */
-async function main(): Promise<void> {
-  const { values, positionals } = parseArgs({
-    options: {
-      remote: { type: "boolean", default: false },
-      batch: { type: "string", multiple: true },
-    },
-    allowPositionals: true,
-  });
-  const [name, ...rest] = positionals;
-  const sources =
-    name === "all" ? ALL : name !== undefined && isSource(name) ? [name] : [];
-  if (
-    sources.length === 0 ||
-    rest.length > 0 ||
-    (values.batch !== undefined && name !== "efile")
-  ) {
-    console.error(USAGE);
-    process.exitCode = 2;
-    return;
+async function loadSources(
+  ops: D1Ops,
+  sources: readonly Source[],
+  named: DataSlot | undefined,
+  forceActive: boolean,
+  batches: readonly string[] | undefined,
+): Promise<void> {
+  const { active } = await readPointer(ops);
+  const slot = named ?? otherSlot(active);
+  if (slot === active && !forceActive) {
+    throw new UsageError(
+      `slot ${slot} is the one served; pass --force-active to load into it`,
+    );
   }
-  const target: D1Target = { remote: values.remote };
-  const where = values.remote ? "remote" : "local";
+  const binding = DATA_DB_BINDING[slot];
+  const config = irsSources({
+    workDir: EFILE_WORK_DIR,
+    ...(batches === undefined ? {} : { batches }),
+  });
   const failed: Source[] = [];
   for (const source of sources) {
-    console.error(
-      `importing ${source} into ${where} D1 via ${loadFile(source)}`,
-    );
+    const out = join(LOAD_DIR, `${source}.load.sql`);
+    console.error(`importing ${source} into local ${binding} via ${out}`);
     try {
-      for (const line of await importSource(source, target, values.batch)) {
+      for (const line of await loadSource(
+        source,
+        config,
+        { ops, binding },
+        out,
+      )) {
         console.log(line);
       }
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       failed.push(source);
     }
+  }
+  if (failed.length < sources.length) {
+    await rebuildSearchIndex(ops, binding, LOAD_DIR);
+    console.log(`rebuilt ${binding}'s search index`);
   }
   if (failed.length > 0) {
     console.error(`not imported: ${failed.join(", ")}`);
@@ -143,6 +172,12 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  if (error instanceof UsageError) {
+    if (error.message) console.error(error.message);
+    console.error(USAGE);
+    process.exitCode = 2;
+    return;
+  }
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });
