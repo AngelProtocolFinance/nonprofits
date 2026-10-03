@@ -1,0 +1,167 @@
+/** IRS bulk files an import can fetch; `import_runs.source` holds one. */
+export const IMPORT_SOURCES = [
+  "bmf",
+  "pub78",
+  "revocation",
+  "epostcard",
+  "efile_index",
+  "efile_xml",
+] as const;
+export type ImportSource = (typeof IMPORT_SOURCES)[number];
+
+/** Tables an import rebuilds under a suffix and swaps in. Auth and usage tables never belong here. */
+export const SWAPPED_TABLES = [
+  "import_runs",
+  "orgs",
+  "filings",
+  "programs",
+] as const;
+export type SwappedTable = (typeof SWAPPED_TABLES)[number];
+
+export const COLUMNS = {
+  import_runs: [
+    "id",
+    "source",
+    "file_url",
+    "released_at",
+    "fetched_at",
+    "row_count",
+  ],
+  orgs: [
+    "ein",
+    "name",
+    "name_run_id",
+    "street",
+    "city",
+    "state",
+    "zip",
+    "address_run_id",
+    "bmf_run_id",
+    "subsection",
+    "ntee",
+    "ruling_date",
+    "deductibility_code",
+    "filing_requirement_code",
+    "in_pub78",
+    "revocation_date",
+    "reinstatement_date",
+    "files_990n",
+    "epostcard_website",
+  ],
+  filings: [
+    "ein",
+    "object_id",
+    "return_id",
+    "form_type",
+    "tax_period",
+    "tax_year",
+    "mission",
+    "activity_summary",
+    "website",
+    "total_revenue",
+    "total_expenses",
+    "total_assets_eoy",
+    "run_id",
+  ],
+  programs: [
+    "ein",
+    "object_id",
+    "rank",
+    "description",
+    "expense",
+    "grants",
+    "revenue",
+  ],
+} as const satisfies Record<SwappedTable, readonly string[]>;
+
+/**
+ * CREATE statements for the swapped tables, each name (and every foreign key
+ * between them) carrying `suffix`. `dataTablesDdl("")` is what the migrations
+ * build; a test fails when the two drift.
+ */
+export function dataTablesDdl(suffix: string): string {
+  const t = (table: SwappedTable) => `${table}${suffix}`;
+  const sources = IMPORT_SOURCES.map((s) => `'${s}'`).join(", ");
+  return `-- One row per IRS bulk file fetched, written when its import commits.
+-- The latest run per source is that file's current state.
+CREATE TABLE ${t("import_runs")} (
+  id INTEGER PRIMARY KEY,
+  source TEXT NOT NULL CHECK (source IN (${sources})),
+  file_url TEXT NOT NULL,
+  -- the file's Last-Modified, ISO-8601
+  released_at TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  row_count INTEGER NOT NULL CHECK (row_count >= 0)
+) STRICT;
+
+CREATE INDEX import_runs_source${suffix} ON ${t("import_runs")} (source, id);
+
+CREATE TABLE ${t("orgs")} (
+  ein TEXT PRIMARY KEY CHECK (length(ein) = 9 AND ein NOT GLOB '*[^0-9]*'),
+  name TEXT,
+  name_run_id INTEGER REFERENCES ${t("import_runs")} (id),
+  street TEXT,
+  city TEXT,
+  state TEXT,
+  zip TEXT,
+  address_run_id INTEGER REFERENCES ${t("import_runs")} (id),
+  -- BMF facts; all null when the org is not in the current BMF
+  bmf_run_id INTEGER REFERENCES ${t("import_runs")} (id),
+  subsection TEXT,
+  ntee TEXT,
+  -- BMF RULING, as YYYY-MM
+  ruling_date TEXT,
+  deductibility_code TEXT,
+  filing_requirement_code TEXT,
+  -- list membership as of the latest pub78 / revocation / epostcard run
+  in_pub78 INTEGER NOT NULL DEFAULT 0 CHECK (in_pub78 IN (0, 1)),
+  revocation_date TEXT,
+  reinstatement_date TEXT,
+  files_990n INTEGER NOT NULL DEFAULT 0 CHECK (files_990n IN (0, 1)),
+  epostcard_website TEXT,
+  CHECK ((name IS NULL) = (name_run_id IS NULL)),
+  CHECK (
+    address_run_id IS NOT NULL
+    OR (street IS NULL AND city IS NULL AND state IS NULL AND zip IS NULL)
+  ),
+  CHECK ((subsection IS NULL) = (bmf_run_id IS NULL)),
+  CHECK (reinstatement_date IS NULL OR revocation_date IS NOT NULL),
+  CHECK (epostcard_website IS NULL OR files_990n = 1)
+) STRICT;
+
+-- The latest e-filed return per EIN.
+CREATE TABLE ${t("filings")} (
+  ein TEXT PRIMARY KEY REFERENCES ${t("orgs")} (ein) ON DELETE CASCADE,
+  object_id TEXT NOT NULL,
+  return_id TEXT,
+  form_type TEXT NOT NULL CHECK (form_type IN ('990', '990-EZ', '990-PF')),
+  -- YYYY-MM
+  tax_period TEXT NOT NULL,
+  tax_year INTEGER NOT NULL,
+  mission TEXT,
+  activity_summary TEXT,
+  website TEXT,
+  total_revenue INTEGER,
+  total_expenses INTEGER,
+  total_assets_eoy INTEGER,
+  -- the efile_xml run whose zip held this return
+  run_id INTEGER NOT NULL REFERENCES ${t("import_runs")} (id),
+  UNIQUE (ein, object_id)
+) STRICT;
+
+-- Replacing a filing's object_id fails while its old programs remain.
+CREATE TABLE ${t("programs")} (
+  ein TEXT NOT NULL,
+  object_id TEXT NOT NULL,
+  -- 1 = largest program expense
+  rank INTEGER NOT NULL CHECK (rank BETWEEN 1 AND 3),
+  description TEXT,
+  expense INTEGER,
+  grants INTEGER,
+  revenue INTEGER,
+  PRIMARY KEY (ein, object_id, rank),
+  FOREIGN KEY (ein, object_id)
+    REFERENCES ${t("filings")} (ein, object_id) ON DELETE CASCADE
+) STRICT;
+`;
+}

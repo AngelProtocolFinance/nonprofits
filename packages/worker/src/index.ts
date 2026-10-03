@@ -1,12 +1,11 @@
-import { lookupOrg, type OrgLookupError } from "@irs-lookup/core";
-import { D1OrgReader } from "./d1-org-reader.ts";
+import { type HandlerError, lookup } from "./handlers.ts";
 
 const ORG_PATH = /^\/v1\/orgs\/([^/]+)$/;
 
-const STATUS: Record<OrgLookupError["code"], 400 | 404> = {
+const STATUS = {
   invalid_ein: 400,
   not_found: 404,
-};
+} as const satisfies Record<HandlerError["code"], number>;
 
 const TITLE = {
   400: "Bad Request",
@@ -35,28 +34,23 @@ export default {
     const { pathname } = new URL(request.url);
     const match = ORG_PATH.exec(pathname);
     if (match?.[1] === undefined) {
-      return problem(404, "not_found", `No route for ${pathname}.`);
+      return problem(404, "route_not_found", `No route for ${pathname}.`);
     }
     if (request.method !== "GET") {
       return problem(405, "method_not_allowed", "Use GET.", { allow: "GET" });
     }
 
-    const reader = new D1OrgReader(env.DB);
-    const result = await lookupOrg(match[1], reader);
-    const response = result.ok
-      ? Response.json(result.org)
+    const result = await lookup(match[1], {
+      env,
+      credential: null,
+      now: new Date(),
+    });
+    return result.ok
+      ? Response.json(result.value)
       : problem(
           STATUS[result.error.code],
           result.error.code,
           result.error.message,
         );
-    console.log(
-      JSON.stringify({
-        event: "org_lookup",
-        status: response.status,
-        rowsRead: reader.rowsRead,
-      }),
-    );
-    return response;
   },
 } satisfies ExportedHandler<Env>;

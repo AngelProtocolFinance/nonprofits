@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { lookupOrg } from "./lookup.ts";
-import type { OrgReader, OrgRecord } from "./org.ts";
+import type { FilingRecord, OrgReader, OrgRecord, OrgResponse } from "./org.ts";
 
 function readerOf(...records: OrgRecord[]): OrgReader & { reads: string[] } {
   const reads: string[] = [];
@@ -13,8 +13,14 @@ function readerOf(...records: OrgRecord[]): OrgReader & { reads: string[] } {
   };
 }
 
+async function lookup(record: OrgRecord): Promise<OrgResponse> {
+  const result = await lookupOrg(record.ein, readerOf(record));
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
 const BMF = {
-  file: "https://www.irs.gov/pub/irs-soi/eo1.csv",
+  file: "https://www.irs.gov/pub/irs-soi/eo_dc.csv",
   releasedAt: "2026-09-08T12:00:00.000Z",
   fetchedAt: "2026-09-10T03:00:00.000Z",
 };
@@ -33,65 +39,71 @@ const EPOSTCARD = {
   releasedAt: "2026-09-03T12:00:00.000Z",
   fetchedAt: "2026-09-10T03:07:00.000Z",
 };
-const INDEX_2026 = {
-  file: "https://apps.irs.gov/pub/epostcard/990/xml/2026/index_2026.csv",
+const XML_ZIP = {
+  file: "https://apps.irs.gov/pub/epostcard/990/xml/2026/2026_TEOS_XML_05A.zip",
   releasedAt: "2026-09-04T12:00:00.000Z",
   fetchedAt: "2026-09-10T03:10:00.000Z",
 };
 
+function redCrossFiling(): FilingRecord {
+  return {
+    objectId: "202511319349301234",
+    formType: "990",
+    taxYear: 2024,
+    mission:
+      "Prevent and alleviate human suffering in the face of emergencies.",
+    activitySummary: "Disaster relief, blood services and training.",
+    website: "https://www.redcross.org",
+    totalRevenue: 3_200_000_000,
+    totalExpenses: 3_100_000_000,
+    totalAssetsEoy: 4_000_000_000,
+    programs: [
+      {
+        description: "Biomedical services",
+        expense: 1_900_000_000,
+        grants: 0,
+        revenue: 1_800_000_000,
+      },
+      {
+        description: "Disaster services",
+        expense: 700_000_000,
+        grants: 90_000_000,
+        revenue: null,
+      },
+      {
+        description: "Training services",
+        expense: 150_000_000,
+        grants: null,
+        revenue: 140_000_000,
+      },
+    ],
+    source: XML_ZIP,
+  };
+}
+
 function redCross(): OrgRecord {
   return {
     ein: "530196605",
-    name: "AMERICAN NATIONAL RED CROSS",
+    name: { value: "AMERICAN NATIONAL RED CROSS", source: BMF },
     address: {
-      street: "431 18TH ST NW",
-      city: "WASHINGTON",
-      state: "DC",
-      zip: "20006-5310",
+      value: {
+        street: "431 18TH ST NW",
+        city: "WASHINGTON",
+        state: "DC",
+        zip: "20006-5310",
+      },
+      source: BMF,
     },
-    subsection: "03",
-    bmf: BMF,
-    pub78: { deductible: true, source: PUB78 },
-    revocation: { revoked: false, date: null, source: REVOCATION },
-    epostcard: null,
-    filing: {
-      objectId: "202511319349301234",
-      formType: "990",
-      taxYear: 2024,
-      mission:
-        "Prevent and alleviate human suffering in the face of emergencies.",
-      activitySummary: "Disaster relief, blood services and training.",
-      website: "https://www.redcross.org",
-      totalRevenue: 3_200_000_000,
-      totalExpenses: 3_100_000_000,
-      totalAssetsEoy: 4_000_000_000,
-      programs: [
-        {
-          description: "Biomedical services",
-          expense: 1_900_000_000,
-          grants: 0,
-          revenue: 1_800_000_000,
-        },
-        {
-          description: "Disaster services",
-          expense: 700_000_000,
-          grants: 90_000_000,
-          revenue: null,
-        },
-        {
-          description: "Training services",
-          expense: 150_000_000,
-          grants: null,
-          revenue: 140_000_000,
-        },
-      ],
-      source: INDEX_2026,
-    },
+    bmf: { subsection: "03", source: BMF },
+    pub78: { listed: true, source: PUB78 },
+    revocation: { revokedOn: null, reinstatedOn: null, source: REVOCATION },
+    epostcard: { filer: false, website: null, source: EPOSTCARD },
+    efile: { filing: redCrossFiling() },
   };
 }
 
 const RED_CROSS_990 = {
-  ...INDEX_2026,
+  ...XML_ZIP,
   objectId: "202511319349301234",
   taxYear: 2024,
   formType: "990",
@@ -129,7 +141,7 @@ describe("lookupOrg", () => {
     const result = await lookupOrg("530196605", readerOf(redCross()));
     expect(result).toStrictEqual({
       ok: true,
-      org: {
+      value: {
         ein: "530196605",
         name: "AMERICAN NATIONAL RED CROSS",
         address: {
@@ -142,6 +154,7 @@ describe("lookupOrg", () => {
         deductible: true,
         revoked: false,
         revocationDate: null,
+        reinstatementDate: null,
         mission:
           "Prevent and alleviate human suffering in the face of emergencies.",
         activitySummary: "Disaster relief, blood services and training.",
@@ -179,6 +192,8 @@ describe("lookupOrg", () => {
           is501c3: BMF,
           deductible: PUB78,
           revoked: REVOCATION,
+          revocationDate: null,
+          reinstatementDate: null,
           mission: RED_CROSS_990,
           activitySummary: RED_CROSS_990,
           programs: RED_CROSS_990,
@@ -190,16 +205,15 @@ describe("lookupOrg", () => {
   });
 
   test("answers a 990-N filer with org facts, the e-Postcard website and a note", async () => {
-    const record: OrgRecord = {
+    const org = await lookup({
       ...redCross(),
-      ein: "861234567",
-      name: "LAKESIDE GARDEN CLUB",
-      epostcard: { website: "lakesidegardenclub.org", source: EPOSTCARD },
-      filing: null,
-    };
-    const result = await lookupOrg("861234567", readerOf(record));
-    if (!result.ok) throw new Error(result.error.message);
-    const { org } = result;
+      epostcard: {
+        filer: true,
+        website: "lakesidegardenclub.org",
+        source: EPOSTCARD,
+      },
+      efile: { filing: null },
+    });
     expect({
       mission: org.mission,
       activitySummary: org.activitySummary,
@@ -226,27 +240,24 @@ describe("lookupOrg", () => {
   });
 
   test("answers a 990-PF filer with finances, no mission and a note", async () => {
-    const record: OrgRecord = {
+    const org = await lookup({
       ...redCross(),
-      ein: "136009999",
-      name: "HYPOTHETICAL FAMILY FOUNDATION",
-      filing: {
-        objectId: "202501239349100500",
-        formType: "990-PF",
-        taxYear: 2024,
-        mission: null,
-        activitySummary: null,
-        website: "https://hff.example.org",
-        totalRevenue: 12_500_000,
-        totalExpenses: 9_800_000,
-        totalAssetsEoy: 210_000_000,
-        programs: [],
-        source: INDEX_2026,
+      efile: {
+        filing: {
+          objectId: "202501239349100500",
+          formType: "990-PF",
+          taxYear: 2024,
+          mission: null,
+          activitySummary: null,
+          website: "https://hff.example.org",
+          totalRevenue: 12_500_000,
+          totalExpenses: 9_800_000,
+          totalAssetsEoy: 210_000_000,
+          programs: [],
+          source: XML_ZIP,
+        },
       },
-    };
-    const result = await lookupOrg("136009999", readerOf(record));
-    if (!result.ok) throw new Error(result.error.message);
-    const { org } = result;
+    });
     expect({
       mission: org.mission,
       finances: org.finances,
@@ -264,7 +275,7 @@ describe("lookupOrg", () => {
       notes: ["990-PF: filing facts only"],
       missionSource: null,
       financesSource: {
-        ...INDEX_2026,
+        ...XML_ZIP,
         objectId: "202501239349100500",
         taxYear: 2024,
         formType: "990-PF",
@@ -273,75 +284,73 @@ describe("lookupOrg", () => {
   });
 
   test("notes an org with no filing and no e-Postcard", async () => {
-    const record: OrgRecord = { ...redCross(), epostcard: null, filing: null };
-    const result = await lookupOrg("530196605", readerOf(record));
-    if (!result.ok) throw new Error(result.error.message);
-    expect(result.org.notes).toStrictEqual([
+    const org = await lookup({ ...redCross(), efile: { filing: null } });
+    expect(org.notes).toStrictEqual([
       "no e-filed 990 in the last 3 release years",
       "no website on record",
     ]);
   });
 
   test("notes a 990-N filer whose e-Postcard has no website", async () => {
-    const record: OrgRecord = {
+    const org = await lookup({
       ...redCross(),
-      epostcard: { website: null, source: EPOSTCARD },
-      filing: null,
-    };
-    const result = await lookupOrg("530196605", readerOf(record));
-    if (!result.ok) throw new Error(result.error.message);
-    expect(result.org.website).toBeNull();
-    expect(result.org.provenance.website).toBeNull();
-    expect(result.org.notes).toStrictEqual([
+      epostcard: { filer: true, website: null, source: EPOSTCARD },
+      efile: { filing: null },
+    });
+    expect(org.website).toBeNull();
+    expect(org.provenance.website).toBeNull();
+    expect(org.notes).toStrictEqual([
       "990-N filer: no mission on record",
       "no website on record",
     ]);
   });
 
   test("falls back to the e-Postcard website when the 990 has none", async () => {
-    const base = redCross();
-    if (!base.filing) throw new Error("fixture has a filing");
-    const record: OrgRecord = {
-      ...base,
-      epostcard: { website: "redcross.example", source: EPOSTCARD },
-      filing: { ...base.filing, website: null },
-    };
-    const result = await lookupOrg("530196605", readerOf(record));
-    if (!result.ok) throw new Error(result.error.message);
-    expect(result.org.website).toBe("redcross.example");
-    expect(result.org.provenance.website).toStrictEqual(EPOSTCARD);
+    const org = await lookup({
+      ...redCross(),
+      epostcard: {
+        filer: true,
+        website: "redcross.example",
+        source: EPOSTCARD,
+      },
+      efile: { filing: { ...redCrossFiling(), website: null } },
+    });
+    expect(org.website).toBe("redcross.example");
+    expect(org.provenance.website).toStrictEqual(EPOSTCARD);
   });
 
   test("answers a revoked org with its revocation date and source", async () => {
-    const record: OrgRecord = {
+    const org = await lookup({
       ...redCross(),
-      revocation: { revoked: true, date: "2023-05-15", source: REVOCATION },
-    };
-    const result = await lookupOrg("530196605", readerOf(record));
-    if (!result.ok) throw new Error(result.error.message);
+      revocation: {
+        revokedOn: "2023-05-15",
+        reinstatedOn: null,
+        source: REVOCATION,
+      },
+    });
     expect({
-      revoked: result.org.revoked,
-      revocationDate: result.org.revocationDate,
-      source: result.org.provenance.revoked,
+      revoked: org.revoked,
+      revocationDate: org.revocationDate,
+      revokedSource: org.provenance.revoked,
+      dateSource: org.provenance.revocationDate,
     }).toStrictEqual({
       revoked: true,
       revocationDate: "2023-05-15",
-      source: REVOCATION,
+      revokedSource: REVOCATION,
+      dateSource: REVOCATION,
     });
   });
 
   test("answers is501c3 false for a subsection other than 03", async () => {
-    const record: OrgRecord = { ...redCross(), subsection: "04" };
-    const result = await lookupOrg("530196605", readerOf(record));
-    if (!result.ok) throw new Error(result.error.message);
-    expect(result.org.is501c3).toBe(false);
+    const org = await lookup({
+      ...redCross(),
+      bmf: { subsection: "04", source: BMF },
+    });
+    expect(org.is501c3).toBe(false);
   });
 
   test("answers null with a note for files not yet imported", async () => {
-    const record: OrgRecord = { ...redCross(), pub78: null, revocation: null };
-    const result = await lookupOrg("530196605", readerOf(record));
-    if (!result.ok) throw new Error(result.error.message);
-    const { org } = result;
+    const org = await lookup({ ...redCross(), pub78: null, revocation: null });
     expect({
       deductible: org.deductible,
       revoked: org.revoked,
@@ -361,14 +370,121 @@ describe("lookupOrg", () => {
   });
 
   test("notes a 990 that states no mission", async () => {
-    const base = redCross();
-    if (!base.filing) throw new Error("fixture has a filing");
-    const record: OrgRecord = {
-      ...base,
-      filing: { ...base.filing, mission: null },
-    };
-    const result = await lookupOrg("530196605", readerOf(record));
-    if (!result.ok) throw new Error(result.error.message);
-    expect(result.org.notes).toStrictEqual(["latest 990 states no mission"]);
+    const org = await lookup({
+      ...redCross(),
+      efile: { filing: { ...redCrossFiling(), mission: null } },
+    });
+    expect(org.notes).toStrictEqual(["latest 990 states no mission"]);
+  });
+
+  test("prefers the 990 website over the e-Postcard's and cites the filing", async () => {
+    const org = await lookup({
+      ...redCross(),
+      epostcard: {
+        filer: true,
+        website: "redcross.example",
+        source: EPOSTCARD,
+      },
+    });
+    expect(org.website).toBe("https://www.redcross.org");
+    expect(org.provenance.website).toStrictEqual(RED_CROSS_990);
+  });
+
+  test("notes that filings are not yet imported instead of guessing none", async () => {
+    const org = await lookup({ ...redCross(), efile: null });
+    expect({
+      mission: org.mission,
+      finances: org.finances,
+      notes: org.notes,
+    }).toStrictEqual({
+      mission: null,
+      finances: null,
+      notes: ["990 filings not yet imported", "no website on record"],
+    });
+  });
+
+  test("answers a revoked org absent from the BMF from the revocation list", async () => {
+    const org = await lookup({
+      ein: "311234567",
+      name: { value: "DEFUNCT ARTS COUNCIL", source: REVOCATION },
+      address: {
+        value: {
+          street: "1 OLD RD",
+          city: "TOLEDO",
+          state: "OH",
+          zip: "43604",
+        },
+        source: REVOCATION,
+      },
+      bmf: null,
+      pub78: { listed: false, source: PUB78 },
+      revocation: {
+        revokedOn: "2019-05-15",
+        reinstatedOn: null,
+        source: REVOCATION,
+      },
+      epostcard: { filer: false, website: null, source: EPOSTCARD },
+      efile: { filing: null },
+    });
+    expect({
+      name: org.name,
+      is501c3: org.is501c3,
+      revoked: org.revoked,
+      nameSource: org.provenance.name,
+      addressSource: org.provenance.address,
+      is501c3Source: org.provenance.is501c3,
+      notes: org.notes,
+    }).toStrictEqual({
+      name: "DEFUNCT ARTS COUNCIL",
+      is501c3: null,
+      revoked: true,
+      nameSource: REVOCATION,
+      addressSource: REVOCATION,
+      is501c3Source: null,
+      notes: [
+        "not in the current BMF: 501(c)(3) status unknown",
+        "no e-filed 990 in the last 3 release years",
+        "no website on record",
+      ],
+    });
+  });
+
+  test("notes an org with no name or address on record", async () => {
+    const org = await lookup({ ...redCross(), name: null, address: null });
+    expect({
+      name: org.name,
+      address: org.address,
+      nameSource: org.provenance.name,
+      addressSource: org.provenance.address,
+      notes: org.notes,
+    }).toStrictEqual({
+      name: null,
+      address: { street: null, city: null, state: null, zip: null },
+      nameSource: null,
+      addressSource: null,
+      notes: ["no name on record", "no address on record"],
+    });
+  });
+
+  test("answers a reinstated org as not revoked, keeping both dates", async () => {
+    const org = await lookup({
+      ...redCross(),
+      revocation: {
+        revokedOn: "2020-05-15",
+        reinstatedOn: "2021-02-01",
+        source: REVOCATION,
+      },
+    });
+    expect({
+      revoked: org.revoked,
+      revocationDate: org.revocationDate,
+      reinstatementDate: org.reinstatementDate,
+      reinstatementSource: org.provenance.reinstatementDate,
+    }).toStrictEqual({
+      revoked: false,
+      revocationDate: "2020-05-15",
+      reinstatementDate: "2021-02-01",
+      reinstatementSource: REVOCATION,
+    });
   });
 });

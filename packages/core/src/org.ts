@@ -1,3 +1,5 @@
+import type { Result } from "./result.ts";
+
 /** An IRS bulk file a fact was read from. */
 export interface SourceFile {
   /** URL the file was downloaded from. */
@@ -41,11 +43,13 @@ export interface Finances {
 
 /** Where each fact in an `OrgResponse` came from; null where the fact is null. */
 export interface Provenance {
-  name: SourceFile;
-  address: SourceFile;
-  is501c3: SourceFile;
+  name: SourceFile | null;
+  address: SourceFile | null;
+  is501c3: SourceFile | null;
   deductible: SourceFile | null;
   revoked: SourceFile | null;
+  revocationDate: SourceFile | null;
+  reinstatementDate: SourceFile | null;
   mission: FilingCitation | null;
   activitySummary: FilingCitation | null;
   programs: FilingCitation | null;
@@ -56,16 +60,18 @@ export interface Provenance {
 /** `GET /v1/orgs/:ein` and the MCP lookup tool both answer with this shape. */
 export interface OrgResponse {
   ein: string;
-  name: string;
+  name: string | null;
   address: Address;
-  /** BMF subsection `03`. */
-  is501c3: boolean;
+  /** BMF subsection `03`; null when the org is not in the current BMF. */
+  is501c3: boolean | null;
   /** Listed in Pub 78; null until that file is imported. */
   deductible: boolean | null;
-  /** On the auto-revocation list; null until that file is imported. */
+  /** Revoked and not reinstated since; null until the revocation list is imported. */
   revoked: boolean | null;
   /** `YYYY-MM-DD`. */
   revocationDate: string | null;
+  /** `YYYY-MM-DD`. */
+  reinstatementDate: string | null;
   mission: string | null;
   activitySummary: string | null;
   /** At most 3, highest expense first. */
@@ -81,9 +87,7 @@ export type OrgLookupError =
   | { code: "invalid_ein"; message: string }
   | { code: "not_found"; message: string };
 
-export type OrgLookupResult =
-  | { ok: true; org: OrgResponse }
-  | { ok: false; error: OrgLookupError };
+export type OrgLookupResult = Result<OrgResponse, OrgLookupError>;
 
 export interface FilingRecord {
   objectId: string;
@@ -97,27 +101,34 @@ export interface FilingRecord {
   totalAssetsEoy: number | null;
   /** Ordered by rank, at most 3. */
   programs: Program[];
+  /** The e-file XML zip the return was read from. */
   source: SourceFile;
 }
 
-/** Everything stored about one EIN, as an `OrgReader` returns it. */
+/**
+ * Everything stored about one EIN, as an `OrgReader` returns it. A null list
+ * (`pub78`, `revocation`, `epostcard`, `efile`) means that file has not been
+ * imported yet; its source is the latest import of it.
+ */
 export interface OrgRecord {
   ein: string;
-  name: string;
-  address: Address;
-  subsection: string;
-  bmf: SourceFile;
-  /** null until Pub 78 is imported. */
-  pub78: { deductible: boolean; source: SourceFile } | null;
-  /** null until the auto-revocation list is imported. */
+  name: { value: string; source: SourceFile } | null;
+  address: { value: Address; source: SourceFile } | null;
+  /** null when the org is not in the current BMF. */
+  bmf: { subsection: string; source: SourceFile } | null;
+  pub78: { listed: boolean; source: SourceFile } | null;
+  /** Dates are null when the org is not on the list. */
   revocation: {
-    revoked: boolean;
-    date: string | null;
+    revokedOn: string | null;
+    reinstatedOn: string | null;
     source: SourceFile;
   } | null;
-  /** Present only for 990-N (e-Postcard) filers. */
-  epostcard: { website: string | null; source: SourceFile } | null;
-  filing: FilingRecord | null;
+  epostcard: {
+    filer: boolean;
+    website: string | null;
+    source: SourceFile;
+  } | null;
+  efile: { filing: FilingRecord | null } | null;
 }
 
 /** The storage seam: the Worker satisfies it with D1. */

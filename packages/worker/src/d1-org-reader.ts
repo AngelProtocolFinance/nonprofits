@@ -3,34 +3,33 @@ import type {
   FormType,
   OrgReader,
   OrgRecord,
+  Program,
   SourceFile,
 } from "@irs-lookup/core";
+import type { ImportSource } from "@irs-lookup/db";
 
 interface OrgRow {
   ein: string;
-  name: string;
+  name: string | null;
   street: string | null;
   city: string | null;
   state: string | null;
   zip: string | null;
-  subsection: string;
-  deductible: 0 | 1 | null;
-  revoked: 0 | 1 | null;
+  subsection: string | null;
+  in_pub78: 0 | 1;
   revocation_date: string | null;
+  reinstatement_date: string | null;
   files_990n: 0 | 1;
   epostcard_website: string | null;
-  bmf_file: string;
-  bmf_released_at: string;
-  bmf_fetched_at: string;
-  pub78_file: string | null;
-  pub78_released_at: string | null;
-  pub78_fetched_at: string | null;
-  revocation_file: string | null;
-  revocation_released_at: string | null;
-  revocation_fetched_at: string | null;
-  epostcard_file: string | null;
-  epostcard_released_at: string | null;
-  epostcard_fetched_at: string | null;
+  name_file: string | null;
+  name_released_at: string | null;
+  name_fetched_at: string | null;
+  address_file: string | null;
+  address_released_at: string | null;
+  address_fetched_at: string | null;
+  bmf_file: string | null;
+  bmf_released_at: string | null;
+  bmf_fetched_at: string | null;
 }
 
 interface FilingRow {
@@ -48,25 +47,23 @@ interface FilingRow {
   fetched_at: string;
 }
 
-interface ProgramRow {
-  description: string | null;
-  expense: number | null;
-  grants: number | null;
-  revenue: number | null;
+interface RunRow {
+  source: ImportSource;
+  file: string;
+  released_at: string;
+  fetched_at: string;
 }
 
 const ORG_SQL = `
 SELECT o.ein, o.name, o.street, o.city, o.state, o.zip, o.subsection,
-  o.deductible, o.revoked, o.revocation_date, o.files_990n, o.epostcard_website,
-  b.file_url AS bmf_file, b.released_at AS bmf_released_at, b.fetched_at AS bmf_fetched_at,
-  p.file_url AS pub78_file, p.released_at AS pub78_released_at, p.fetched_at AS pub78_fetched_at,
-  r.file_url AS revocation_file, r.released_at AS revocation_released_at, r.fetched_at AS revocation_fetched_at,
-  e.file_url AS epostcard_file, e.released_at AS epostcard_released_at, e.fetched_at AS epostcard_fetched_at
+  o.in_pub78, o.revocation_date, o.reinstatement_date, o.files_990n, o.epostcard_website,
+  n.file_url AS name_file, n.released_at AS name_released_at, n.fetched_at AS name_fetched_at,
+  a.file_url AS address_file, a.released_at AS address_released_at, a.fetched_at AS address_fetched_at,
+  b.file_url AS bmf_file, b.released_at AS bmf_released_at, b.fetched_at AS bmf_fetched_at
 FROM orgs o
-JOIN import_runs b ON b.id = o.bmf_run_id
-LEFT JOIN import_runs p ON p.id = o.pub78_run_id
-LEFT JOIN import_runs r ON r.id = o.revocation_run_id
-LEFT JOIN import_runs e ON e.id = o.epostcard_run_id
+LEFT JOIN import_runs n ON n.id = o.name_run_id
+LEFT JOIN import_runs a ON a.id = o.address_run_id
+LEFT JOIN import_runs b ON b.id = o.bmf_run_id
 WHERE o.ein = ?1`;
 
 const FILING_SQL = `
@@ -78,30 +75,59 @@ JOIN import_runs i ON i.id = f.run_id
 WHERE f.ein = ?1`;
 
 const PROGRAMS_SQL = `
-SELECT description, expense, grants, revenue
-FROM programs
-WHERE ein = ?1
-ORDER BY rank`;
+SELECT p.description, p.expense, p.grants, p.revenue
+FROM programs p
+JOIN filings f ON f.ein = p.ein AND f.object_id = p.object_id
+WHERE p.ein = ?1
+ORDER BY p.rank`;
 
-/** Reads one EIN in a single D1 round trip; `rowsRead` totals D1's `meta.rows_read`. */
+/** Membership columns on `orgs` are as of these runs; each max(id) is an index seek. */
+const LATEST_RUNS_SQL = `
+SELECT source, file_url AS file, released_at, fetched_at
+FROM import_runs
+WHERE id IN (
+  SELECT max(id) FROM import_runs WHERE source = 'pub78'
+  UNION ALL SELECT max(id) FROM import_runs WHERE source = 'revocation'
+  UNION ALL SELECT max(id) FROM import_runs WHERE source = 'epostcard'
+  UNION ALL SELECT max(id) FROM import_runs WHERE source = 'efile_xml'
+)`;
+
+/** Reads one EIN in a single D1 round trip, reporting D1's `meta.rows_read`. */
 export class D1OrgReader implements OrgReader {
-  rowsRead = 0;
-
-  constructor(private readonly db: D1Database) {}
+  constructor(
+    private readonly db: D1Database,
+    private readonly onRowsRead: (rows: number) => void,
+  ) {}
 
   async read(ein: string): Promise<OrgRecord | null> {
-    const [orgs, filings, programs] = (await this.db.batch([
+    const results = (await this.db.batch([
       this.db.prepare(ORG_SQL).bind(ein),
       this.db.prepare(FILING_SQL).bind(ein),
       this.db.prepare(PROGRAMS_SQL).bind(ein),
-    ])) as [D1Result<OrgRow>, D1Result<FilingRow>, D1Result<ProgramRow>];
-    this.rowsRead +=
-      orgs.meta.rows_read + filings.meta.rows_read + programs.meta.rows_read;
+      this.db.prepare(LATEST_RUNS_SQL),
+    ])) as [
+      D1Result<OrgRow>,
+      D1Result<FilingRow>,
+      D1Result<Program>,
+      D1Result<RunRow>,
+    ];
+    this.onRowsRead(results.reduce((sum, r) => sum + r.meta.rows_read, 0));
 
+    const [orgs, filings, programs, runs] = results;
     const org = orgs.results[0];
     if (org === undefined) return null;
+    const latest = new Map(
+      runs.results.map((r) => [
+        r.source,
+        source(r.file, r.released_at, r.fetched_at),
+      ]),
+    );
     const filing = filings.results[0];
-    return toRecord(org, filing ? toFiling(filing, programs.results) : null);
+    return toRecord(
+      org,
+      filing ? toFiling(filing, programs.results) : null,
+      latest,
+    );
   }
 }
 
@@ -115,58 +141,68 @@ function source(
     : { file, releasedAt, fetchedAt };
 }
 
-function toRecord(row: OrgRow, filing: FilingRecord | null): OrgRecord {
-  const pub78 = source(
-    row.pub78_file,
-    row.pub78_released_at,
-    row.pub78_fetched_at,
+function toRecord(
+  row: OrgRow,
+  filing: FilingRecord | null,
+  latest: Map<ImportSource, SourceFile | null>,
+): OrgRecord {
+  const nameSource = source(
+    row.name_file,
+    row.name_released_at,
+    row.name_fetched_at,
   );
-  const revocation = source(
-    row.revocation_file,
-    row.revocation_released_at,
-    row.revocation_fetched_at,
+  const addressSource = source(
+    row.address_file,
+    row.address_released_at,
+    row.address_fetched_at,
   );
-  const epostcard = source(
-    row.epostcard_file,
-    row.epostcard_released_at,
-    row.epostcard_fetched_at,
+  const bmfSource = source(
+    row.bmf_file,
+    row.bmf_released_at,
+    row.bmf_fetched_at,
   );
+  const pub78 = latest.get("pub78");
+  const revocation = latest.get("revocation");
+  const epostcard = latest.get("epostcard");
   return {
     ein: row.ein,
-    name: row.name,
-    address: {
-      street: row.street,
-      city: row.city,
-      state: row.state,
-      zip: row.zip,
-    },
-    subsection: row.subsection,
-    bmf: {
-      file: row.bmf_file,
-      releasedAt: row.bmf_released_at,
-      fetchedAt: row.bmf_fetched_at,
-    },
-    pub78:
-      pub78 && row.deductible !== null
-        ? { deductible: row.deductible === 1, source: pub78 }
+    name:
+      row.name !== null && nameSource
+        ? { value: row.name, source: nameSource }
         : null,
-    revocation:
-      revocation && row.revoked !== null
-        ? {
-            revoked: row.revoked === 1,
-            date: row.revocation_date,
-            source: revocation,
-          }
-        : null,
-    epostcard: epostcard && {
-      website: row.epostcard_website,
-      source: epostcard,
+    address: addressSource && {
+      value: {
+        street: row.street,
+        city: row.city,
+        state: row.state,
+        zip: row.zip,
+      },
+      source: addressSource,
     },
-    filing,
+    bmf:
+      row.subsection !== null && bmfSource
+        ? { subsection: row.subsection, source: bmfSource }
+        : null,
+    pub78: pub78 ? { listed: row.in_pub78 === 1, source: pub78 } : null,
+    revocation: revocation
+      ? {
+          revokedOn: row.revocation_date,
+          reinstatedOn: row.reinstatement_date,
+          source: revocation,
+        }
+      : null,
+    epostcard: epostcard
+      ? {
+          filer: row.files_990n === 1,
+          website: row.epostcard_website,
+          source: epostcard,
+        }
+      : null,
+    efile: latest.get("efile_xml") ? { filing } : null,
   };
 }
 
-function toFiling(row: FilingRow, programs: ProgramRow[]): FilingRecord {
+function toFiling(row: FilingRow, programs: Program[]): FilingRecord {
   return {
     objectId: row.object_id,
     formType: row.form_type,

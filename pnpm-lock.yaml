@@ -201,6 +201,8 @@ importers:
 
   packages/core: {}
 
+  packages/db: {}
+
   packages/import: {}
 
   packages/worker:
@@ -208,6 +210,9 @@ importers:
       '@irs-lookup/core':
         specifier: workspace:*
         version: link:../core
+      '@irs-lookup/db':
+        specifier: workspace:*
+        version: link:../db
     devDependencies:
       wrangler:
         specifier: 'catalog:'

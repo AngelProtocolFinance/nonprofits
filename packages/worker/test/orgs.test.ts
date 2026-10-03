@@ -60,7 +60,7 @@ describe("GET /v1/orgs/:ein", () => {
       fetchedAt: "2026-09-10T03:00:00.000Z",
     };
     const filing = {
-      file: "https://apps.irs.gov/pub/epostcard/990/xml/2026/index_2026.csv",
+      file: "https://apps.irs.gov/pub/epostcard/990/xml/2026/2026_TEOS_XML_05A.zip",
       releasedAt: "2026-09-04T12:00:00.000Z",
       fetchedAt: "2026-09-10T03:10:00.000Z",
       objectId: "202511319349301234",
@@ -80,6 +80,7 @@ describe("GET /v1/orgs/:ein", () => {
       deductible: true,
       revoked: false,
       revocationDate: null,
+      reinstatementDate: null,
       mission:
         "The American Red Cross prevents and alleviates human suffering in the face of emergencies by mobilizing the power of volunteers and the generosity of donors.",
       activitySummary:
@@ -129,6 +130,8 @@ describe("GET /v1/orgs/:ein", () => {
           releasedAt: "2026-09-02T12:00:00.000Z",
           fetchedAt: "2026-09-10T03:06:00.000Z",
         },
+        revocationDate: null,
+        reinstatementDate: null,
         mission: filing,
         activitySummary: filing,
         programs: filing,
@@ -173,6 +176,31 @@ describe("GET /v1/orgs/:ein", () => {
       code: "not_found",
       detail: "No organization with EIN 999999999 found.",
     });
+  });
+
+  test("answers a route miss with a code distinct from an unknown EIN", async () => {
+    const response = await server.fetch("/v1/orgs/530196605/");
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ code: "route_not_found" });
+  });
+
+  test("answers a revoked org absent from the BMF as revoked, not 404", async () => {
+    const { response, body } = await getOrg("/v1/orgs/311234567");
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      name: "DEFUNCT ARTS COUNCIL",
+      is501c3: null,
+      revoked: true,
+      revocationDate: "2019-05-15",
+    });
+    expect(body.provenance.name).toStrictEqual({
+      file: "https://apps.irs.gov/pub/epostcard/data-download-revocation.zip",
+      releasedAt: "2026-09-02T12:00:00.000Z",
+      fetchedAt: "2026-09-10T03:06:00.000Z",
+    });
+    expect(body.notes).toContain(
+      "not in the current BMF: 501(c)(3) status unknown",
+    );
   });
 
   test("answers 405 for a method other than GET", async () => {
@@ -245,22 +273,28 @@ describe("GET /v1/orgs/:ein", () => {
     expect(body.provenance.mission).toMatchObject({ formType: "990-EZ" });
   });
 
-  test("reads a bounded number of rows however many orgs are stored", async () => {
+  test("reads a bounded number of rows however many orgs and runs are stored", async () => {
     const { DB } = (await server.getWorker().getEnv()) as unknown as TestEnv;
     const filler = Array.from({ length: 300 }, (_, i) => String(900000000 + i));
-    await DB.batch(
-      filler.flatMap((ein) => [
+    const laterBmfRuns = Array.from({ length: 200 }, (_, i) =>
+      DB.prepare(
+        "INSERT INTO import_runs (id, source, file_url, released_at, fetched_at, row_count) VALUES (?1, ?2, 'https://example.invalid/bmf', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 0)",
+      ).bind(100 + i, "bmf"),
+    );
+    await DB.batch([
+      ...laterBmfRuns,
+      ...filler.flatMap((ein) => [
         DB.prepare(
-          "INSERT INTO orgs (ein, name, subsection, bmf_run_id) VALUES (?1, 'FILLER', '03', 1)",
+          "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id) VALUES (?1, 'FILLER', 1, '03', 1)",
         ).bind(ein),
         DB.prepare(
           "INSERT INTO filings (ein, object_id, form_type, tax_period, tax_year, run_id) VALUES (?1, ?1, '990', '2024-12', 2024, 5)",
         ).bind(ein),
         DB.prepare(
-          "INSERT INTO programs (ein, rank, expense) VALUES (?1, 1, 1), (?1, 2, 1), (?1, 3, 1)",
+          "INSERT INTO programs (ein, object_id, rank, expense) VALUES (?1, ?1, 1, 1), (?1, ?1, 2, 1), (?1, ?1, 3, 1)",
         ).bind(ein),
       ]),
-    );
+    ]);
     server.clearLogs();
 
     await server.fetch("/v1/orgs/530196605");
@@ -273,6 +307,6 @@ describe("GET /v1/orgs/:ein", () => {
       .filter((entry) => entry.event === "org_lookup");
     expect(lookups).toHaveLength(1);
     expect(lookups[0].rowsRead).toBeGreaterThan(0);
-    expect(lookups[0].rowsRead).toBeLessThanOrEqual(12);
+    expect(lookups[0].rowsRead).toBeLessThanOrEqual(24);
   });
 });

@@ -10,7 +10,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "irs-lookup"
+      "database_name": "irs-lookup",
+      "migrations_dir": "../db/migrations"
     }
   ]
 }

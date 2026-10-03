@@ -16,6 +16,7 @@
     "wrangler": "catalog:"
   },
   "dependencies": {
-    "@irs-lookup/core": "workspace:*"
+    "@irs-lookup/core": "workspace:*",
+    "@irs-lookup/db": "workspace:*"
   }
 }
