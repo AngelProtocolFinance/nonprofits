@@ -46,6 +46,18 @@ const BURST_PERIOD_SECONDS = 60;
 const KEY_LIFTS_LIMIT =
   "An API key lifts this limit: ask the operator for one.";
 
+/** `KEYED_REQUEST_LIMITER`'s limit in wrangler.jsonc: requests carrying any key, per client. */
+const KEYED_REQUESTS_PER_MINUTE = 600;
+
+/** A client over `KEYED_REQUEST_LIMITER`, whatever keys it sent. */
+export function keyedRequestRefusal(): QuotaError {
+  return {
+    code: "per_minute_limit_exceeded",
+    message: `Requests with an API key from one client are limited to ${requests(KEYED_REQUESTS_PER_MINUTE)} per minute. Retry in ${BURST_PERIOD_SECONDS} seconds.`,
+    retryAfterSeconds: BURST_PERIOD_SECONDS,
+  };
+}
+
 /** A metered caller over its Rate Limiting binding's per-minute limit. */
 export function burstRefusal(tier: MeteredTier, perMinute: number): QuotaError {
   const retry = `Retry in ${BURST_PERIOD_SECONDS} seconds.`;
@@ -76,10 +88,13 @@ WHERE requests < ?4
   AND (excluded.minute > minute OR minute_requests < ?5)
 RETURNING requests`;
 
-/** `key_usage`'s row for all metered traffic: no key id or `ip:` subject is `*`. */
-const SERVICE_SUBJECT = "*";
+/** `key_usage`'s service-wide row per metered tier: no key id or `ip:` subject starts with `*`. */
+const SERVICE_SUBJECT: Record<MeteredTier, string> = {
+  default: "*:key",
+  anonymous: "*:keyless",
+};
 
-// Counts the caller (?1) and the service (?4) in one statement, both or
+// Counts the caller (?1) and its tier's service row (?4) in one statement, both or
 // neither: a request refused by either limit consumes neither count, which two
 // guarded writes can't promise (a D1 batch can't branch on the first one's
 // rows). The guards read both rows as they were before this insert.
@@ -120,7 +135,7 @@ function nextMidnight(day: string): number {
 }
 
 /**
- * Counts one metered request against the caller's daily quota and the
+ * Counts one metered request against the caller's daily quota and its tier's
  * service-wide daily limit, writing both `key_usage` rows when admitted and
  * none when refused. D1 errors throw.
  */
@@ -135,7 +150,7 @@ export async function countMeteredRequest(
   const minute = Math.floor(now.getTime() / MINUTE_MS);
   const counted = await db
     .prepare(COUNT_METERED_SQL)
-    .bind(subject, day, minute, SERVICE_SUBJECT, daily, serviceDaily)
+    .bind(subject, day, minute, SERVICE_SUBJECT[tier], daily, serviceDaily)
     .all();
   if (counted.results.length > 0) return { ok: true, value: undefined };
 
@@ -148,11 +163,15 @@ export async function countMeteredRequest(
   if ((results[0]?.requests ?? 0) >= daily) {
     return { ok: false, error: dailyRefusal(tier, daily, midnight, now) };
   }
+  const reset = `It resets at ${instant(midnight)} (UTC midnight).`;
   return {
     ok: false,
     error: {
       code: "service_daily_limit_reached",
-      message: `The service-wide daily limit for default-tier keys and requests without a key is reached. It resets at ${instant(midnight)} (UTC midnight). Keys with their own limits from the operator are not affected.`,
+      message:
+        tier === "anonymous"
+          ? `The service-wide daily limit for requests without an API key is reached. ${reset} ${KEY_LIFTS_LIMIT}`
+          : `The service-wide daily limit for default-tier keys is reached. ${reset} Keys with their own limits from the operator are not affected.`,
       retryAfterSeconds: secondsUntil(midnight, now),
     },
   };

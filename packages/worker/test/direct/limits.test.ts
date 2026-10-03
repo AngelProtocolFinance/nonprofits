@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup, search } from "../../src/handlers.ts";
-import { startOfMinuteWindow } from "../minute-window.ts";
+import { startOfMinuteWindow } from "../clock-windows.ts";
+import { noBurstLimit } from "./limiters.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
 const ADMIN_TOKEN = "test-only-admin-token-0123456789abcdef";
@@ -99,16 +100,13 @@ test("a whitelisted key's 11th request inside a minute is served: the burst bind
   }
 }, 30_000);
 
-// a day's worth of requests from one caller runs in one real minute: past the burst binding
-const noBurstLimit: RateLimit = { limit: async () => ({ success: true }) };
-
-/** The Worker's env with the service-wide daily limit set to `limit`. */
-function withServiceLimit(limit: number, overrides: Partial<Env> = {}): Env {
-  return { ...env, SERVICE_DAILY_LIMIT: limit, ...overrides };
+/** The Worker's env with default-tier keys' service-wide daily limit set to `limit`. */
+function withKeyCeiling(limit: number, overrides: Partial<Env> = {}): Env {
+  return { ...env, SERVICE_KEY_DAILY_LIMIT: limit, ...overrides };
 }
 
 test("past the service-wide daily limit, the next default-tier request across two keys is 429; a whitelisted key is still served", async () => {
-  const limited = withServiceLimit(5);
+  const limited = withKeyCeiling(5);
   const first = await issueKey();
   const second = await issueKey();
   const whitelisted = await whitelistedKey(500, 60);
@@ -122,7 +120,7 @@ test("past the service-wide daily limit, the next default-tier request across tw
   expect(await lookupWith(limited, second.key, now)).toStrictEqual({
     code: "service_daily_limit_reached",
     message:
-      "The service-wide daily limit for default-tier keys and requests without a key is reached. It resets at 2026-11-02T00:00:00Z (UTC midnight). Keys with their own limits from the operator are not affected.",
+      "The service-wide daily limit for default-tier keys is reached. It resets at 2026-11-02T00:00:00Z (UTC midnight). Keys with their own limits from the operator are not affected.",
     retryAfterSeconds: 43_200,
   });
   expect(await lookupWith(limited, whitelisted.key, now)).toMatchObject({
@@ -131,7 +129,7 @@ test("past the service-wide daily limit, the next default-tier request across tw
 });
 
 test("a request refused by its own daily quota does not count toward the service-wide limit", async () => {
-  const limited = withServiceLimit(52, { KEY_BURST_LIMITER: noBurstLimit });
+  const limited = withKeyCeiling(52, { KEY_BURST_LIMITER: noBurstLimit });
   const spent = await issueKey();
   const other = await issueKey();
   const now = "2026-11-02T12:00:00Z";
@@ -160,16 +158,16 @@ test("a request refused by the service-wide limit does not count toward its key'
   const { key } = await issueKey();
   const now = "2026-11-03T12:00:00Z";
   for (let i = 1; i <= 5; i++) {
-    await lookupWith(withServiceLimit(5, unlimitedBursts), key, now);
+    await lookupWith(withKeyCeiling(5, unlimitedBursts), key, now);
   }
   for (let i = 1; i <= 3; i++) {
     expect(
-      await lookupWith(withServiceLimit(5, unlimitedBursts), key, now),
+      await lookupWith(withKeyCeiling(5, unlimitedBursts), key, now),
     ).toMatchObject({ code: "service_daily_limit_reached" });
   }
 
   // the operator raises the service limit: the key still has 45 of its 50
-  const raised = withServiceLimit(1000, unlimitedBursts);
+  const raised = withKeyCeiling(1000, unlimitedBursts);
   for (let i = 1; i <= 45; i++) {
     expect(await lookupWith(raised, key, now), `request ${i}`).toMatchObject({
       code: "not_found",
@@ -180,12 +178,18 @@ test("a request refused by the service-wide limit does not count toward its key'
   });
 }, 30_000);
 
-/** A keyless lookup from `clientIp` at `now`. */
-async function keylessLookup(env: Env, clientIp: string | null, now: string) {
+/** A keyless lookup from `clientIp` at `now`, sent by the Worker named in `cfWorker` if any. */
+async function keylessLookup(
+  env: Env,
+  clientIp: string | null,
+  now: string,
+  cfWorker: string | null = null,
+) {
   const result = await lookup("530196605", {
     env,
     credential: null,
     clientIp,
+    cfWorker,
     now: new Date(now),
   });
   return result.ok ? "ok" : result.error;
@@ -256,23 +260,40 @@ test("without a key, search and lookup count against the same per-IP daily quota
   expect(await keylessSearch()).toBe("daily_quota_exceeded");
 });
 
-test("keyless and default-key requests share the service-wide daily limit", async () => {
-  const limited = withServiceLimit(3, {
-    KEY_BURST_LIMITER: noBurstLimit,
+test("keyless traffic at its service-wide daily limit is 429, saying a key lifts it, while a default key is still served", async () => {
+  const limited = {
+    ...env,
+    SERVICE_KEYLESS_DAILY_LIMIT: 2,
     KEYLESS_BURST_LIMITER: noBurstLimit,
-  });
+  };
   const { key } = await issueKey();
   const now = "2026-11-06T12:00:00Z";
   await keylessLookup(limited, "203.0.113.50", now);
-  await lookupWith(limited, key, now);
   await keylessLookup(limited, "203.0.113.51", now);
 
-  expect(await keylessLookup(limited, "203.0.113.52", now)).toMatchObject({
+  expect(await keylessLookup(limited, "203.0.113.52", now)).toStrictEqual({
     code: "service_daily_limit_reached",
+    message:
+      "The service-wide daily limit for requests without an API key is reached. It resets at 2026-11-07T00:00:00Z (UTC midnight). An API key lifts this limit: ask the operator for one.",
     retryAfterSeconds: 43_200,
   });
   expect(await lookupWith(limited, key, now)).toMatchObject({
+    code: "not_found",
+  });
+});
+
+test("default keys at their service-wide daily limit are 429 while keyless traffic is still served", async () => {
+  const limited = withKeyCeiling(2, { KEY_BURST_LIMITER: noBurstLimit });
+  const { key } = await issueKey();
+  const now = "2026-11-09T12:00:00Z";
+  await lookupWith(limited, key, now);
+  await lookupWith(limited, key, now);
+
+  expect(await lookupWith(limited, key, now)).toMatchObject({
     code: "service_daily_limit_reached",
+  });
+  expect(await keylessLookup(limited, "203.0.113.53", now)).toMatchObject({
+    code: "not_found",
   });
 });
 
@@ -306,3 +327,120 @@ test("keyless requests with no client IP are counted together, not let through",
     code: "daily_quota_exceeded",
   });
 });
+
+// a var set as text (dashboard, `--var`) arrives as a string, whatever `Env` says
+const asVar = (text: string) => text as unknown as number;
+
+test("a service-wide limit that arrives as a string still limits", async () => {
+  const limited = withKeyCeiling(asVar("2"), {
+    KEY_BURST_LIMITER: noBurstLimit,
+  });
+  const { key } = await issueKey();
+  const now = "2026-11-10T12:00:00Z";
+  await lookupWith(limited, key, now);
+  await lookupWith(limited, key, now);
+
+  expect(await lookupWith(limited, key, now)).toMatchObject({
+    code: "service_daily_limit_reached",
+  });
+});
+
+test.each([
+  ["not a number", "many"],
+  ["zero", "0"],
+  ["negative", "-5"],
+  ["fractional", "2.5"],
+  ["empty", ""],
+])(
+  "a service-wide limit that is %s refuses metered requests unavailable (503), never unlimited",
+  async (_, value) => {
+    const { key } = await issueKey();
+    const misconfigured = withKeyCeiling(asVar(value));
+
+    expect(
+      await lookupWith(misconfigured, key, "2026-11-11T12:00:00Z"),
+    ).toMatchObject({ code: "auth_unavailable" });
+    expect(
+      await keylessLookup(
+        { ...env, SERVICE_KEYLESS_DAILY_LIMIT: asVar(value) },
+        "203.0.113.60",
+        "2026-11-11T12:00:00Z",
+      ),
+    ).toMatchObject({ code: "auth_unavailable" });
+  },
+);
+
+test("keyless IPv6 callers are counted per /64: addresses in one /64 share a day's quota, another /64 has its own", async () => {
+  const unlimitedBursts = { ...env, KEYLESS_BURST_LIMITER: noBurstLimit };
+  const now = "2026-11-12T12:00:00Z";
+  const sameNetwork = [
+    "2001:db8:1:2::a",
+    "2001:0db8:0001:0002:0000:0000:0000:000b",
+    "2001:db8:1:2:ffff:1:2:3",
+  ];
+  for (let i = 0; i < 5; i++) {
+    expect(
+      await keylessLookup(unlimitedBursts, sameNetwork[i % 3] ?? null, now),
+      `request ${i + 1}`,
+    ).toMatchObject({ code: "not_found" });
+  }
+
+  expect(
+    await keylessLookup(unlimitedBursts, "2001:db8:1:2::c", now),
+  ).toMatchObject({ code: "daily_quota_exceeded" });
+  expect(
+    await keylessLookup(unlimitedBursts, "2001:db8:1:3::a", now),
+  ).toMatchObject({ code: "not_found" });
+});
+
+test("keyless requests from one IP sent by different calling Workers' zones are counted apart", async () => {
+  const unlimitedBursts = { ...env, KEYLESS_BURST_LIMITER: noBurstLimit };
+  const now = "2026-11-13T12:00:00Z";
+  const ip = "203.0.113.70";
+  for (let i = 1; i <= 5; i++) {
+    await keylessLookup(unlimitedBursts, ip, now, "zone-a.example");
+  }
+
+  expect(
+    await keylessLookup(unlimitedBursts, ip, now, "zone-a.example"),
+  ).toMatchObject({ code: "daily_quota_exceeded" });
+  expect(
+    await keylessLookup(unlimitedBursts, ip, now, "zone-b.example"),
+  ).toMatchObject({ code: "not_found" });
+  expect(await keylessLookup(unlimitedBursts, ip, now)).toMatchObject({
+    code: "not_found",
+  });
+});
+
+test("past 600 requests a minute carrying a key from one client, the next is 429 before any key is looked up", async () => {
+  const unknownKey = `npk_${"Q".repeat(64)}`;
+  const from = (env: Env) =>
+    lookup("530196605", {
+      env,
+      credential: unknownKey,
+      clientIp: "203.0.113.90",
+      now: new Date(),
+    });
+  await startOfMinuteWindow();
+  for (let i = 1; i <= 600; i++) {
+    const result = await from(env);
+    if (result.ok || result.error.code !== "invalid_api_key") {
+      throw new Error(`request ${i}: ${JSON.stringify(result)}`);
+    }
+  }
+  const noQueries = {
+    prepare: () => {
+      throw new Error("D1_ERROR: the key was looked up");
+    },
+  } as unknown as D1Database;
+
+  expect(await from({ ...env, DB: noQueries })).toStrictEqual({
+    ok: false,
+    error: {
+      code: "per_minute_limit_exceeded",
+      message:
+        "Requests with an API key from one client are limited to 600 requests per minute. Retry in 60 seconds.",
+      retryAfterSeconds: 60,
+    },
+  });
+}, 50_000);

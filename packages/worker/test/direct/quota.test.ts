@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup, search } from "../../src/handlers.ts";
+import { noBurstLimit } from "./limiters.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
 const ADMIN_TOKEN = "test-only-admin-token-0123456789abcdef";
@@ -87,13 +88,15 @@ function measuredD1() {
   return { db, tally };
 }
 
-// a day's worth of requests runs in one real minute: past the burst binding, which limits.test.ts covers
-const noBurstLimit: RateLimit = { limit: async () => ({ success: true }) };
-
 /** The outcome code of a lookup at `now`; this D1 holds no orgs, so an admitted one is `not_found`. */
 async function lookupAt(key: string, now: string, db = env.DB) {
   const result = await lookup("530196605", {
-    env: { ...env, DB: db, KEY_BURST_LIMITER: noBurstLimit },
+    env: {
+      ...env,
+      DB: db,
+      KEY_BURST_LIMITER: noBurstLimit,
+      KEYED_REQUEST_LIMITER: noBurstLimit,
+    },
     credential: key,
     clientIp: null,
     now: new Date(now),
@@ -147,7 +150,11 @@ test("lookup and search count against the same daily quota", async () => {
     const result = await search(
       { query: "red cross" },
       {
-        env: { ...env, KEY_BURST_LIMITER: noBurstLimit },
+        env: {
+          ...env,
+          KEY_BURST_LIMITER: noBurstLimit,
+          KEYED_REQUEST_LIMITER: noBurstLimit,
+        },
         credential: key,
         clientIp: null,
         now,

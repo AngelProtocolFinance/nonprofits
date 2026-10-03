@@ -7,9 +7,10 @@
     "enabled": true,
     "traces": { "enabled": true }
   },
+  // service-wide requests a UTC day per tier, so neither can lock out the other; whitelisted keys are exempt
   "vars": {
-    // requests a UTC day across default keys and keyless callers; whitelisted keys are exempt
-    "SERVICE_DAILY_LIMIT": 250000
+    "SERVICE_KEY_DAILY_LIMIT": 50000,
+    "SERVICE_KEYLESS_DAILY_LIMIT": 200000
   },
   "secrets": {
     "required": ["BETTER_AUTH_SECRET", "ADMIN_TOKEN", "IP_HASH_SECRET"]
@@ -27,6 +28,13 @@
       "name": "KEYLESS_BURST_LIMITER",
       "namespace_id": "1002",
       "simple": { "limit": 1, "period": 60 }
+    },
+    {
+      // every request carrying a key, per client, before the key is read: above any
+      // whitelisted key's honest per-minute traffic, below a bad-key flood
+      "name": "KEYED_REQUEST_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 600, "period": 60 }
     }
   ],
   "d1_databases": [

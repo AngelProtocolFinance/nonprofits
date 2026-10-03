@@ -64,6 +64,7 @@ export default {
       env,
       credential: bearerCredential(request.headers.get("authorization")),
       clientIp: request.headers.get("cf-connecting-ip"),
+      cfWorker: request.headers.get("cf-worker"),
       now: new Date(),
     };
     if (ein !== undefined) return respond(await lookup(ein, ctx));

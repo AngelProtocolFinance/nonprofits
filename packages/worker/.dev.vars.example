@@ -3,5 +3,5 @@
 BETTER_AUTH_SECRET=replace-with-32-plus-random-characters
 # Admin endpoints stay off until this is at least 32 characters; the key CLI reads it from .dev.vars locally.
 ADMIN_TOKEN=replace-with-32-plus-random-characters
-# Keys the hash that stands in for a keyless caller's IP; keyless requests are refused until it is set.
+# Keys the hash that stands in for a client's IP; /v1 requests, with a key or without, are refused until it is set.
 IP_HASH_SECRET=replace-with-32-plus-random-characters

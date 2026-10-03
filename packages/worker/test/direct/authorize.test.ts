@@ -12,6 +12,7 @@ const server = createTestHarness({
       secrets: {
         BETTER_AUTH_SECRET: "test-only-better-auth-secret-0123456789abcdef",
         ADMIN_TOKEN,
+        IP_HASH_SECRET: "test-only-ip-hash-secret-0123456789abcdef",
       },
     },
   ],
@@ -110,6 +111,20 @@ test.each([
   },
 );
 
+test("with IP_HASH_SECRET unset, a request with a key is refused unavailable too: its client can't be counted", async () => {
+  const issued = await issueKey();
+
+  const result = await authorize(
+    { credential: issued.key, clientIp: "203.0.113.22" },
+    { ...env, IP_HASH_SECRET: undefined as unknown as string },
+  );
+
+  expect(result).toMatchObject({
+    ok: false,
+    error: { code: "auth_unavailable" },
+  });
+});
+
 test("an empty Authorization header is refused as a malformed key, never served keyless", async () => {
   const result = await lookup("530196605", {
     env,
@@ -129,7 +144,10 @@ test("a key issued today still authorizes 8 days later", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(Date.parse(issued.createdAt) + 8 * DAY_MS);
 
-  const result = await authorize(issued.key, null, env);
+  const result = await authorize(
+    { credential: issued.key, clientIp: null },
+    env,
+  );
 
   expect(result).toStrictEqual({
     ok: true,
@@ -147,7 +165,10 @@ test("a key past its expiresAt is refused as invalid", async () => {
     .bind(new Date(Date.now() - 1000).toISOString(), issued.id)
     .run();
 
-  const result = await authorize(issued.key, null, env);
+  const result = await authorize(
+    { credential: issued.key, clientIp: null },
+    env,
+  );
 
   expect(result).toMatchObject({
     ok: false,
@@ -161,10 +182,13 @@ test("a key past its expiresAt is refused as invalid", async () => {
 test("answers auth_unavailable, not invalid_api_key, when D1 is unreachable", async () => {
   const issued = await issueKey();
 
-  const result = await authorize(issued.key, null, {
-    ...env,
-    DB: failingD1(/./),
-  });
+  const result = await authorize(
+    { credential: issued.key, clientIp: null },
+    {
+      ...env,
+      DB: failingD1(/./),
+    },
+  );
 
   expect(result).toMatchObject({
     ok: false,

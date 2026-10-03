@@ -9,6 +9,7 @@ import {
   searchOrgs,
 } from "@nonprofits/core";
 import { API_KEY_LETTERS, API_KEY_PREFIX } from "./auth.ts";
+import { clientSubject } from "./client.ts";
 import { D1OrgReader } from "./d1-org-reader.ts";
 import { D1OrgSearcher } from "./d1-org-searcher.ts";
 import {
@@ -16,6 +17,7 @@ import {
   countMeteredRequest,
   countRequest,
   KEYLESS_LIMITS,
+  keyedRequestRefusal,
   type Limits,
   limitsOf,
   type QuotaError,
@@ -24,12 +26,8 @@ import {
 import { isSecretSet } from "./secret.ts";
 
 /** What every transport (REST, MCP) hands a handler. */
-export interface HandlerContext {
+export interface HandlerContext extends ClientRequest {
   env: Env;
-  /** null: no credential was sent at all, so the request is keyless. */
-  credential: string | null;
-  /** The `CF-Connecting-IP` header; a keyless caller's identity. */
-  clientIp: string | null;
   now: Date;
 }
 
@@ -148,49 +146,81 @@ function unavailable(
   return { ok: false, error: { code: "auth_unavailable", message } };
 }
 
-function hex(bytes: ArrayBuffer): string {
-  return Array.from(new Uint8Array(bytes), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+/** What `authorize` reads from a request, by name so no two can be swapped. */
+export interface ClientRequest {
+  /** null: no credential was sent at all, so the request is keyless. */
+  credential: string | null;
+  /**
+   * The request's `CF-Connecting-IP` header, which identifies the client.
+   * Every transport (MCP included) passes the real header, never a constant:
+   * a shared value would put every client in one bucket.
+   */
+  clientIp: string | null;
+  /** The `CF-Worker` header: the zone of the Worker that sent this request, if one did. */
+  cfWorker?: string | null;
 }
 
-/** The keyless principal for a client IP, stored only as a keyed hash: IPs are personal data. */
-async function keyless(
-  clientIp: string | null,
+/** The request's client as a usage subject, or unavailable while the secret keying its hash is unset. */
+async function subjectOf(
+  request: ClientRequest,
+  unavailableMessage: string,
   env: Env,
-): Promise<Result<Principal, AuthUnavailable>> {
+): Promise<Result<string, AuthUnavailable>> {
   if (!isSecretSet(env.IP_HASH_SECRET)) {
     return unavailable(
-      "IP_HASH_SECRET is unset or a placeholder: keyless requests refused",
-      KEYLESS_UNAVAILABLE,
+      "IP_HASH_SECRET is unset or a placeholder: requests refused",
+      unavailableMessage,
     );
   }
-  // only a local or test request lacks the header: all of them share one subject
-  let subject = "ip:unknown";
-  if (clientIp !== null) {
-    const encode = (text: string) => new TextEncoder().encode(text);
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encode(env.IP_HASH_SECRET),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    subject = `ip:${hex(await crypto.subtle.sign("HMAC", key, encode(clientIp)))}`;
+  const subject = await clientSubject(
+    { ip: request.clientIp, worker: request.cfWorker ?? null },
+    env.IP_HASH_SECRET,
+  );
+  return { ok: true, value: subject };
+}
+
+/**
+ * Caps requests carrying any key per client before the key is read, so a
+ * stream of bad keys can't turn into one D1 read each.
+ */
+async function limitKeyedRequests(
+  request: ClientRequest,
+  env: Env,
+): Promise<Result<void, QuotaError | AuthUnavailable>> {
+  const client = await subjectOf(request, KEY_CHECK_UNAVAILABLE, env);
+  if (!client.ok) return client;
+  try {
+    const { success } = await env.KEYED_REQUEST_LIMITER.limit({
+      key: client.value,
+    });
+    return success
+      ? { ok: true, value: undefined }
+      : { ok: false, error: keyedRequestRefusal() };
+  } catch (error) {
+    return unavailable(error);
   }
-  return {
-    ok: true,
-    value: { subject, tier: "anonymous", limits: KEYLESS_LIMITS },
-  };
 }
 
 /** The guard every transport runs before any quota or data read: a sent key, or none at all. */
 export async function authorize(
-  credential: string | null,
-  clientIp: string | null,
+  request: ClientRequest,
   env: Env,
-): Promise<Result<Principal, AuthError | AuthUnavailable>> {
-  if (credential === null) return keyless(clientIp, env);
+): Promise<Result<Principal, AuthError | AuthUnavailable | QuotaError>> {
+  const { credential } = request;
+  if (credential === null) {
+    const client = await subjectOf(request, KEYLESS_UNAVAILABLE, env);
+    if (!client.ok) return client;
+    return {
+      ok: true,
+      value: {
+        subject: client.value,
+        tier: "anonymous",
+        limits: KEYLESS_LIMITS,
+      },
+    };
+  }
+  const limited = await limitKeyedRequests(request, env);
+  if (!limited.ok) return limited;
   if (!KEY_FORMAT.test(credential)) {
     return refuse(
       "invalid_api_key",
@@ -226,6 +256,16 @@ export async function authorize(
 }
 
 /**
+ * A limit var as a count, or null when it is none. A var set as text arrives
+ * as a string, and SQLite sorts every number below every string, so a limit
+ * bound as text would never refuse.
+ */
+function countOf(value: unknown): number | null {
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count > 0 ? count : null;
+}
+
+/**
  * Gate, then quota: a refused credential is never counted, and an uncounted
  * request is never served. A metered request meets its Rate Limiting binding
  * before D1: the binding's count can't be taken back, and D1 must not count a
@@ -235,7 +275,7 @@ async function admit(
   ctx: HandlerContext,
 ): Promise<Result<Principal, HandlerError>> {
   const { env, now } = ctx;
-  const authorized = await authorize(ctx.credential, ctx.clientIp, env);
+  const authorized = await authorize(ctx, env);
   if (!authorized.ok) return authorized;
   const { subject, tier, limits } = authorized.value;
   let counted: Result<void, QuotaError>;
@@ -243,6 +283,17 @@ async function admit(
     if (tier === "whitelisted") {
       counted = await countRequest(env.DB, subject, limits, now);
     } else {
+      const serviceDaily = countOf(
+        tier === "anonymous"
+          ? env.SERVICE_KEYLESS_DAILY_LIMIT
+          : env.SERVICE_KEY_DAILY_LIMIT,
+      );
+      if (serviceDaily === null) {
+        return unavailable(
+          `service daily limit for ${tier} is not a positive integer`,
+          tier === "anonymous" ? KEYLESS_UNAVAILABLE : KEY_CHECK_UNAVAILABLE,
+        );
+      }
       const limiter =
         tier === "anonymous"
           ? env.KEYLESS_BURST_LIMITER
@@ -254,7 +305,7 @@ async function admit(
       counted = await countMeteredRequest(
         env.DB,
         { subject, tier, daily: limits.daily },
-        env.SERVICE_DAILY_LIMIT,
+        serviceDaily,
         now,
       );
     }

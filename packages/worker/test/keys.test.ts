@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { startOfMinuteWindow } from "./clock-windows.ts";
 import {
   ADMIN_AUTHORIZATION,
   createWorkerHarness,
@@ -8,7 +9,6 @@ import {
   postAdmin,
   testEnv,
 } from "./harness.ts";
-import { startOfMinuteWindow } from "./minute-window.ts";
 
 const server = createWorkerHarness();
 
@@ -270,6 +270,18 @@ describe("quota on /v1", () => {
       code: "per_minute_limit_exceeded",
     });
     expect((await from("203.0.113.82")).status).toBe(200);
+  }, 30_000);
+
+  test("without a key, requests from one IP sent by two other zones' Workers get a minute each", async () => {
+    const via = (zone: string) =>
+      server.fetch("/v1/orgs/530196605", {
+        headers: { "cf-connecting-ip": "203.0.113.83", "cf-worker": zone },
+      });
+    await startOfMinuteWindow();
+
+    expect((await via("zone-a.example")).status).toBe(200);
+    expect((await via("zone-b.example")).status).toBe(200);
+    expect((await via("zone-a.example")).status).toBe(429);
   }, 30_000);
 
   test("a key over its daily quota gets 429 problem details with Retry-After up to UTC midnight", async () => {
