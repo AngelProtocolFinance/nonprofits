@@ -2,13 +2,15 @@ node_modules/
 dist/
 *.tsbuildinfo
 .dev.vars
+.dev.vars.*
+!.dev.vars.example
 .env
 .env.*
 .wrangler/
 # downloaded IRS bulk data and generated SQL load files
-data/
+/data/
 *.sql.gz
-load/
+/load/
 *.load.sql
 .DS_Store
 .claude/agent-memory-local/
