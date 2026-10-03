@@ -26,6 +26,13 @@ import { type D1Ops, localD1 } from "./wrangler.ts";
 const FIXTURES = new URL("../fixtures/", import.meta.url);
 const BMF_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
 const LISTS = ["pub78", "revocation", "epostcard"] as const;
+type List = (typeof LISTS)[number];
+/** The lines each list's cut route keeps: its two blank lines and the rows after them, Pub 78's leaving out the Red Cross. */
+const CUT_LINES: Record<List, number> = {
+  pub78: 62,
+  revocation: 14,
+  epostcard: 52,
+};
 const RELEASED = "Wed, 16 Sep 2026 13:02:21 GMT";
 /** The fixture returns each batch zip holds, as `efile.test.ts` serves them. */
 const ZIPS: Record<string, string[]> = {
@@ -54,13 +61,21 @@ let base: string;
 let work: string;
 let ops: D1Ops;
 
-function sources(bmf: readonly string[] = BMF_FILES): SourceConfig {
+/** The fixture sources: `bmf` region files only, and the cut route of each list in `cut`. */
+function sources(
+  bmf: readonly string[] = BMF_FILES,
+  cut: readonly List[] = [],
+): SourceConfig {
+  const list = (name: List) => ({
+    url: `${base}/${name}${cut.includes(name) ? "-cut" : ""}.zip`,
+    minRows: 1,
+  });
   return {
     bmf: { urls: bmf.map((name) => `${base}/${name}`), minOrgs: 1 },
     lists: {
-      pub78: { url: `${base}/pub78.zip`, minRows: 1 },
-      revocation: { url: `${base}/revocation.zip`, minRows: 1 },
-      epostcard: { url: `${base}/epostcard.zip`, minRows: 1 },
+      pub78: list("pub78"),
+      revocation: list("revocation"),
+      epostcard: list("epostcard"),
     },
     efile: {
       baseUrl: `${base}/xml/`,
@@ -72,13 +87,26 @@ function sources(bmf: readonly string[] = BMF_FILES): SourceConfig {
 }
 
 /** Floors the fixtures clear. */
-const FIXTURE_FLOORS: TableFloors = { orgs: 1, filings: 1, programs: 1 };
+const FIXTURE_FLOORS: TableFloors = {
+  orgs: 1,
+  filings: 1,
+  programs: 1,
+  in_pub78: 1,
+  revocation_date: 1,
+  files_990n: 1,
+  bmf_run_id: 1,
+};
 
 function run(
-  options: { bmf?: readonly string[]; floors?: TableFloors; via?: D1Ops } = {},
+  options: {
+    bmf?: readonly string[];
+    cut?: readonly List[];
+    floors?: TableFloors;
+    via?: D1Ops;
+  } = {},
 ) {
   return refresh(options.via ?? ops, {
-    sources: sources(options.bmf),
+    sources: sources(options.bmf, options.cut),
     floors: options.floors ?? FIXTURE_FLOORS,
     loadDir: join(work, "load"),
     log: () => {},
@@ -155,6 +183,12 @@ beforeAll(async () => {
     const name = `data-download-${list}.txt`;
     const text = await readFile(new URL(`lists/${name}`, FIXTURES));
     routes.set(`/${list}.zip`, zipSync({ [name]: [text, { level: 6 }] }));
+    const lines = text.toString("utf8").split("\n");
+    const cut = `${lines.slice(0, CUT_LINES[list]).join("\n")}\n`;
+    routes.set(
+      `/${list}-cut.zip`,
+      zipSync({ [name]: [Buffer.from(cut), { level: 6 }] }),
+    );
   }
   for (const year of [2024, 2025, 2026]) {
     routes.set(
@@ -190,13 +224,36 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
 
   test("a first build, with no served counts to compare, is held to the table floors", async () => {
     await expect(
-      run({ floors: { orgs: 1_000_000, filings: 1, programs: 1 } }),
+      run({ floors: { ...FIXTURE_FLOORS, orgs: 1_000_000 } }),
     ).rejects.toThrow(
       /verify failed.*orgs floor \(orgs: \d+, floor 1000000\)/s,
     );
 
     expect(await pointer()).toStrictEqual([{ active: "a", build_id: "empty" }]);
     expect(await claimHolder()).toBeNull();
+  });
+
+  test("a first build is held to a floor on the orgs each list fact landed on", async () => {
+    const error = await run({
+      floors: {
+        ...FIXTURE_FLOORS,
+        in_pub78: 123,
+        revocation_date: 27,
+        files_990n: 96,
+        bmf_run_id: 246,
+      },
+    }).catch((e: unknown) => String(e));
+
+    // one past each fixture's distinct EINs: 122 in Pub 78, 26 revoked, 95 990-N filers, 245 in the BMF
+    for (const failed of [
+      "in_pub78 floor (in_pub78: 122, floor 123)",
+      "revocation_date floor (revocation_date: 26, floor 27)",
+      "files_990n floor (files_990n: 95, floor 96)",
+      "bmf_run_id floor (bmf_run_id: 245, floor 246)",
+    ]) {
+      expect(error).toContain(failed);
+    }
+    expect(await pointer()).toStrictEqual([{ active: "a", build_id: "empty" }]);
   });
 
   test("refresh builds the inactive slot and points the Worker at it", async () => {
@@ -259,6 +316,29 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
     expect(await meta("DATA_DB_A")).toMatchObject([
       { slot: "a", state: "building" },
     ]);
+    expect(await claimHolder()).toBeNull();
+  });
+
+  test("a refresh whose list facts landed on more than 10% fewer orgs than served fails verify, and so does a Red Cross not deductible", async () => {
+    await settleLastFlip();
+    const before = await pointer();
+
+    const error = await run({
+      bmf: ["eo1.csv"],
+      cut: ["pub78", "revocation", "epostcard"],
+    }).catch((e: unknown) => String(e));
+
+    // the cut lists' and eo1.csv's distinct EINs, against the full fixtures'
+    for (const failed of [
+      "in_pub78 vs served (in_pub78: 60, served 122)",
+      "revocation_date vs served (revocation_date: 10, served 26)",
+      "files_990n vs served (files_990n: 50, served 95)",
+      "bmf_run_id vs served (bmf_run_id: 62, served 245)",
+      "red cross deductible (530196605 is not in Pub 78)",
+    ]) {
+      expect(error).toContain(failed);
+    }
+    expect(await pointer()).toStrictEqual(before);
     expect(await claimHolder()).toBeNull();
   });
 

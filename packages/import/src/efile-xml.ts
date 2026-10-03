@@ -184,9 +184,13 @@ export type RejectReason =
   | "EIN mismatch"
   | "form type mismatch"
   | "bad amount"
-  | "bad TaxYr";
+  | "bad TaxYr"
+  | "unreadable";
 
-/** A return whose header or an amount can't be read, or doesn't match its index row. */
+/**
+ * A return whose header or an amount can't be read, that doesn't match its
+ * index row, or whose bytes don't stream in as whole, well-formed XML.
+ */
 export class RejectedReturn extends Error {
   readonly reason: RejectReason;
   readonly returnVersion: string | null;
@@ -203,8 +207,9 @@ export class RejectedReturn extends Error {
 }
 
 /**
- * A mission that is only a pointer to Schedule O ("SEE SCHEDULE O.",
- * "CONTINUED IN SCHEDULE O"), not one that states a mission and then points there.
+ * A mission or activity summary that is only a pointer to Schedule O ("SEE
+ * SCHEDULE O.", "CONTINUED IN SCHEDULE O"), not one that states something and
+ * then points there.
  */
 const SCHEDULE_O_POINTER =
   /^(?:please\s+)?(?:see|refer\s+to|continued\s+(?:in|on)|see\s+mission\s+statement\s+(?:in|on)|mission\s+statement\s+is\s+\w+\s+(?:in|on))\s+(?:the\s+)?sch(?:edule|ed)?\.?\s*o\b/i;
@@ -213,8 +218,8 @@ const SCHEDULE_O_POINTER =
  * Parses one e-filed return as its bytes stream in, and stops reading once it
  * has what it keeps: the end of its form (IRS990, IRS990EZ or IRS990PF), or
  * of the ReturnHeader for a return type not stored. A header or amount that
- * can't be read throws a `RejectedReturn`; malformed or cut-off XML throws a
- * plain Error.
+ * can't be read, malformed or cut-off XML, or bytes that fail to stream in
+ * throw a `RejectedReturn`.
  */
 export async function parseReturn(
   xml: AsyncIterable<Uint8Array>,
@@ -285,9 +290,8 @@ export async function parseReturn(
         const field = layout.fields[fieldPath] as FormField;
         if (field === "mission") {
           const mission = text(content);
-          missionOnScheduleO =
-            mission !== null && SCHEDULE_O_POINTER.test(mission);
-          form.mission = missionOnScheduleO ? null : mission;
+          form.mission = contentOf(mission);
+          missionOnScheduleO = mission !== null && form.mission === null;
         } else {
           form[field] = formValue(field, name, content, returnVersion);
         }
@@ -318,13 +322,24 @@ export async function parseReturn(
   });
 
   const decoder = new TextDecoder();
-  for await (const chunk of xml) {
-    parser.write(decoder.decode(chunk, { stream: true }));
-    // leaving the loop closes the stream: the rest of the return is never read
-    if (done) break;
+  try {
+    for await (const chunk of xml) {
+      parser.write(decoder.decode(chunk, { stream: true }));
+      // leaving the loop closes the stream: the rest of the return is never read
+      if (done) break;
+    }
+  } catch (error) {
+    if (error instanceof RejectedReturn) throw error;
+    throw new RejectedReturn(
+      "unreadable",
+      returnVersion,
+      error instanceof Error ? error.message : String(error),
+    );
   }
   if (!done) {
-    throw new Error(
+    throw new RejectedReturn(
+      "unreadable",
+      returnVersion,
       layout === undefined
         ? "the return ends without a ReturnHeader"
         : `the return ends without an ${layout.element} form`,
@@ -364,6 +379,11 @@ export async function parseReturn(
   };
 }
 
+/** `value`, or null when it only points to Schedule O. */
+function contentOf(value: string | null): string | null {
+  return value !== null && SCHEDULE_O_POINTER.test(value) ? null : value;
+}
+
 function emptyProgram(): Program {
   return { description: null, expense: null, grants: null, revenue: null };
 }
@@ -388,7 +408,7 @@ function formValue(
   returnVersion: string | null,
 ): string | number | null {
   if (field === "website") return webAddress(raw);
-  if (field === "activitySummary") return text(raw);
+  if (field === "activitySummary") return contentOf(text(raw));
   return amount(name, raw, returnVersion);
 }
 
@@ -410,10 +430,18 @@ function amount(
   return n;
 }
 
-/** The largest programs by expense, a program with no expense after any with one; ties keep form order. */
+/**
+ * The largest programs by expense, a program with no expense after any with
+ * one; ties keep form order. A placeholder, with no description and no amount
+ * but 0, is no program.
+ */
 function topPrograms(programs: readonly Program[]): Program[] {
   return programs
-    .filter((p) => Object.values(p).some((v) => v !== null))
+    .filter(
+      (p) =>
+        p.description !== null ||
+        [p.expense, p.grants, p.revenue].some((n) => n !== null && n !== 0),
+    )
     .sort((a, b) => {
       if (a.expense === b.expense) return 0;
       if (a.expense === null) return 1;

@@ -98,10 +98,11 @@ export interface EfileImportOptions {
   /** The current year; when its index isn't published yet (January), the run starts a year earlier. */
   latestYear: number;
   /**
-   * Index XML_BATCH_IDs whose filings alone are loaded, leaving every other
-   * stored filing as it is; omitted, every batch is loaded, and the filings
-   * this run didn't write (but those of EINs whose latest return it rejected)
-   * are deleted, with the orgs that leaves without a fact or a filing.
+   * Index XML_BATCH_IDs whose latest filings alone are loaded, with the
+   * runner-up, from whichever batch holds it, of any rejected, leaving every
+   * other stored filing as it is; omitted, every batch is loaded, and the
+   * filings this run didn't write (but those of EINs whose latest return it
+   * rejected) are deleted, with the orgs that leaves without a fact or a filing.
    */
   batches?: readonly string[];
   floors: EfileFloors;
@@ -125,6 +126,11 @@ export interface EfileImportSummary {
   filings: number;
   /** Object ids of the selected returns skipped, by why. */
   rejects: Partial<Record<RejectReason, string[]>>;
+  /** The next-latest filings read for EINs whose latest return was rejected: how many loaded, and the object ids of those rejected too, by why. */
+  runnersUp: {
+    loaded: number;
+    rejects: Partial<Record<RejectReason, string[]>>;
+  };
   /** Returns selected of each form, rejected ones included, over which `yields` are measured. */
   returns: Record<FormType, number>;
   /** Null for a form the run selected none of. */
@@ -167,11 +173,13 @@ const PROGRAM_COLUMNS = [
  * Reads the 990 e-file index of each release year, picks each EIN's latest
  * filing, and parses those filings out of the batch zips into one SQL load
  * file, applied to D1 in a single `wrangler d1 execute --file`. A return
- * whose EIN, form type, an amount or its TaxYr can't be read is rejected and
- * skipped. A drifted index, an unreadable return, a filing missing from its
- * batch or too large for a statement, a failed download, too many rejects or
- * a yield under the floors throws before the apply, leaving D1 untouched and
- * no load file behind.
+ * whose EIN, form type, an amount or its TaxYr can't be read, or that isn't
+ * well-formed XML, is rejected and skipped, and its EIN's runner-up filing is
+ * read in its place; when that is rejected too, the EIN keeps what it had
+ * stored, which in a fresh slot is no filing. A
+ * drifted index, a filing missing from its batch or too large for a
+ * statement, a failed download, too many rejects or a yield under the floors
+ * throws before the apply, leaving D1 untouched and no load file behind.
  */
 export async function importEfile(
   options: EfileImportOptions,
@@ -191,7 +199,7 @@ export async function importEfile(
 interface BatchGroup {
   year: number;
   prefix: string;
-  /** The latest filings the group holds, by object id. */
+  /** The filings wanted from the group, by object id. */
   wanted: Map<string, IndexedFiling>;
 }
 
@@ -227,7 +235,7 @@ async function* efileSql(
       });
     }
   }
-  const latest = await latestPerEin(listed());
+  const ranked = await latestPerEin(listed());
   for (const index of indexes) {
     yield insertRun(
       { source: "efile_index", label: "990 index", url: index.url },
@@ -237,65 +245,31 @@ async function* efileSql(
     yield setRowCount("efile_index", index.rows);
   }
 
-  const zips: EfileImportSummary["zips"] = [];
-  const groups = batchGroups(latest, options.batches);
+  const read: BatchRead = {
+    baseUrl,
+    workDir: options.workDir,
+    fetchedAt,
+    budget: options.maxStatementBytes ?? MAX_STATEMENT_BYTES,
+    zips: [],
+  };
+  const groups = batchGroups(
+    [...ranked.values()].map((r) => r.latest),
+    options.batches,
+  );
   const selected = groups.reduce((n, group) => n + group.wanted.size, 0);
-  let filingsLoaded = 0;
   const yields = new YieldCounts();
   const rejects: EfileImportSummary["rejects"] = {};
   const rejectedEins: string[] = [];
-  const budget = options.maxStatementBytes ?? MAX_STATEMENT_BYTES;
-  for (const group of groups) {
-    for (const letter of BATCH_LETTERS) {
-      if (group.wanted.size === 0) break;
-      const file: ImportFile = {
-        source: "efile_xml",
-        label: "990 batch",
-        url: `${baseUrl}${group.year}/${group.prefix}${letter}.zip`,
-      };
-      const path = join(options.workDir, `${group.prefix}${letter}.zip`);
-      const releasedAt = await downloadTo(file, path);
-      if (releasedAt === null) break;
-      try {
-        yield insertRun(file, releasedAt, fetchedAt);
-        let filings = 0;
-        const accepted = parsedFilings(
-          file,
-          path,
-          group.wanted,
-          budget,
-          (reject) => {
-            (rejects[reject.reason] ??= []).push(reject.filing.objectId);
-            rejectedEins.push(reject.filing.ein);
-            yields.add(reject.filing.formType, reject.returnVersion, null);
-          },
-        );
-        for await (const batch of batches(
-          accepted,
-          (p) => p.tuples,
-          upsertFilings([]),
-          budget,
-        )) {
-          yield* filingsSql(batch);
-          for (const { parsed } of batch) {
-            filings++;
-            yields.add(parsed.formType, parsed.returnVersion, parsed);
-          }
-        }
-        yield setRowCount("efile_xml", filings);
-        zips.push({ url: file.url, releasedAt, filings });
-        filingsLoaded += filings;
-      } finally {
-        await rm(path, { force: true });
-      }
-    }
-    if (group.wanted.size > 0) {
-      const missing = [...group.wanted.keys()];
-      throw new Error(
-        `990 import aborted: ${missing.length} latest filings listed in batch ${group.prefix}* are in none of its zips (${missing.slice(0, 5).join(", ")}); nothing was loaded`,
-      );
-    }
-  }
+  let filingsLoaded = yield* groupsSql(groups, "latest", read, {
+    rejected(reject) {
+      (rejects[reject.reason] ??= []).push(reject.filing.objectId);
+      rejectedEins.push(reject.filing.ein);
+      yields.add(reject.filing.formType, reject.returnVersion, null);
+    },
+    loaded(parsed) {
+      yields.add(parsed.formType, parsed.returnVersion, parsed);
+    },
+  });
 
   const rejected = rejectedEins.length;
   if (rejected > floors.rejects * selected) {
@@ -308,6 +282,19 @@ async function* efileSql(
     );
   }
   yields.check(floors, options.batches === undefined);
+
+  const runnersUp: EfileImportSummary["runnersUp"] = { loaded: 0, rejects: {} };
+  const runnerUpGroups = batchGroups(
+    rejectedEins.flatMap((ein) => ranked.get(ein)?.runnerUp ?? []),
+    undefined,
+  );
+  runnersUp.loaded = yield* groupsSql(runnerUpGroups, "runner-up", read, {
+    rejected(reject) {
+      (runnersUp.rejects[reject.reason] ??= []).push(reject.filing.objectId);
+    },
+  });
+  filingsLoaded += runnersUp.loaded;
+
   if (options.batches === undefined) {
     yield* deleteStale(rejectedEins);
   }
@@ -315,12 +302,86 @@ async function* efileSql(
     indexes,
     unpublished: current === null ? latestYear : null,
     skipped: tally.skipped,
-    zips,
+    zips: read.zips,
     filings: filingsLoaded,
     rejects,
+    runnersUp,
     returns: yields.returns(),
     yields: yields.shares(),
   };
+}
+
+/** What reading batch zips shares across a run. */
+interface BatchRead {
+  baseUrl: string;
+  workDir: string;
+  fetchedAt: string;
+  /** Largest statement written, in bytes. */
+  budget: number;
+  /** Each zip read, appended to as it is. */
+  zips: EfileImportSummary["zips"];
+}
+
+/**
+ * The SQL loading the wanted filings of `groups`, downloading each zip in
+ * turn and deleting it once read; resolves with the filings loaded. A wanted
+ * filing in none of its batch's zips throws, naming it by `what` it is.
+ */
+async function* groupsSql(
+  groups: readonly BatchGroup[],
+  what: "latest" | "runner-up",
+  read: BatchRead,
+  on: { rejected(reject: Reject): void; loaded?(parsed: ParsedReturn): void },
+): AsyncGenerator<string, number> {
+  let loaded = 0;
+  for (const group of groups) {
+    for (const letter of BATCH_LETTERS) {
+      if (group.wanted.size === 0) break;
+      const file: ImportFile = {
+        source: "efile_xml",
+        label: "990 batch",
+        url: `${read.baseUrl}${group.year}/${group.prefix}${letter}.zip`,
+      };
+      const path = join(read.workDir, `${group.prefix}${letter}.zip`);
+      const releasedAt = await downloadTo(file, path);
+      if (releasedAt === null) break;
+      try {
+        yield insertRun(file, releasedAt, read.fetchedAt);
+        let filings = 0;
+        const accepted = parsedFilings(
+          file,
+          path,
+          group.wanted,
+          read.budget,
+          on.rejected,
+        );
+        for await (const batch of batches(
+          accepted,
+          (p) => p.tuples,
+          upsertFilings([]),
+          read.budget,
+        )) {
+          yield* filingsSql(batch);
+          for (const { parsed } of batch) {
+            filings++;
+            on.loaded?.(parsed);
+          }
+        }
+        yield setRowCount("efile_xml", filings);
+        read.zips.push({ url: file.url, releasedAt, filings });
+        loaded += filings;
+      } finally {
+        await rm(path, { force: true });
+      }
+    }
+    if (group.wanted.size > 0) {
+      const missing = [...group.wanted.keys()];
+      throw new Error(
+        `990 import aborted: ${missing.length} ${what} filings listed in batch ${group.prefix}* are in none of its zips (${missing.slice(0, 5).join(", ")}); nothing was loaded`,
+      );
+    }
+  }
+  return loaded;
 }
 
 const FORM_TYPES = Object.keys(FORM_YIELDS) as FormType[];
@@ -488,16 +549,16 @@ export function percent(share: number): string {
 }
 
 /**
- * The batches holding `latest`, narrowed to `only`. The index names a batch
+ * The batches holding `filings`, narrowed to `only`. The index names a batch
  * `2026_TEOS_XML_05A` while the IRS splits it across `05A.zip` and `05B.zip`,
  * so a batch is looked up by its prefix, `2026_TEOS_XML_05`.
  */
 function batchGroups(
-  latest: Map<string, IndexedFiling>,
+  filings: readonly IndexedFiling[],
   only: readonly string[] | undefined,
 ): BatchGroup[] {
   const groups = new Map<string, BatchGroup>();
-  for (const filing of latest.values()) {
+  for (const filing of filings) {
     const prefix = filing.batch.slice(0, -1);
     const key = `${filing.year}/${prefix}`;
     let group = groups.get(key);
@@ -582,18 +643,13 @@ async function* parsedFilings(
     try {
       parsed = await parseReturn(entry.read());
     } catch (error) {
-      if (error instanceof RejectedReturn) {
-        onReject({
-          filing,
-          reason: error.reason,
-          returnVersion: error.returnVersion,
-        });
-        continue;
-      }
-      throw new Error(
-        `990 return ${objectId} in ${file.url} unreadable: ${error instanceof Error ? error.message : error}`,
-        { cause: error },
-      );
+      if (!(error instanceof RejectedReturn)) throw error;
+      onReject({
+        filing,
+        reason: error.reason,
+        returnVersion: error.returnVersion,
+      });
+      continue;
     }
     const mismatch =
       parsed.ein !== filing.ein

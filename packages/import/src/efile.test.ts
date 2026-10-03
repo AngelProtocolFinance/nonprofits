@@ -98,6 +98,16 @@ async function batchZipWith(
   return zip(files);
 }
 
+/** `zipped` with its first entry's compressed bytes overwritten partway in. */
+function corruptFirstEntry(zipped: Uint8Array): Uint8Array {
+  const bytes = Uint8Array.from(zipped);
+  const header = new DataView(bytes.buffer);
+  // a local file header is 30 bytes, then its name and extra field
+  const data = 30 + header.getUint16(26, true) + header.getUint16(28, true);
+  bytes.fill(0xff, data + 64, data + 96);
+  return bytes;
+}
+
 let server: Server;
 let base: string;
 let work: string;
@@ -131,7 +141,8 @@ beforeAll(async () => {
     if (batch !== "2026_TEOS_XML_06A") routes.set(`/missing/${path}`, zipped);
   }
   routes.set("/missing/2026/2026_TEOS_XML_06A.zip", await batchZip([PF]));
-  // a run with three returns rejected: one listed under the wrong EIN, a 990 and a 990-EZ with a cents amount
+  // a run with three returns rejected: one listed under the wrong EIN, a 990 and a 990-EZ with a cents amount,
+  // the 990 beside its runner-up
   for (const year of YEARS) {
     const index = (await fixture(`index_${year}.csv`)).toString("utf8");
     routes.set(
@@ -179,12 +190,49 @@ beforeAll(async () => {
     routes.set(
       `/rejecting/${path}`,
       batch === "2026_TEOS_XML_02A"
-        ? zip({ [`${DELTA_TRITON_NEW}_public.xml`]: Buffer.from(cents) })
+        ? zip({
+            [`${DELTA_TRITON_NEW}_public.xml`]: Buffer.from(cents),
+            [`${DELTA_TRITON_OLD}_public.xml`]: await fixture(
+              `xml/${DELTA_TRITON_OLD}_public.xml`,
+            ),
+          })
         : batch === "2026_TEOS_XML_01A"
           ? await batchZipWith(objectIds, { [EZ]: ezCents })
           : zipped,
     );
   }
+  // Delta Triton's latest 990 with a cents amount, beside its runner-up: as
+  // read (fallback), or unreadable too (no-fallback); the 990-EZ malformed
+  const ezMalformed = (await fixture(`xml/${EZ}_public.xml`))
+    .toString("utf8")
+    .replace("</PrimaryExemptPurposeTxt>", "</PrimaryPurpose>");
+  const centsBesideRunnerUp = await batchZipWith(
+    ZIPS["2026_TEOS_XML_02A"] ?? [],
+    { [DELTA_TRITON_NEW]: cents },
+  );
+  for (const route of ["fallback", "no-fallback"]) {
+    for (const year of YEARS) {
+      routes.set(
+        `/${route}/${year}/index_${year}.csv`,
+        await fixture(`index_${year}.csv`),
+      );
+    }
+    for (const [batch, objectIds] of Object.entries(ZIPS)) {
+      routes.set(
+        `/${route}/${batch.slice(0, 4)}/${batch}.zip`,
+        await batchZip(objectIds),
+      );
+    }
+  }
+  routes.set(
+    "/fallback/2026/2026_TEOS_XML_01A.zip",
+    await batchZipWith(ZIPS["2026_TEOS_XML_01A"] ?? [], { [EZ]: ezMalformed }),
+  );
+  routes.set("/fallback/2026/2026_TEOS_XML_02A.zip", centsBesideRunnerUp);
+  routes.set(
+    "/no-fallback/2026/2026_TEOS_XML_02A.zip",
+    corruptFirstEntry(centsBesideRunnerUp),
+  );
   // the one 2024v5.0 return, its mission and revenue elements renamed
   routes.set(
     "/version-drift/2026/2026_TEOS_XML_01A.zip",
@@ -734,10 +782,10 @@ describe("a full run with rejected returns", { timeout: 60_000 }, () => {
     });
   });
 
-  test("keeps the stored filing of an EIN whose latest return was rejected", async () => {
-    expect((await storedFilings(d1))["920724925"]).toEqual([
-      DELTA_TRITON_OLD,
-      "2026_TEOS_XML_02A.zip",
+  test("keeps the stored filing of an EIN whose latest return was rejected and has no runner-up", async () => {
+    expect((await storedFilings(d1))["316050644"]).toEqual([
+      EZ,
+      "2026_TEOS_XML_01A.zip",
     ]);
   });
 
@@ -803,5 +851,60 @@ describe("a run in January, before the year's index is out", {
     );
     expect(summary.unpublished).toBe(2027);
     expect(Object.keys(await storedFilings(d1))).toContain("530196605");
+  });
+});
+
+describe("a run into an empty slot rejecting an EIN's latest return", {
+  timeout: 60_000,
+}, () => {
+  const floors = {
+    ...floorsAt(0.5, { versionFrom: 200, rejects: 0.5 }),
+    "990-EZ": { mission: 0, finances: 0 },
+  };
+  let d1: string;
+  let summary: Awaited<ReturnType<typeof importEfile>>;
+
+  beforeAll(async () => {
+    d1 = await d1WithBmf("fallback");
+    summary = await loadEfile(d1, { baseUrl: `${base}/fallback/`, floors });
+  }, 60_000);
+
+  test("rejects an unreadable return on its own, beside one with a bad amount", () => {
+    expect(summary.rejects).toStrictEqual({
+      "bad amount": [DELTA_TRITON_NEW],
+      unreadable: [EZ],
+    });
+  });
+
+  test("stores the runner-up filing and its programs instead", async () => {
+    expect(summary.runnersUp).toStrictEqual({ loaded: 1, rejects: {} });
+    expect((await storedFilings(d1))["920724925"]).toEqual([
+      DELTA_TRITON_OLD,
+      "2026_TEOS_XML_02A.zip",
+    ]);
+    expect(
+      await query(
+        d1,
+        "SELECT DISTINCT object_id FROM programs WHERE ein = '920724925'",
+      ),
+    ).toStrictEqual([{ object_id: DELTA_TRITON_OLD }]);
+  });
+
+  test("stores nothing for an EIN with no runner-up", async () => {
+    expect(await storedFilings(d1)).not.toHaveProperty("316050644");
+  });
+
+  test("stores nothing when the runner-up's zip entry is unreadable too", async () => {
+    const empty = await d1WithBmf("no-fallback");
+    const run = await loadEfile(empty, {
+      baseUrl: `${base}/no-fallback/`,
+      floors,
+    });
+    expect(run.rejects).toStrictEqual({ "bad amount": [DELTA_TRITON_NEW] });
+    expect(run.runnersUp).toStrictEqual({
+      loaded: 0,
+      rejects: { unreadable: [DELTA_TRITON_OLD] },
+    });
+    expect(await storedFilings(empty)).not.toHaveProperty("920724925");
   });
 });

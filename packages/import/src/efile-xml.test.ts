@@ -450,11 +450,8 @@ describe.each([
     totalRevenue: 0,
     totalExpenses: 0,
     totalAssetsEoy: 0,
-    programs: [
-      { description: null, expense: 0, grants: 0, revenue: 0 },
-      { description: null, expense: 0, grants: 0, revenue: 0 },
-      { description: null, expense: 0, grants: 0, revenue: 0 },
-    ],
+    // its three program groups are empty placeholders
+    programs: [],
   },
   {
     objectId: "202431369349308428",
@@ -509,8 +506,6 @@ describe.each([
         grants: 0,
         revenue: 45000,
       },
-      { description: null, expense: 0, grants: 0, revenue: 0 },
-      { description: null, expense: 0, grants: 0, revenue: 0 },
     ],
   },
   {
@@ -590,11 +585,7 @@ describe.each([
     totalRevenue: 0,
     totalExpenses: 6360,
     totalAssetsEoy: 14547,
-    programs: [
-      { description: null, expense: 0, grants: null, revenue: null },
-      { description: null, expense: 0, grants: null, revenue: null },
-      { description: null, expense: 0, grants: null, revenue: null },
-    ],
+    programs: [],
   },
   {
     objectId: "202611759349301206",
@@ -1582,13 +1573,112 @@ describe("a mission that only points to Schedule O", () => {
   });
 });
 
-describe("a return breaking the layout", () => {
-  test("cut off before its form ends throws", async () => {
+describe("a placeholder program, with no description and no amount but 0", () => {
+  const FRATERNITY = "202431369349308428";
+  const LAST_GROUP = "</ProgSrvcAccomActy3Grp>";
+  const withGroup = async (amounts: string) =>
+    (
+      await parseReturn(
+        await fixtureWith(
+          FRATERNITY,
+          LAST_GROUP,
+          `${LAST_GROUP}<ProgSrvcAccomActyOtherGrp>${amounts}</ProgSrvcAccomActyOtherGrp>`,
+        ),
+      )
+    ).programs.map((p) => p.description ?? p);
+
+  test("is dropped before ranking, not ranked above described programs stating no expense", async () => {
+    expect(
+      await withGroup(
+        "<ExpenseAmt>0</ExpenseAmt><GrantAmt>0</GrantAmt><RevenueAmt>0</RevenueAmt>",
+      ),
+    ).toEqual([
+      "PROVIDE RECURITING AND SOCIAL EVENTS TO PROMOTE THE FRATERNITY AND PROVIDE EXPERIENCES FOR MEMBERS.",
+      "PROVIDE HOUSING THAT PROMOTES AN EDUCATIONAL ENVIRONMENT.",
+      "PROVIDE FINANCIAL SUPPORT FOR MEMBERS.",
+    ]);
+  });
+
+  test("is kept when it states a non-zero amount", async () => {
+    expect(
+      await withGroup("<ExpenseAmt>0</ExpenseAmt><GrantAmt>500</GrantAmt>"),
+    ).toEqual([
+      "PROVIDE RECURITING AND SOCIAL EVENTS TO PROMOTE THE FRATERNITY AND PROVIDE EXPERIENCES FOR MEMBERS.",
+      { description: null, expense: 0, grants: 500, revenue: null },
+      "PROVIDE HOUSING THAT PROMOTES AN EDUCATIONAL ENVIRONMENT.",
+    ]);
+  });
+});
+
+describe("an activity summary that only points to Schedule O", () => {
+  test.each([
+    "SEE SCHEDULE O",
+    "SEE SCHEDULE O.",
+    "PLEASE SEE SCHEDULE O",
+    "SEE SCHEDULE O FORM 990, PART I, LINE 1",
+  ])("is stored as null, leaving the mission: %s", async (pointer) => {
+    const parsed = await parseReturn(
+      await redCrossWith(
+        `<ActivityOrMissionDesc>${RED_CROSS_MISSION}<`,
+        `<ActivityOrMissionDesc>${pointer}<`,
+      ),
+    );
+    expect(parsed).toMatchObject({
+      mission: RED_CROSS_MISSION,
+      activitySummary: null,
+      missionOnScheduleO: false,
+    });
+  });
+
+  test("is kept when it states an activity first", async () => {
+    const summary = "BLOOD SERVICES AND DISASTER RELIEF. SEE SCHEDULE O.";
+    const parsed = await parseReturn(
+      await redCrossWith(
+        `<ActivityOrMissionDesc>${RED_CROSS_MISSION}<`,
+        `<ActivityOrMissionDesc>${summary}<`,
+      ),
+    );
+    expect(parsed.activitySummary).toBe(summary);
+  });
+});
+
+describe("an unreadable return, rejected on its own", () => {
+  async function rejection(xml: AsyncIterable<Uint8Array>) {
+    const rejected = await parseReturn(xml).catch((error: unknown) => error);
+    expect(rejected).toBeInstanceOf(RejectedReturn);
+    return rejected as RejectedReturn;
+  }
+
+  test("cut off before its form ends", async () => {
     const xml = await readFile(new URL("202640829349300109_public.xml", XML));
-    await expect(
-      parseReturn(
+    expect(
+      await rejection(
         Readable.from([xml.subarray(0, xml.indexOf("<MissionDesc>"))]),
       ),
-    ).rejects.toThrow("the return ends without an IRS990 form");
+    ).toMatchObject({
+      reason: "unreadable",
+      returnVersion: "2024v5.1",
+      message: "the return ends without an IRS990 form",
+    });
+  });
+
+  test("malformed", async () => {
+    expect(
+      await rejection(await redCrossWith("</MissionDesc>", "</Mission>")),
+    ).toMatchObject({ reason: "unreadable", returnVersion: "2024v5.1" });
+  });
+
+  test("whose bytes fail to stream in", async () => {
+    async function* failing() {
+      yield Buffer.from(
+        '<?xml version="1.0"?><Return returnVersion="2024v5.1">',
+      );
+      throw new Error("invalid distance too far back");
+    }
+    expect(await rejection(failing())).toMatchObject({
+      reason: "unreadable",
+      returnVersion: "2024v5.1",
+      message: "invalid distance too far back",
+    });
   });
 });

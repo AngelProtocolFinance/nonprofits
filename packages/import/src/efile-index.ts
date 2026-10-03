@@ -144,16 +144,27 @@ function isLater(a: IndexedFiling, b: IndexedFiling): boolean {
   return a.objectId > b.objectId;
 }
 
-/** Each EIN's latest filing among `filings`. */
+/** An EIN's latest filing, and the next-latest: what is loaded when the latest is rejected. */
+export interface RankedFilings {
+  latest: IndexedFiling;
+  runnerUp: IndexedFiling | null;
+}
+
+/** Each EIN's latest filing among `filings`, with its runner-up. */
 export async function latestPerEin(
   filings: AsyncIterable<IndexedFiling>,
-): Promise<Map<string, IndexedFiling>> {
-  const latest = new Map<string, IndexedFiling>();
+): Promise<Map<string, RankedFilings>> {
+  const ranked = new Map<string, RankedFilings>();
   for await (const filing of filings) {
-    const kept = latest.get(filing.ein);
-    if (kept === undefined || isLater(filing, kept)) {
-      latest.set(filing.ein, filing);
+    const kept = ranked.get(filing.ein);
+    if (kept === undefined) {
+      ranked.set(filing.ein, { latest: filing, runnerUp: null });
+    } else if (isLater(filing, kept.latest)) {
+      kept.runnerUp = kept.latest;
+      kept.latest = filing;
+    } else if (kept.runnerUp === null || isLater(filing, kept.runnerUp)) {
+      kept.runnerUp = filing;
     }
   }
-  return latest;
+  return ranked;
 }

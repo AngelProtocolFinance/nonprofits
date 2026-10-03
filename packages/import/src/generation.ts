@@ -19,11 +19,20 @@ import type { D1Ops } from "./wrangler.ts";
 
 /** A new generation's row counts may differ from the served one's by this share and still flip. */
 const COUNT_TOLERANCE = 0.1;
-const COUNTED_TABLES = ["orgs", "filings", "programs"] as const;
-type CountedTable = (typeof COUNTED_TABLES)[number];
+/** What verify counts, each the rows `count(*)` reads: every table's, and the orgs each list fact landed on. */
+const COUNTED = {
+  orgs: "orgs",
+  filings: "filings",
+  programs: "programs",
+  in_pub78: "orgs WHERE in_pub78 = 1",
+  revocation_date: "orgs WHERE revocation_date IS NOT NULL",
+  files_990n: "orgs WHERE files_990n = 1",
+  bmf_run_id: "orgs WHERE bmf_run_id IS NOT NULL",
+} as const;
+type Counted = keyof typeof COUNTED;
 
-/** The fewest rows of each table a generation may hold: all a first build, with no served counts to compare, is held to besides its other checks. */
-export type TableFloors = Record<CountedTable, number>;
+/** The fewest of each count a generation may hold: all a first build, with no served counts to compare, is held to besides its other checks. */
+export type TableFloors = Record<Counted, number>;
 
 export const TABLE_FLOORS: TableFloors = {
   // 90% of the 3,275,963 orgs of the 2026-10-03 local build (Sep 2026 BMF and lists)
@@ -33,6 +42,14 @@ export const TABLE_FLOORS: TableFloors = {
   // 80% of ~939,500: 1.50 programs per 990 and 990-EZ filing in batch 2026_TEOS_XML_03A
   // (57,624 for 38,404) times the 626,151 a full run selects; an extrapolation, hence the wider margin
   programs: 750_000,
+  // 90% of the 2026-10-03 local build's 1,419,989 orgs in Pub 78 (Sep 2026 list)
+  in_pub78: 1_277_000,
+  // 90% of its 1,227,606 orgs with a revocation date (Sep 2026 list)
+  revocation_date: 1_104_000,
+  // 90% of its 1,546,723 990-N filers (Sep 2026 e-Postcard list)
+  files_990n: 1_392_000,
+  // 90% of its 1,964,958 orgs from the Sep 2026 BMF
+  bmf_run_id: 1_768_000,
 };
 
 /**
@@ -69,7 +86,7 @@ export interface RefreshReport {
   slot: DataSlot;
   /** The slot served before, still complete: what `rollback` flips back to. */
   previous: DataSlot;
-  counts: Record<CountedTable, number>;
+  counts: Record<Counted, number>;
   checks: Check[];
 }
 
@@ -373,7 +390,7 @@ async function verify(
     floors: TableFloors;
     log: (line: string) => void;
   },
-): Promise<{ counts: Record<CountedTable, number>; checks: Check[] }> {
+): Promise<{ counts: Record<Counted, number>; checks: Check[] }> {
   const binding = DATA_DB_BINDING[slot];
   const servedBinding = DATA_DB_BINDING[pointer.active];
   const firstBuild = pointer.build_id === "empty";
@@ -409,27 +426,24 @@ async function verify(
           : `${binding} says slot ${meta.slot}, build ${meta.build_id}, ${meta.state}`,
     };
   });
-  const counts = {} as Record<CountedTable, number>;
-  for (const table of COUNTED_TABLES) {
-    await check(`${table} floor`, async () => {
-      counts[table] = await count(
-        binding,
-        `SELECT count(*) AS n FROM ${table}`,
-      );
+  const counts = {} as Record<Counted, number>;
+  for (const [name, rows] of Object.entries(COUNTED) as [Counted, string][]) {
+    await check(`${name} floor`, async () => {
+      counts[name] = await count(binding, `SELECT count(*) AS n FROM ${rows}`);
       return {
-        ok: counts[table] >= floors[table],
-        detail: `${table}: ${counts[table]}, floor ${floors[table]}`,
+        ok: counts[name] >= floors[name],
+        detail: `${name}: ${counts[name]}, floor ${floors[name]}`,
       };
     });
     if (firstBuild) continue;
-    await check(`${table} vs served`, async () => {
+    await check(`${name} vs served`, async () => {
       const served = await count(
         servedBinding,
-        `SELECT count(*) AS n FROM ${table}`,
+        `SELECT count(*) AS n FROM ${rows}`,
       );
       return {
-        ok: Math.abs(counts[table] - served) <= COUNT_TOLERANCE * served,
-        detail: `${table}: ${counts[table]}, served ${served}`,
+        ok: Math.abs(counts[name] - served) <= COUNT_TOLERANCE * served,
+        detail: `${name}: ${counts[name]}, served ${served}`,
       };
     });
   }
@@ -445,6 +459,19 @@ async function verify(
       detail: ok
         ? `${RED_CROSS} has its mission`
         : `${RED_CROSS} has no filing with a mission`,
+    };
+  });
+  await check("red cross deductible", async () => {
+    const [row] = await ops.query<{ in_pub78: number }>(
+      binding,
+      `SELECT in_pub78 FROM orgs WHERE ein = '${RED_CROSS}'`,
+    );
+    const ok = row?.in_pub78 === 1;
+    return {
+      ok,
+      detail: ok
+        ? `${RED_CROSS} is in Pub 78`
+        : `${RED_CROSS} is not in Pub 78`,
     };
   });
   await check("search index", async () => {

@@ -74,8 +74,16 @@ export async function loadSource(
         (z) => `${z.url}  released ${z.releasedAt}  ${z.filings} filings`,
       ),
       ...Object.entries(summary.rejects).map(
+        ([reason, ids]) => `rejected ${ids.length} (${reason}): ${some(ids)}`,
+      ),
+      ...(summary.runnersUp.loaded > 0
+        ? [
+            `runner-up filings loaded in their place: ${summary.runnersUp.loaded}`,
+          ]
+        : []),
+      ...Object.entries(summary.runnersUp.rejects).map(
         ([reason, ids]) =>
-          `rejected ${ids.length} (${reason}): ${ids.slice(0, 10).join(", ")}${ids.length > 10 ? ", …" : ""}`,
+          `runner-up rejected too ${ids.length} (${reason}): ${some(ids)}`,
       ),
       `efile: ${summary.filings} filings`,
       ...Object.entries(summary.yields).flatMap(([form, shares]) =>
@@ -108,4 +116,9 @@ export async function loadSource(
   return [
     `${summary.url}  released ${summary.releasedAt}  ${summary.rows} rows`,
   ];
+}
+
+/** The first 10 of `ids`, and an ellipsis for any more. */
+function some(ids: readonly string[]): string {
+  return `${ids.slice(0, 10).join(", ")}${ids.length > 10 ? ", …" : ""}`;
 }

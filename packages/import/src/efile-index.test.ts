@@ -30,7 +30,7 @@ async function latestObjectIds(
   years: readonly number[],
 ): Promise<Map<string, string>> {
   const latest = await latestPerEin(fixtureIndexes(years));
-  return new Map([...latest].map(([ein, f]) => [ein, f.objectId]));
+  return new Map([...latest].map(([ein, f]) => [ein, f.latest.objectId]));
 }
 
 describe("the latest filing per EIN", () => {
@@ -55,7 +55,7 @@ describe("the latest filing per EIN", () => {
 
   test("is never a 990-T", async () => {
     const latest = await latestPerEin(fixtureIndexes([2026, 2025, 2024]));
-    expect(latest.get("530196605")).toEqual({
+    expect(latest.get("530196605")?.latest).toEqual({
       ein: "530196605",
       objectId: "202640829349300109",
       returnId: "24433471",
@@ -69,7 +69,7 @@ describe("the latest filing per EIN", () => {
 
   test("may be a 990-EZ after earlier 990s", async () => {
     const latest = await latestPerEin(fixtureIndexes([2026, 2025, 2024]));
-    expect(latest.get("010223446")).toMatchObject({
+    expect(latest.get("010223446")?.latest).toMatchObject({
       objectId: "202521399349201707",
       returnId: "23551101",
       formType: "990-EZ",
@@ -81,5 +81,46 @@ describe("the latest filing per EIN", () => {
     const tally: IndexTally = { rows: 0, skipped: {} };
     for await (const _ of fixtureIndexes([2026, 2025, 2024], tally));
     expect(tally).toEqual({ rows: 23, skipped: { "990T": 3 } });
+  });
+});
+
+describe("the runner-up filing per EIN, loaded when the latest is rejected", () => {
+  async function runnersUp(
+    years: readonly number[],
+  ): Promise<Map<string, string | undefined>> {
+    const ranked = await latestPerEin(fixtureIndexes(years));
+    return new Map([...ranked].map(([ein, f]) => [ein, f.runnerUp?.objectId]));
+  }
+
+  test("is the next-latest, whichever index lists it and in whatever order", async () => {
+    const runnerUp = await runnersUp([2026, 2025, 2024]);
+    // latest 202506; read after it, 202406 beats the two 202306 returns
+    expect(runnerUp.get("010224898")).toBe("202521339349301142");
+    // latest 202503 filed 2026-166; 202403 filed 2026-195 is read after it
+    expect(runnerUp.get("010027748")).toBe("202641959349301799");
+  });
+
+  test("is the one a later-read latest displaced", async () => {
+    // received 2024-135, then displaced by the 2024-288 amendment
+    expect((await runnersUp([2024])).get("010224898")).toBe(
+      "202431359349303488",
+    );
+    // the same day's lower object id
+    expect((await runnersUp([2026])).get("010541478")).toBe(
+      "202600449349300805",
+    );
+  });
+
+  test("is never a 990-T", async () => {
+    expect((await runnersUp([2026, 2025, 2024])).get("530196605")).toBe(
+      "202511189349301681",
+    );
+  });
+
+  test("is absent for an EIN with one filing", async () => {
+    const runnerUp = await runnersUp([2025]);
+    // 2025 lists only its 990-EZ
+    expect(runnerUp.has("010223446")).toBe(true);
+    expect(runnerUp.get("010223446")).toBeUndefined();
   });
 });
