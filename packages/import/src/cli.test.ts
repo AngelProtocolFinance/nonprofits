@@ -1,9 +1,13 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { claimSlotSql, resetGenerationSql } from "@nonprofits/db";
+import {
+  claimSlotSql,
+  releaseClaimSql,
+  resetGenerationSql,
+} from "@nonprofits/db";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { migrateAppDb } from "./test-support.ts";
 import { type D1Ops, localD1 } from "./wrangler.ts";
@@ -154,6 +158,51 @@ describe("irs", { timeout: 90_000 }, () => {
     expect(await claimHolder()).toBeNull();
     expect(await runningFlips()).toStrictEqual([]);
     expect(await pointer()).toStrictEqual(before);
+  });
+
+  test("a stopped rollback's --summary says what stopped it and what its cleanup did", async () => {
+    const summary = join(work, "stopped.md");
+
+    const exit = await irs(
+      ["rollback", "--summary", summary],
+      "claimed slot",
+      1_000,
+    );
+
+    expect(exit.code).toBe(130);
+    const md = await readFile(summary, "utf8");
+    expect(md).toContain("## irs rollback (local D1): stopped by SIGINT\n");
+    expect(md).toContain("**Stopped:** SIGINT\n");
+    expect(md).toContain("- released build old's claim\n");
+    expect(md).toContain("| served before | a | empty |");
+  });
+
+  test("a refresh refused by another build's claim exits 1 and its --summary carries the refusal", async () => {
+    const [{ active } = { active: "a" }] = await ops.query<{ active: string }>(
+      "APP_DB",
+      "SELECT active FROM data_generation WHERE id = 1",
+    );
+    const inactive = active === "a" ? "b" : "a";
+    await ops.query("APP_DB", claimSlotSql(inactive, "other"));
+    const summary = join(work, "refused.md");
+
+    const exit = await irs(["refresh", "--summary", summary]);
+    await ops.query("APP_DB", releaseClaimSql("other"));
+
+    expect(exit.code).toBe(1);
+    const md = await readFile(summary, "utf8");
+    expect(md).toContain("## irs refresh (local D1): failed\n");
+    expect(md).toContain(
+      `**Failed:** refresh refused: slot ${inactive} is served, another build holds its claim`,
+    );
+    expect(md).toContain(`| served after | ${active} | empty |`);
+  });
+
+  test("--force-verify-failure is refresh's alone", async () => {
+    const exit = await irs(["rollback", "--force-verify-failure"]);
+
+    expect(exit.code).toBe(2);
+    expect(exit.stderr).toContain("rollback takes no --force-verify-failure");
   });
 
   test("release clears a stuck claim and says whose", async () => {

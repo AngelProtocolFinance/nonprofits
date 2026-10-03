@@ -100,6 +100,10 @@ pnpm --filter @nonprofits/import irs rollback
 pnpm --filter @nonprofits/import irs release [--build <id>]   # clear a claim a dead build left
 ```
 
+`--summary <file>` on `refresh` or `rollback` appends a markdown summary of the run to the file, failed or stopped too: the slot and build served before and after, each source's rows and release date, the e-file release years read and why, each form's yields, every verify check with its numbers and time, and each step's time. A failure is one line starting `**Failed:**`, a stop one starting `**Stopped:**` followed by what its cleanup did. The values of `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are replaced with `[redacted]`: a wrangler error can quote the account id in an API path.
+
+`refresh --force-verify-failure` loads and checks the whole generation as usual, then fails verify with one more check, `forced failure`, so nothing is sealed or served: a dry run of every step but the swap, and of what a failed run does.
+
 A refresh logs one line per step, with its time:
 
 1. Wait until the last flip is 60 s old: Worker isolates cache the pointer for 30 s, so the slot a flip left may still be served until then, and `APP_DB` refuses a claim on it sooner.
@@ -121,7 +125,7 @@ Any failure exits 1 with the pointer unchanged and the claim released; the Worke
 
 A download that drops, stalls for a minute, or is answered 5xx or 429 is tried again, 4 tries in all, about 2, 4 and 8 s apart, each retry logged; a 404 or another 4xx fails at once. The retry starts the file over: a BMF or list load from its first byte (the BMF from eo1, as its four files stream into one load), the e-file indexes all over, one batch zip on its own. A single `SELECT` that fails transiently (a dropped connection, an API 5xx, a timeout) is tried the same way; a write and a load file never are.
 
-SIGINT or SIGTERM kills the running command, releases the claim (kept, as above, when the command killed was a remote load file), prints what the pointer serves, and exits 130 or 143, within 7 s: GitHub Actions follows a cancel's SIGINT with SIGTERM 7.5 s later and SIGKILL at 10 s. A signal during that cleanup waits for it. `pnpm --filter … irs` doesn't pass a signal sent to pnpm on to the CLI (the CLI keeps running, and outlives a killed pnpm), so a job that may be cancelled runs `node packages/import/src/cli.ts refresh --remote` itself; Ctrl-C in a terminal signals the whole process group and reaches it either way.
+SIGINT or SIGTERM kills the running command, releases the claim (kept, as above, when the command killed was a remote load file), prints what the pointer serves, and exits 130 or 143, within 7 s: GitHub Actions follows a cancel's SIGINT with SIGTERM 7.5 s later and SIGKILL at 10 s. A signal during that cleanup waits for it. `pnpm --filter … irs` doesn't pass a signal sent to pnpm on to the CLI (the CLI keeps running, and outlives a killed pnpm), so a job that may be cancelled runs `node packages/import/src/cli.ts refresh --remote` itself, with `exec` in a shell step: the Actions runner signals only the step's shell, which doesn't pass it on. Ctrl-C in a terminal signals the whole process group and reaches it either way.
 
 `--efile-batch` builds a partial generation: it skips the filings and programs floors, and passes the ±10% check only against a served build made from the same batches. `refresh` refuses it with `--remote`.
 
@@ -142,3 +146,16 @@ pnpm --filter @nonprofits/worker db:seal:local b        # then db:flip:local b t
 ```
 
 `all` leaves out `efile`, which runs only when named. It reads the 990 e-file index of the three latest release years (starting a year earlier while this year's index isn't published: apps.irs.gov answers 404, or redirects to its `/404` page), and a fourth while the newest index lists under half the rows of the year before (January to spring, when it holds a few weeks of filings, and three years would drop one the floors count on); it keeps each EIN's latest filing (latest tax period, then latest received, amendments included), and parses those returns out of the batch zips, one zip on disk at a time under `data/efile/`: a Form 990's mission, activity summary, website, top 3 programs and finances (total revenue, expenses, assets at year end); a 990-EZ's primary exempt purpose as its mission, website, top 3 programs and finances; a 990-PF's website and finances. A mission that only points to Schedule O is stored as null and flagged `mission_on_schedule_o`; an activity summary that only points there is stored as null. A program with no description and no amount but 0 (an empty placeholder) is no program. Index rows of other return types (990-T, or one the IRS adds) are counted by type in the run's output. A return whose EIN, form type, an amount or its tax year can't be read, or whose XML is malformed, cut off or fails to inflate, is rejected and skipped, and that EIN's runner-up filing (its next-latest) is read in its place, from whichever batch holds it; when that is rejected too, the EIN keeps its stored filing, or gets none in a fresh slot. More than 1% of latest filings rejected, or a form's returns (run-wide, or in a returnVersion with 200+ of them) under its yield floors (mission and revenue for the 990, mission and all three finances for the 990-EZ, all three finances for the 990-PF) aborts before anything is loaded, as does a full run that selects none of a form. A full run deletes the filings it didn't write and the orgs left with no fact and no filing; a `--batch` run deletes nothing.
+
+## Monthly import
+
+`.github/workflows/import.yml` runs `irs refresh --remote` at 06:17 UTC on the 3rd of each month, after the IRS's month-end revocation list and its mid-month BMF, Pub 78 and e-file index refreshes. It needs two repository secrets, `CLOUDFLARE_API_TOKEN` (D1 edit on the account) and `CLOUDFLARE_ACCOUNT_ID`; its first step fails, naming the one missing, before anything else runs. Runs never overlap: a second waits for the first.
+
+Run it by hand from the Actions tab (**Run workflow**), with two switches:
+
+- **force_verify_failure**: `refresh --force-verify-failure`, which builds and checks everything and then fails, leaving the served generation as it was;
+- **rollback**: `irs rollback --remote` instead of a refresh.
+
+The run's summary page shows the CLI's `--summary`. A failed run is red, and opens an issue titled "Monthly IRS import failed" with the run's link and the summary's `**Failed:**` line, or comments on that issue while it is open. GitHub notifies the repository's watchers of the issue and each comment, beyond its failed-run email; close the issue once the import is fixed. A cancelled run releases its build's claim itself; if that stop was cut off, the workflow runs the `irs release --remote --build <id>` it printed, unless a remote import may still be running, which keeps the claim until it lapses or is released by hand.
+
+The job has 350 minutes (GitHub's limit is 6 h), the import step 335 of them. A full run downloads about 10 GB, one e-file batch zip on disk at a time; the step before the import logs the runner's free disk, and the last one deletes `data/` and `load/`.

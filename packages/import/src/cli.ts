@@ -19,16 +19,25 @@ import {
   SOURCES,
   type Source,
 } from "./sources.ts";
+import {
+  finish,
+  type RunRecord,
+  runRecord,
+  summarized,
+  summaryWriter,
+} from "./summary.ts";
 import { type D1Ops, localD1, remoteD1, stopWrangler } from "./wrangler.ts";
 
 /** What `all` loads, in order. Not efile: a full 990 run downloads ~10 GB and takes about an hour, so it is asked for by name. */
 const ALL = SOURCES.filter((source) => source !== "efile");
 
 const USAGE = `usage: node src/cli.ts <command>
-  refresh [--remote] [--efile-batch <XML_BATCH_ID>]...
+  refresh [--remote] [--efile-batch <XML_BATCH_ID>]... [--force-verify-failure] [--summary <file>]
       build the data slot not served from every IRS source, verify it, seal it
-      and serve it; --efile-batch (local only) loads just those e-file batches
-  rollback [--remote]
+      and serve it; --efile-batch (local only) loads just those e-file batches;
+      --force-verify-failure fails verify after the full build, which is then
+      neither sealed nor served
+  rollback [--remote] [--summary <file>]
       serve the other data slot again, while it holds a complete build that was served before
   release [--remote] [--build <BUILD_ID>]
       clear the claim a stopped build left on the slot not served (only that build's, with --build)
@@ -37,12 +46,13 @@ const USAGE = `usage: node src/cli.ts <command>
       pnpm --filter @nonprofits/worker db:reset:local <slot> left building, then
       rebuild its search index; all = ${ALL.join(", ")}
       --batch  efile only: load just the filings in this batch
+  --summary <file>    append a markdown summary of the run to <file>, failed or stopped too
   --persist-to <dir>  local D1 state under <dir> instead of wrangler's default`;
 
 /** The flags each command takes, beside --persist-to. */
 const FLAGS = {
-  refresh: ["remote", "efile-batch"],
-  rollback: ["remote"],
+  refresh: ["remote", "efile-batch", "force-verify-failure", "summary"],
+  rollback: ["remote", "summary"],
   release: ["remote", "build"],
   load: ["slot", "batch"],
 } as const;
@@ -66,6 +76,8 @@ function args() {
         "efile-batch": { type: "string", multiple: true },
         slot: { type: "string" },
         build: { type: "string" },
+        summary: { type: "string" },
+        "force-verify-failure": { type: "boolean" },
       },
       allowPositionals: true,
     });
@@ -104,37 +116,20 @@ async function main(): Promise<void> {
   const ops: D1Ops = remote ? remoteD1() : localD1(values["persist-to"]);
   const where = remote ? "remote" : "local";
 
-  if (command === "refresh") {
-    const batches = values["efile-batch"];
-    const claims = releaseOnSignal(ops);
-    console.log(`refresh: ${where} D1`);
-    const report = await refresh(ops, {
-      sources: irsSources({
-        workDir: EFILE_WORK_DIR,
-        ...(batches === undefined ? {} : { batches }),
-      }),
-      floors: TABLE_FLOORS,
-      loadDir: LOAD_DIR,
-      log,
-      onClaim: (buildId) => claims.push(buildId),
-    });
-    const counts = Object.entries(report.counts)
-      .map(([table, n]) => `${n} ${table}`)
-      .join(", ");
-    console.log(
-      `refresh: serving slot ${report.slot}, build ${report.buildId} (${counts}); irs rollback serves slot ${report.previous} again`,
-    );
-    return;
-  }
-
-  if (command === "rollback") {
-    const claims = releaseOnSignal(ops);
-    const { from, to, buildId } = await rollback(ops, {
-      log,
-      onClaim: (buildId) => claims.push(buildId),
-    });
-    console.log(
-      `rollback: ${where} D1 serving slot ${to} (build ${buildId}) instead of slot ${from}`,
+  if (command === "refresh" || command === "rollback") {
+    const record = runRecord(command, remote);
+    const write =
+      values.summary === undefined
+        ? () => {}
+        : summaryWriter(values.summary, [
+            process.env.CLOUDFLARE_API_TOKEN,
+            process.env.CLOUDFLARE_ACCOUNT_ID,
+          ]);
+    const claims = releaseOnSignal(ops, record, write);
+    await summarized(ops, record, write, () =>
+      command === "refresh"
+        ? runRefresh(ops, values, record, claims)
+        : runRollback(ops, record, claims),
     );
     return;
   }
@@ -174,6 +169,49 @@ async function main(): Promise<void> {
   await loadSources(ops, sources, slot, values.batch, values["persist-to"]);
 }
 
+async function runRefresh(
+  ops: D1Ops,
+  values: ReturnType<typeof args>["values"],
+  record: RunRecord,
+  claims: string[],
+): Promise<void> {
+  const batches = values["efile-batch"];
+  console.log(`refresh: ${ops.remote ? "remote" : "local"} D1`);
+  const report = await refresh(ops, {
+    sources: irsSources({
+      workDir: EFILE_WORK_DIR,
+      ...(batches === undefined ? {} : { batches }),
+    }),
+    floors: TABLE_FLOORS,
+    loadDir: LOAD_DIR,
+    log,
+    onClaim: (buildId) => claims.push(buildId),
+    forceVerifyFailure: values["force-verify-failure"] === true,
+    record,
+  });
+  const counts = Object.entries(report.counts)
+    .map(([table, n]) => `${n} ${table}`)
+    .join(", ");
+  console.log(
+    `refresh: serving slot ${report.slot}, build ${report.buildId} (${counts}); irs rollback serves slot ${report.previous} again`,
+  );
+}
+
+async function runRollback(
+  ops: D1Ops,
+  record: RunRecord,
+  claims: string[],
+): Promise<void> {
+  const { from, to, buildId } = await rollback(ops, {
+    log,
+    onClaim: (buildId) => claims.push(buildId),
+    record,
+  });
+  console.log(
+    `rollback: ${ops.remote ? "remote" : "local"} D1 serving slot ${to} (build ${buildId}) instead of slot ${from}`,
+  );
+}
+
 /** The run's own lines; quiet once a signal is stopping it, as its failures are the stop's. */
 function log(line: string): void {
   if (!interrupted) console.log(line);
@@ -193,11 +231,16 @@ const STOP_BUDGET_MS = 7_000;
  * On SIGINT or SIGTERM: stops wrangler (the running command and every later
  * one the run starts), releases every claim the run asked for (a claim it
  * never got releases nothing; one whose remote import it killed is kept),
- * reports what the pointer serves, and exits 130 or 143, within
- * `STOP_BUDGET_MS`. A signal while stopping waits for that stop. Returns the
- * list the run adds each build id to as it claims.
+ * reports what the pointer serves, records the stop and writes the run's
+ * summary, and exits 130 or 143, within `STOP_BUDGET_MS`. A signal while
+ * stopping waits for that stop. Returns the list the run adds each build id
+ * to as it claims.
  */
-function releaseOnSignal(ops: D1Ops): string[] {
+function releaseOnSignal(
+  ops: D1Ops,
+  record: RunRecord,
+  write: (record: RunRecord) => void,
+): string[] {
   const claims: string[] = [];
   let stopping = false;
   const stop = async (signal: NodeJS.Signals, code: number) => {
@@ -207,21 +250,29 @@ function releaseOnSignal(ops: D1Ops): string[] {
     }
     stopping = true;
     interrupted = true;
+    const lines: string[] = [];
+    record.stop = { signal, lines };
+    const report = (line: string) => {
+      lines.push(line);
+      console.error(line);
+    };
     console.error(`${signal}: stopping`);
     const stopped = stopWrangler((killed) =>
-      releaseAfterStop(ops, claims, killed, (line) => console.error(line)),
+      releaseAfterStop(ops, claims, killed, report),
     ).then(() => true);
     const budget = new Promise<false>((resolve) =>
       setTimeout(() => resolve(false), STOP_BUDGET_MS),
     );
     if (!(await Promise.race([stopped, budget]))) {
-      console.error(`stop cut off after ${STOP_BUDGET_MS / 1000} s`);
+      report(`stop cut off after ${STOP_BUDGET_MS / 1000} s`);
       for (const id of claims) {
-        console.error(
+        report(
           `irs release${ops.remote ? " --remote" : ""} --build ${id} clears build ${id}'s claim if it is still held`,
         );
       }
     }
+    finish(record);
+    write(record);
     process.exit(code);
   };
   // `on`, not `once`: a second signal left to node's default would kill the stop's cleanup
@@ -264,7 +315,8 @@ async function loadSources(
     const out = join(LOAD_DIR, `${source}.load.sql`);
     console.error(`importing ${source} into local ${binding} via ${out}`);
     try {
-      for (const line of await loadSource(source, config, target, out)) {
+      const { lines } = await loadSource(source, config, target, out);
+      for (const line of lines) {
         console.log(line);
       }
     } catch (error) {

@@ -21,6 +21,7 @@ import {
   sealGenerationSql,
 } from "@nonprofits/db";
 import { loadSource, SOURCES, type SourceConfig } from "./sources.ts";
+import { type RunRecord, runRecord, type Step } from "./summary.ts";
 import { type D1Ops, type D1Target, ImportMayBeRunning } from "./wrangler.ts";
 
 /** A new generation's row counts may differ from the served one's by this share and still flip. */
@@ -70,6 +71,10 @@ export interface RefreshOptions {
   log?: (line: string) => void;
   /** Called with the build's id just before its claim is sent, so whoever stops the run can release it. */
   onClaim?: (buildId: string) => void;
+  /** Adds a check that always fails, after every real one: the full build is staged and verified, then never sealed or served. */
+  forceVerifyFailure?: boolean;
+  /** Filled in as the run goes: what was served, each step, load and check. */
+  record?: RunRecord;
 }
 
 export interface Check {
@@ -137,7 +142,15 @@ export async function readMeta(
  */
 export async function refresh(
   ops: D1Ops,
-  { sources, floors, loadDir, log = () => {}, onClaim }: RefreshOptions,
+  {
+    sources,
+    floors,
+    loadDir,
+    log = () => {},
+    onClaim,
+    forceVerifyFailure = false,
+    record = runRecord("refresh", ops.remote),
+  }: RefreshOptions,
 ): Promise<RefreshReport> {
   const partialEfile = sources.efile.batches !== undefined;
   if (ops.remote && partialEfile) {
@@ -146,6 +159,7 @@ export async function refresh(
     );
   }
   const pointer = await readPointer(ops);
+  record.servedBefore = pointer;
   const previous = pointer.active;
   const slot = otherSlot(previous);
   const binding = DATA_DB_BINDING[slot];
@@ -170,6 +184,8 @@ export async function refresh(
       loadDir,
       sources,
       floors: partialEfile ? { ...floors, filings: 0, programs: 0 } : floors,
+      forceVerifyFailure,
+      record,
       log,
     });
     await flip(ops, previous, buildId, log);
@@ -194,6 +210,8 @@ async function build(
     loadDir,
     sources,
     floors,
+    forceVerifyFailure,
+    record,
     log,
   }: {
     pointer: Pointer;
@@ -202,6 +220,8 @@ async function build(
     loadDir: string;
     sources: SourceConfig;
     floors: TableFloors;
+    forceVerifyFailure: boolean;
+    record: RunRecord;
     log: (line: string) => void;
   },
 ): Promise<RefreshReport> {
@@ -213,7 +233,8 @@ async function build(
     );
   }
   await mkdir(loadDir, { recursive: true });
-  await timed(log, `reset ${binding}`, () =>
+  const { steps } = record;
+  await timed(log, steps, `reset ${binding}`, () =>
     applySql(
       ops,
       binding,
@@ -222,34 +243,41 @@ async function build(
     ),
   );
   for (const source of SOURCES) {
-    await timed(log, `loaded ${source}`, async () => {
+    await timed(log, steps, `loaded ${source}`, async () => {
       const out = join(loadDir, `${source}.load.sql`);
-      const lines = await loadSource(
+      const loaded = await loadSource(
         source,
         sources,
         { ops, binding, buildId },
         out,
       );
-      for (const line of lines) log(`  ${line}`);
+      record.loads.push(loaded);
+      for (const line of loaded.lines) log(`  ${line}`);
     });
   }
-  await timed(log, "rebuilt the search index", () =>
+  await timed(log, steps, "rebuilt the search index", () =>
     rebuildSearchIndex({ ops, binding, buildId }, loadDir),
   );
 
-  const { counts, checks } = await verify(ops, {
-    pointer,
-    slot,
-    buildId,
-    floors,
-    log,
+  const { checks } = record;
+  const counts = await timed(log, steps, "verified", async () => {
+    const counts = await verify(ops, {
+      pointer,
+      slot,
+      buildId,
+      floors,
+      forceVerifyFailure,
+      checks,
+      log,
+    });
+    const failed = checks.filter((check) => !check.ok);
+    if (failed.length > 0) {
+      throw new Error(
+        `verify failed for build ${buildId} in ${binding}: ${failed.map((c) => `${c.name} (${c.detail})`).join("; ")}`,
+      );
+    }
+    return counts;
   });
-  const failed = checks.filter((check) => !check.ok);
-  if (failed.length > 0) {
-    throw new Error(
-      `verify failed for build ${buildId} in ${binding}: ${failed.map((c) => `${c.name} (${c.detail})`).join("; ")}`,
-    );
-  }
 
   const [sealed] = await ops.query<DataMeta>(
     binding,
@@ -419,19 +447,23 @@ async function verify(
     slot,
     buildId,
     floors,
+    forceVerifyFailure,
+    checks,
     log,
   }: {
     pointer: Pointer;
     slot: DataSlot;
     buildId: string;
     floors: TableFloors;
+    forceVerifyFailure: boolean;
+    /** Each check is added here as it ends. */
+    checks: Check[];
     log: (line: string) => void;
   },
-): Promise<{ counts: Record<Counted, number>; checks: Check[] }> {
+): Promise<Record<Counted, number>> {
   const binding = DATA_DB_BINDING[slot];
   const servedBinding = DATA_DB_BINDING[pointer.active];
   const firstBuild = pointer.build_id === NEVER_BUILT;
-  const checks: Check[] = [];
   async function check(
     name: string,
     run: () => Promise<{ ok: boolean; detail: string }>,
@@ -528,7 +560,13 @@ async function verify(
     );
     return { ok: n === 0, detail: `${n} rows without an EIN` };
   });
-  return { counts, checks };
+  if (forceVerifyFailure) {
+    await check("forced failure", async () => ({
+      ok: false,
+      detail: "--force-verify-failure was given",
+    }));
+  }
+  return counts;
 }
 
 /** Indexes every named org in the target's generation, replacing what its search index held. */
@@ -554,15 +592,25 @@ async function applySql(
   await ops.applyFile(binding, file);
 }
 
-/** Runs `step`, then logs `done` with how long it took. */
-async function timed(
+/** Runs `step` and adds it to `steps` with how long it took, failed or not; logs `done` with that time only when it succeeds. */
+async function timed<T>(
   log: (line: string) => void,
+  steps: Step[],
   done: string,
-  step: () => Promise<void>,
-): Promise<void> {
+  step: () => Promise<T>,
+): Promise<T> {
   const started = performance.now();
-  await step();
-  log(`${done} (${((performance.now() - started) / 1000).toFixed(1)} s)`);
+  const seconds = () => (performance.now() - started) / 1000;
+  let result: T;
+  try {
+    result = await step();
+  } catch (error) {
+    steps.push({ name: done, seconds: seconds(), ok: false });
+    throw error;
+  }
+  steps.push({ name: done, seconds: seconds(), ok: true });
+  log(`${done} (${seconds().toFixed(1)} s)`);
+  return result;
 }
 
 function message(error: unknown): string {
@@ -573,6 +621,8 @@ export interface RollbackOptions {
   log?: (line: string) => void;
   /** As `RefreshOptions.onClaim`. */
   onClaim?: (buildId: string) => void;
+  /** As `RefreshOptions.record`. */
+  record?: RunRecord;
 }
 
 /**
@@ -583,9 +633,10 @@ export interface RollbackOptions {
  */
 export async function rollback(
   ops: D1Ops,
-  { log = () => {}, onClaim }: RollbackOptions = {},
+  { log = () => {}, onClaim, record }: RollbackOptions = {},
 ): Promise<{ from: DataSlot; to: DataSlot; buildId: string }> {
   const pointer = await readPointer(ops);
+  if (record !== undefined) record.servedBefore = pointer;
   const from = pointer.active;
   const to = otherSlot(from);
   const binding = DATA_DB_BINDING[to];

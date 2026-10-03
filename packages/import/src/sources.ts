@@ -1,12 +1,23 @@
-import { BMF_MIN_ORGS, BMF_URLS, importBmf } from "./bmf.ts";
+import {
+  BMF_MIN_ORGS,
+  BMF_URLS,
+  type BmfImportSummary,
+  importBmf,
+} from "./bmf.ts";
 import {
   EFILE_BASE_URL,
   EFILE_FLOORS,
   type EfileImportOptions,
+  type EfileImportSummary,
   importEfile,
   percent,
 } from "./efile.ts";
-import { importList, LISTS, type ListName } from "./lists.ts";
+import {
+  importList,
+  LISTS,
+  type ListImportSummary,
+  type ListName,
+} from "./lists.ts";
 import type { D1Target } from "./wrangler.ts";
 
 /** Every IRS source, in the order a full build loads them. */
@@ -47,19 +58,26 @@ export function irsSources(efile: {
   };
 }
 
+/** What one source's load read and wrote, and the lines it reports. */
+export type Loaded = { lines: string[] } & (
+  | { source: "bmf"; summary: BmfImportSummary }
+  | { source: ListName; summary: ListImportSummary }
+  | { source: "efile"; summary: EfileImportSummary }
+);
+
 /**
  * Imports `source` into `target` as its own load, its SQL written to `out`;
- * resolves with the lines to report. Leaves the search index as it was.
+ * resolves with what it loaded. Leaves the search index as it was.
  */
 export async function loadSource(
   source: Source,
   config: SourceConfig,
   target: D1Target,
   out: string,
-): Promise<string[]> {
+): Promise<Loaded> {
   if (source === "efile") {
     const summary = await importEfile({ ...config.efile, out, target });
-    return [
+    const lines = [
       ...(summary.unpublished === null
         ? []
         : [`index_${summary.unpublished}.csv is not published yet`]),
@@ -98,24 +116,27 @@ export async function loadSource(
             ],
       ),
     ];
+    return { source, summary, lines };
   }
   if (source === "bmf") {
     const summary = await importBmf({ ...config.bmf, out, target });
-    return [
+    const lines = [
       ...summary.files.map(
         (f) => `${f.url}  released ${f.releasedAt}  ${f.orgs} orgs`,
       ),
       `bmf: ${summary.orgs} orgs`,
     ];
+    return { source, summary, lines };
   }
   const summary = await importList(source, {
     ...config.lists[source],
     out,
     target,
   });
-  return [
+  const lines = [
     `${summary.url}  released ${summary.releasedAt}  ${summary.rows} rows`,
   ];
+  return { source, summary, lines };
 }
 
 /** The first 10 of `ids`, and an ellipsis for any more. */

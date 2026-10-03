@@ -32,6 +32,12 @@ import {
 } from "./generation.ts";
 import type { SourceConfig } from "./sources.ts";
 import {
+  type RunRecord,
+  runRecord,
+  summarized,
+  summaryWriter,
+} from "./summary.ts";
+import {
   migrateAppDb,
   type Route,
   serve,
@@ -159,6 +165,8 @@ interface RunOptions {
   via?: D1Ops;
   log?: (line: string) => void;
   onClaim?: (buildId: string) => void;
+  forceVerifyFailure?: boolean;
+  record?: RunRecord;
 }
 
 /**
@@ -181,6 +189,10 @@ function world() {
         loadDir: join(work, "load"),
         log: options.log ?? (() => {}),
         ...(options.onClaim === undefined ? {} : { onClaim: options.onClaim }),
+        ...(options.forceVerifyFailure === undefined
+          ? {}
+          : { forceVerifyFailure: options.forceVerifyFailure }),
+        ...(options.record === undefined ? {} : { record: options.record }),
       }),
     /** `remoteD1`, each `--file` failing with `failure`; every other command runs on this world. */
     failingApply: (failure: string) =>
@@ -653,6 +665,36 @@ describe("refresh and rollback", { timeout: 30_000 }, () => {
     expect(await w.claimHolder()).toBeNull();
   });
 
+  test("a forced verify failure fails a build that passes every real check, after the full load, and leaves the served build", async () => {
+    const w = await servingFirstBuild();
+    const before = await w.pointer();
+    const served = await w.query("DATA_DB_B", RED_CROSS);
+    startLater();
+    const lines: string[] = [];
+
+    const error = await w
+      .refresh({ forceVerifyFailure: true, log: (line) => lines.push(line) })
+      .catch((e: unknown) => String(e));
+
+    expect(error).toMatch(
+      /verify failed for build \S+ in DATA_DB_A: forced failure \(--force-verify-failure was given\)$/,
+    );
+    // every real check ran on the full build, and passed
+    expect(lines.filter((line) => line.startsWith("check "))).toHaveLength(
+      LATER_BUILD_CHECKS.length + 1,
+    );
+    expect(lines.filter((line) => line.includes(": FAILED,"))).toStrictEqual([
+      expect.stringMatching(/^check forced failure: FAILED, /),
+    ]);
+    expect(await w.pointer()).toStrictEqual(before);
+    expect(await w.query("DATA_DB_B", RED_CROSS)).toStrictEqual(served);
+    expect(await w.query("DATA_DB_A", RED_CROSS)).toStrictEqual(served);
+    expect(await w.meta("DATA_DB_A")).toMatchObject([
+      { slot: "a", state: "building" },
+    ]);
+    expect(await w.claimHolder()).toBeNull();
+  });
+
   test("a refresh whose list facts landed on more than 10% fewer orgs than served fails verify, and so does a Red Cross not deductible", async () => {
     const w = await servingFirstBuild();
     const before = await w.pointer();
@@ -1021,6 +1063,154 @@ describe("refresh and rollback", { timeout: 30_000 }, () => {
         loadDir: join(work, "load"),
       }),
     ).rejects.toThrow("partial generation, which is local only");
+  });
+});
+
+describe("run summary", { timeout: 30_000 }, () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const startLater = () => vi.setSystemTime(Date.now() + 2_000);
+  let n = 0;
+  const summaryFile = () => join(work, `summary-${++n}.md`);
+  /** One markdown table row's cells, `|` and padding trimmed. */
+  const row = (...cells: string[]) => `| ${cells.join(" | ")} |`;
+
+  test("a served refresh's summary lists each source's rows, the e-file years and yields, every check with its numbers, each step's time, and the build served before and after", async () => {
+    const w = await servingFirstBuild();
+    const [before] = await w.pointer();
+    startLater();
+    const record = runRecord("refresh", false);
+    const file = summaryFile();
+
+    const report = await summarized(
+      w.ops,
+      record,
+      summaryWriter(file, []),
+      () => w.refresh({ record }),
+    );
+
+    const md = await readFile(file, "utf8");
+    expect(md).toContain(
+      `## irs refresh (local D1): serving slot a, build ${report.buildId}\n`,
+    );
+    expect(md).toContain(row("served before", "b", `${before?.build_id}`));
+    expect(md).toContain(row("served after", "a", report.buildId));
+    // the fixtures' data rows: eo1–eo4.csv's 62 + 61 + 60 + 62, each list's lines that open with an EIN, the 10 latest filings
+    const released = "2026-09-16T13:02:21.000Z";
+    expect(md).toContain(row("bmf", "245 orgs", released));
+    expect(md).toContain(row("pub78", "122 rows", released));
+    expect(md).toContain(row("revocation", "31 rows", released));
+    expect(md).toContain(row("epostcard", "95 rows", released));
+    expect(md).toContain(row("efile", "10 filings", "2026, 2025, 2024"));
+    expect(md).toContain(
+      "Release years read: 2026, 2025, 2024 (index_2026.csv lists 11 rows, at least half of index_2025.csv's 3: 3 release years read)",
+    );
+    expect(md).toContain(
+      row("990", "7 returns", "100.0% with mission, 100.0% with revenue"),
+    );
+    expect(md).toContain(
+      row("990-EZ", "1 returns", "100.0% with mission, 100.0% with finances"),
+    );
+    expect(md).toContain(row("990-PF", "2 returns", "100.0% with finances"));
+    for (const name of LATER_BUILD_CHECKS) {
+      expect(md).toMatch(
+        new RegExp(`^\\| ${name} \\| ok \\| .+ \\| \\d+\\.\\d s \\|$`, "m"),
+      );
+    }
+    expect(md).toContain(row("orgs floor", "ok", "orgs: 260, floor 1"));
+    expect(md).toContain(row("orgs vs served", "ok", "orgs: 260, served 260"));
+    for (const step of [
+      "reset DATA_DB_A",
+      "loaded bmf",
+      "loaded pub78",
+      "loaded revocation",
+      "loaded epostcard",
+      "loaded efile",
+      "rebuilt the search index",
+      "verified",
+      "total",
+    ]) {
+      expect(md).toMatch(new RegExp(`^\\| ${step} \\| \\d+\\.\\d s \\|$`, "m"));
+    }
+    expect(md).not.toContain("**Failed:**");
+  });
+
+  test("a failed refresh's summary carries the failure on one line, the failed check with the rest, and the build still served", async () => {
+    const w = await servingFirstBuild();
+    const [before] = await w.pointer();
+    startLater();
+    const record = runRecord("refresh", false);
+    const file = summaryFile();
+
+    const error = await summarized(w.ops, record, summaryWriter(file, []), () =>
+      w.refresh({ record, forceVerifyFailure: true }),
+    ).catch((e: unknown) => (e instanceof Error ? e.message : String(e)));
+
+    const md = await readFile(file, "utf8");
+    expect(md).toContain("## irs refresh (local D1): failed\n");
+    expect(
+      md.split("\n").filter((l) => l.startsWith("**Failed:**")),
+    ).toStrictEqual([`**Failed:** ${error}`]);
+    expect(error).toContain(
+      "forced failure (--force-verify-failure was given)",
+    );
+    expect(md).toContain(
+      row("forced failure", "FAILED", "--force-verify-failure was given"),
+    );
+    expect(md).toContain(row("orgs vs served", "ok", "orgs: 260, served 260"));
+    expect(md).toContain(row("served before", "b", `${before?.build_id}`));
+    expect(md).toContain(row("served after", "b", `${before?.build_id}`));
+    expect(md).toMatch(/^\| verified \| failed after \d+\.\d s \|$/m);
+  });
+
+  test("a summary never carries a secret, and an empty one replaces nothing", async () => {
+    const w = world();
+    const record = runRecord("refresh", true);
+    const file = summaryFile();
+
+    await expect(
+      summarized(
+        w.ops,
+        record,
+        summaryWriter(file, ["0123abcd", "", undefined]),
+        () =>
+          w.refresh({
+            record,
+            via: w.failingApply(
+              "A request to the Cloudflare API (/accounts/0123abcd/d1/database/x/import) failed.",
+            ),
+          }),
+      ),
+    ).rejects.toThrow("0123abcd");
+
+    const md = await readFile(file, "utf8");
+    expect(md).toContain(
+      "**Failed:** A request to the Cloudflare API (/accounts/[redacted]/d1/database/x/import) failed.\n",
+    );
+    expect(md).not.toContain("0123abcd");
+    expect(md).toMatch(/^\| reset DATA_DB_B \| failed after \d+\.\d s \|$/m);
+  });
+
+  test("a rollback's summary names the build served before and after", async () => {
+    const w = world();
+    await holdPreviousBuild(w, "b");
+    const record = runRecord("rollback", false);
+    const file = summaryFile();
+
+    await summarized(w.ops, record, summaryWriter(file, []), () =>
+      rollback(w.ops, { record }),
+    );
+
+    const md = await readFile(file, "utf8");
+    expect(md).toContain(
+      "## irs rollback (local D1): serving slot b, build old\n",
+    );
+    expect(md).toContain(row("served before", "a", "empty"));
+    expect(md).toContain(row("served after", "b", "old"));
   });
 });
 

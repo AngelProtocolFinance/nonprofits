@@ -1,0 +1,127 @@
+name: monthly import
+on:
+  schedule:
+    # the 3rd, after the IRS's month-end revocation list and mid-month BMF, Pub 78 and e-file index refreshes
+    - cron: "17 6 3 * *"
+  workflow_dispatch:
+    inputs:
+      force_verify_failure:
+        description: Build the whole generation, then fail verify, so nothing is sealed or served
+        type: boolean
+        default: false
+      rollback:
+        description: Serve the previous generation again instead of building a new one
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  # only for the failure issue
+  issues: write
+concurrency:
+  group: monthly-import
+  cancel-in-progress: false
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Check the Cloudflare secrets are set
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=()
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing+=(CLOUDFLARE_API_TOKEN)
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing+=(CLOUDFLARE_ACCOUNT_ID)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Missing repository secret::${missing[*]} not set: add under Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Disk space before the import
+        run: df -h .
+      - name: Import
+        id: import
+        # leaves the job's last 10 minutes to the steps below
+        timeout-minutes: 335
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ROLLBACK: ${{ inputs.rollback }}
+          FORCE_VERIFY_FAILURE: ${{ inputs.force_verify_failure }}
+        run: |
+          args=(refresh --remote)
+          if [ "$ROLLBACK" = true ]; then args=(rollback --remote); fi
+          if [ "$FORCE_VERIFY_FAILURE" = true ]; then args+=(--force-verify-failure); fi
+          # exec: the runner signals only the step's own process, and a bash
+          # waiting on node would leave it to the SIGKILL that follows
+          exec node packages/import/src/cli.ts "${args[@]}" --summary "$RUNNER_TEMP/import-summary.md"
+      - name: Release the claim of an import whose stop was cut off
+        if: cancelled() && steps.import.outcome == 'cancelled'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          summary="$RUNNER_TEMP/import-summary.md"
+          if [ ! -f "$summary" ]; then
+            echo "no run summary, so no claim this run is known to hold; a claim lapses with its 8 h lease"
+            exit 0
+          fi
+          if grep -q "keeps its claim" "$summary"; then
+            echo "::warning title=Claim kept::a remote import may still be running in D1; run the irs release the summary names once it has ended"
+            exit 0
+          fi
+          build=$(sed -n 's/.*irs release --remote --build \([^ ]*\) clears .*/\1/p' "$summary" | head -n 1)
+          if [ -z "$build" ]; then
+            echo "the import's own stop released its claim"
+            exit 0
+          fi
+          node packages/import/src/cli.ts release --remote --build "$build"
+      - name: Run summary
+        if: always()
+        run: |
+          summary="$RUNNER_TEMP/import-summary.md"
+          if [ -f "$summary" ]; then cat "$summary" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Open or comment on the failure issue
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require("node:fs");
+            const title = "Monthly IRS import failed";
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            let failing = "No run summary was written; the run's log says why.";
+            try {
+              const summary = fs.readFileSync(`${process.env.RUNNER_TEMP}/import-summary.md`, "utf8");
+              failing =
+                summary.split("\n").find((line) => /^\*\*(Failed|Stopped):\*\*/.test(line)) ??
+                "The run summary records no failure; the run's log says why.";
+            } catch {}
+            const body = `The ${context.eventName} run ${runUrl} failed. The previous generation is still served unless the summary says otherwise.\n\n> ${failing}`;
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: "open",
+              creator: "github-actions[bot]",
+              per_page: 100,
+            });
+            const issue = open.find((i) => i.title === title && !i.pull_request);
+            if (issue) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }
+      - name: Clean up downloads and load files
+        if: always()
+        run: |
+          rm -rf data load
+          df -h .
