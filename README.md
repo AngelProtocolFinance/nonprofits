@@ -27,10 +27,21 @@ Runs Biome, `tsc --noEmit` per package, and Vitest, sequentially. CI runs the sa
 From `packages/worker`, against a local D1 seeded with fixture rows:
 
 ```sh
+cp .dev.vars.example .dev.vars   # then fill both secrets: openssl rand -base64 32
 pnpm db:migrate:local
 pnpm db:seed:local
-pnpm dev            # GET http://localhost:8787/v1/orgs/530196605
+pnpm dev
 ```
+
+Every lookup needs an API key, sent as `Authorization: Bearer <key>`. Keys are issued and revoked through the Worker's admin endpoints, with `ADMIN_TOKEN` read from `.dev.vars`:
+
+```sh
+pnpm --filter @nonprofits/cli keys create --email <owner-email> [--name <name>]   # prints the key once
+curl -H "Authorization: Bearer <key>" http://localhost:8787/v1/orgs/530196605
+pnpm --filter @nonprofits/cli keys revoke <key-id>
+```
+
+Against a deployed Worker, set `NONPROFITS_URL` and `ADMIN_TOKEN` in the shell. `pnpm auth:generate` writes better-auth's schema for the current plugins to `.wrangler/auth-schema.sql`, the source for any new auth migration.
 
 Rerun `pnpm types` after editing `wrangler.jsonc`.
 

@@ -10,13 +10,17 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:seed:local": "wrangler d1 execute DB --local --file fixtures/seed.sql",
     "types": "wrangler types",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p test"
+    "auth:generate": "auth generate --config auth.generate.ts --output .wrangler/auth-schema.sql --yes",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test && tsc --noEmit -p test/direct"
   },
   "devDependencies": {
+    "auth": "catalog:",
     "wrangler": "catalog:"
   },
   "dependencies": {
+    "@better-auth/api-key": "catalog:",
     "@nonprofits/core": "workspace:*",
-    "@nonprofits/db": "workspace:*"
+    "@nonprofits/db": "workspace:*",
+    "better-auth": "catalog:"
   }
 }

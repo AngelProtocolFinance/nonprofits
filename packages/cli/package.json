@@ -6,6 +6,10 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "keys": "node --env-file-if-exists=../worker/.dev.vars src/cli.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test"
+  },
+  "devDependencies": {
+    "wrangler": "catalog:"
   }
 }

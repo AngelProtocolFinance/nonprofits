@@ -1,51 +1,30 @@
-import { readFile } from "node:fs/promises";
 import type { OrgResponse } from "@nonprofits/core";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { createTestHarness } from "wrangler";
+import {
+  createWorkerHarness,
+  issueKey,
+  listenSeeded,
+  testEnv,
+} from "./harness.ts";
 
-interface D1Statement {
-  bind(...values: unknown[]): D1Statement;
-}
-interface TestEnv {
-  DB: {
-    prepare(sql: string): D1Statement;
-    batch(statements: D1Statement[]): Promise<unknown>;
-  };
-}
-
-const server = createTestHarness({
-  workers: [{ configPath: new URL("../wrangler.jsonc", import.meta.url) }],
-});
-
-/** Splits a SQL file into statements; full-line `--` comments are dropped. */
-function statements(sql: string): string[] {
-  return sql
-    .split("\n")
-    .filter((line) => !line.trimStart().startsWith("--"))
-    .join("\n")
-    .split(/;\s*(?:\n|$)/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
+const server = createWorkerHarness();
+let authorization: string;
 
 beforeAll(async () => {
-  await server.listen();
-  const worker = server.getWorker();
-  await worker.applyD1Migrations("DB");
-  const { DB } = (await worker.getEnv()) as unknown as TestEnv;
-  const seed = await readFile(
-    new URL("../fixtures/seed.sql", import.meta.url),
-    "utf8",
-  );
-  await DB.batch(statements(seed).map((s) => DB.prepare(s)));
+  await listenSeeded(server);
+  authorization = `Bearer ${(await issueKey(server)).key}`;
 });
 
 afterAll(async () => {
   await server.close();
 });
 
+function fetchWithKey(path: string, method = "GET") {
+  return server.fetch(path, { method, headers: { authorization } });
+}
+
 async function getOrg(path: string) {
-  const response = await server.fetch(path);
+  const response = await fetchWithKey(path);
   return { response, body: (await response.json()) as OrgResponse };
 }
 
@@ -151,7 +130,7 @@ describe("GET /v1/orgs/:ein", () => {
   test.each(["abc", "53019660", "5301966050"])(
     "refuses %j with a 400 naming the format",
     async (ein) => {
-      const response = await server.fetch(`/v1/orgs/${ein}`);
+      const response = await fetchWithKey(`/v1/orgs/${ein}`);
       expect(response.status).toBe(400);
       expect(response.headers.get("content-type")).toBe(
         "application/problem+json",
@@ -167,7 +146,7 @@ describe("GET /v1/orgs/:ein", () => {
   );
 
   test("answers 404 not found for a well-formed unknown EIN", async () => {
-    const response = await server.fetch("/v1/orgs/999999999");
+    const response = await fetchWithKey("/v1/orgs/999999999");
     expect(response.status).toBe(404);
     expect(await response.json()).toStrictEqual({
       type: "about:blank",
@@ -179,7 +158,7 @@ describe("GET /v1/orgs/:ein", () => {
   });
 
   test("answers a route miss with a code distinct from an unknown EIN", async () => {
-    const response = await server.fetch("/v1/orgs/530196605/");
+    const response = await fetchWithKey("/v1/orgs/530196605/");
     expect(response.status).toBe(404);
     expect(await response.json()).toMatchObject({ code: "route_not_found" });
   });
@@ -204,9 +183,7 @@ describe("GET /v1/orgs/:ein", () => {
   });
 
   test("answers 405 for a method other than GET", async () => {
-    const response = await server.fetch("/v1/orgs/530196605", {
-      method: "POST",
-    });
+    const response = await fetchWithKey("/v1/orgs/530196605", "POST");
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("GET");
   });
@@ -274,7 +251,7 @@ describe("GET /v1/orgs/:ein", () => {
   });
 
   test("reads a bounded number of rows however many orgs and runs are stored", async () => {
-    const { DB } = (await server.getWorker().getEnv()) as unknown as TestEnv;
+    const { DB } = await testEnv(server);
     const filler = Array.from({ length: 300 }, (_, i) => String(900000000 + i));
     const laterBmfRuns = Array.from({ length: 200 }, (_, i) =>
       DB.prepare(
@@ -297,7 +274,7 @@ describe("GET /v1/orgs/:ein", () => {
     ]);
     server.clearLogs();
 
-    await server.fetch("/v1/orgs/530196605");
+    await fetchWithKey("/v1/orgs/530196605");
 
     const lookups = server
       .getLogs()
@@ -308,5 +285,6 @@ describe("GET /v1/orgs/:ein", () => {
     expect(lookups).toHaveLength(1);
     expect(lookups[0].rowsRead).toBeGreaterThan(0);
     expect(lookups[0].rowsRead).toBeLessThanOrEqual(24);
-  });
+    // the filler insert alone takes seconds; slower beside the other harness suites
+  }, 30_000);
 });

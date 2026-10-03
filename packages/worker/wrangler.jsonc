@@ -7,6 +7,7 @@
     "enabled": true,
     "traces": { "enabled": true }
   },
+  "secrets": { "required": ["BETTER_AUTH_SECRET", "ADMIN_TOKEN"] },
   "d1_databases": [
     {
       "binding": "DB",
