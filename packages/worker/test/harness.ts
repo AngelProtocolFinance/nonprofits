@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { rebuildSearchIndexSql } from "@nonprofits/db";
 import { createTestHarness } from "wrangler";
 
 interface D1Statement {
@@ -46,7 +47,15 @@ export async function testEnv(server: Harness): Promise<TestEnv> {
   return (await server.getWorker().getEnv()) as unknown as TestEnv;
 }
 
-/** Starts the Worker on a migrated D1 holding `fixtures/seed.sql`. */
+/** The search index rebuild an import runs after each load. */
+export async function rebuildSearchIndex(server: Harness): Promise<void> {
+  const { DB } = await testEnv(server);
+  await DB.batch(
+    statements(rebuildSearchIndexSql("")).map((s) => DB.prepare(s)),
+  );
+}
+
+/** Starts the Worker on a migrated D1 holding `fixtures/seed.sql`, indexed for search. */
 export async function listenSeeded(server: Harness): Promise<void> {
   await server.listen();
   const worker = server.getWorker();
@@ -57,6 +66,7 @@ export async function listenSeeded(server: Harness): Promise<void> {
     "utf8",
   );
   await DB.batch(statements(seed).map((s) => DB.prepare(s)));
+  await rebuildSearchIndex(server);
 }
 
 export interface IssuedKey {

@@ -3,10 +3,14 @@ import {
   lookupOrg,
   type OrgLookupError,
   type OrgResponse,
+  type OrgSearchError,
+  type OrgSearchResponse,
   type Result,
+  searchOrgs,
 } from "@nonprofits/core";
 import { API_KEY_LETTERS, API_KEY_PREFIX, getAuth } from "./auth.ts";
 import { D1OrgReader } from "./d1-org-reader.ts";
+import { D1OrgSearcher } from "./d1-org-searcher.ts";
 
 /** What every transport (REST, MCP) hands a handler. */
 export interface HandlerContext {
@@ -25,7 +29,11 @@ export type AuthError = {
 export type AuthUnavailable = { code: "auth_unavailable"; message: string };
 
 /** Every refusal a handler can return; transports map each `code`. */
-export type HandlerError = OrgLookupError | AuthError | AuthUnavailable;
+export type HandlerError =
+  | OrgLookupError
+  | OrgSearchError
+  | AuthError
+  | AuthUnavailable;
 
 /** The caller a valid key stands for. */
 export interface Principal {
@@ -165,6 +173,26 @@ export async function lookup(
   const result = await lookupOrg(ein, reader);
   emit({
     event: "org_lookup",
+    outcome: result.ok ? "ok" : result.error.code,
+    rowsRead,
+  });
+  return result;
+}
+
+export async function search(
+  input: { query: string; limit?: number | undefined },
+  ctx: HandlerContext,
+): Promise<Result<OrgSearchResponse, HandlerError>> {
+  const admitted = await admit(ctx);
+  if (!admitted.ok) return admitted;
+
+  let rowsRead = 0;
+  const searcher = new D1OrgSearcher(ctx.env.DB, (rows) => {
+    rowsRead += rows;
+  });
+  const result = await searchOrgs(input, searcher);
+  emit({
+    event: "org_search",
     outcome: result.ok ? "ok" : result.error.code,
     rowsRead,
   });
