@@ -1,3 +1,16 @@
 {
-  "env": { "KRU_PROJECT": "nonprofits" }
+  "env": { "KRU_PROJECT": "nonprofits", "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/cloud-install.sh\""
+          }
+        ]
+      }
+    ]
+  }
 }
