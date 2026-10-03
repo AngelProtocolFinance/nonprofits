@@ -108,9 +108,9 @@ export interface EfileImportOptions {
   /** The current year; when its index isn't published yet (January), the run starts a year earlier. */
   latestYear: number;
   /**
-   * Index XML_BATCH_IDs whose latest filings alone are loaded, with the
-   * runner-up, from whichever batch holds it, of any rejected, leaving every
-   * other stored filing as it is; omitted, every batch is loaded, and the
+   * Index XML_BATCH_IDs whose latest filings alone are loaded (with the
+   * runner-up of any rejected one, from whichever batch holds it), leaving
+   * every other stored filing as it is; omitted, every batch is loaded, and the
    * filings this run didn't write (but those of EINs whose latest return it
    * rejected) are deleted, with the orgs that leaves without a fact or a filing.
    */
@@ -187,13 +187,13 @@ const PROGRAM_COLUMNS = [
  * Reads the 990 e-file index of each release year, picks each EIN's latest
  * filing, and parses those filings out of the batch zips into one SQL load
  * file, applied to D1 in a single `wrangler d1 execute --file`. A return
- * whose EIN, form type, an amount or its TaxYr can't be read, or that isn't
- * well-formed XML, is rejected and skipped, and its EIN's runner-up filing is
- * read in its place; when that is rejected too, the EIN keeps what it had
- * stored, which in a fresh slot is no filing. A
- * drifted index, a filing missing from its batch or too large for a
- * statement, a failed download, too many rejects or a yield under the floors
- * throws before the apply, leaving D1 untouched and no load file behind.
+ * whose EIN, form type, an amount or its TaxYr can't be read, or whose XML is
+ * malformed, cut off or fails to inflate, is rejected and skipped, and its
+ * EIN's runner-up filing is read in its place; when that is rejected too, the
+ * EIN keeps what it had stored, which in a fresh slot is no filing. A drifted
+ * index, a filing missing from its batch or too large for a statement, a
+ * failed download, too many rejects or a yield under the floors throws before
+ * the apply, leaving D1 untouched and no load file behind.
  */
 export async function importEfile(
   options: EfileImportOptions,

@@ -312,6 +312,7 @@ function backdate(db: DatabaseSync, column: string, seconds: number): void {
   );
 }
 
+// a runner's clock past the 8 h lease and the settle: only the database's clock can refuse
 const NINE_HOURS_AHEAD = new Date(Date.now() + 9 * 3600_000).toISOString();
 
 describe("claimSlotSql", () => {

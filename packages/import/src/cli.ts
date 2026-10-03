@@ -218,7 +218,7 @@ function releaseOnSignal(ops: D1Ops): string[] {
       console.error(`stop cut off after ${STOP_BUDGET_MS / 1000} s`);
       for (const id of claims) {
         console.error(
-          `irs release${ops.remote ? " --remote" : ""} --build ${id} clears build ${id}'s claim if it is left`,
+          `irs release${ops.remote ? " --remote" : ""} --build ${id} clears build ${id}'s claim if it is still held`,
         );
       }
     }

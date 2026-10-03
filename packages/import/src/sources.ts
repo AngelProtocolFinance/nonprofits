@@ -83,7 +83,7 @@ export async function loadSource(
         : []),
       ...Object.entries(summary.runnersUp.rejects).map(
         ([reason, ids]) =>
-          `runner-up rejected too ${ids.length} (${reason}): ${some(ids)}`,
+          `rejected ${ids.length} runner-up filings too (${reason}): ${some(ids)}`,
       ),
       `efile: ${summary.filings} filings`,
       ...Object.entries(summary.yields).flatMap(([form, shares]) =>
