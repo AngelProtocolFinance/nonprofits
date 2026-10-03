@@ -1,0 +1,383 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" returnVersion="2019v5.0">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2022-09-09T13:29:50-04:00</ReturnTs>
+    <TaxPeriodEndDt>2019-12-31</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>CHARLES P MYRICK CPA</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>805 15TH ST NW STE 805</AddressLine1Txt>
+        <CityNm>WASHINGTON</CityNm>
+        <StateAbbreviationCd>DC</StateAbbreviationCd>
+        <ZIPCd>200052280</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990</ReturnTypeCd>
+    <TaxPeriodBeginDt>2019-01-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>815436769</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>CAPITOL HILL JAZZ FOUNDATION</BusinessNameLine1Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>CAPI</BusinessNameControlTxt>
+      <PhoneNum>2024898192</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>700 PENNSYLVANIA AVE SE STE 2107</AddressLine1Txt>
+        <CityNm>WASHINGTON</CityNm>
+        <StateAbbreviationCd>DC</StateAbbreviationCd>
+        <ZIPCd>20011</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>HERBERT SCOTT</PersonNm>
+      <PersonTitleTxt>EXECUTIVE DIRECTOR</PersonTitleTxt>
+      <PhoneNum>2024898192</PhoneNum>
+      <SignatureDt>2022-09-09</SignatureDt>
+      <DiscussWithPaidPreparerInd>true</DiscussWithPaidPreparerInd>
+    </BusinessOfficerGrp>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>CHARLES MYRICK CPA</PreparerPersonNm>
+      <PTIN>P01080700</PTIN>
+      <PhoneNum>2027898898</PhoneNum>
+      <PreparationDt>2022-09-09</PreparationDt>
+      <SelfEmployedInd>X</SelfEmployedInd>
+    </PreparerPersonGrp>
+    <TaxYr>2019</TaxYr>
+    <BuildTS>2023-04-26 12:10:37Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="4">
+    <IRS990 documentId="RetDoc2" referenceDocumentId="RetDoc3">
+      <PrincipalOfficerNm>HERBERT SCOTT</PrincipalOfficerNm>
+      <GrossReceiptsAmt>116283</GrossReceiptsAmt>
+      <GroupReturnForAffiliatesInd>false</GroupReturnForAffiliatesInd>
+      <Organization501c3Ind>X</Organization501c3Ind>
+      <WebsiteAddressTxt>WWW.CAPITOLHILLJAZZFOUNDATION.ORG</WebsiteAddressTxt>
+      <TypeOfOrganizationCorpInd>X</TypeOfOrganizationCorpInd>
+      <FormationYr>2017</FormationYr>
+      <LegalDomicileStateCd>DC</LegalDomicileStateCd>
+      <ActivityOrMissionDesc>THE MISSION OF THE CAPITOL HILL JAZZ FOUNDATION IS TO SERVE THE WASHINGTON, D.C. JAZZ COMMUNITY BY PROVIDING A WEEKLY JAM SESSION, ANNUAL JAZZ FESTIVAL AND ARTS ADVOCACY ON BEHALF OF D.C. JAZZ MUSICIANS. OUR VISION IS TO FINANCIALLY ASSIST WASHINGTON D.C. BASED JAZZ MUSICIANS, VENUES AND JAZZ EDUCATION PROGRAMS.</ActivityOrMissionDesc>
+      <VotingMembersGoverningBodyCnt>6</VotingMembersGoverningBodyCnt>
+      <VotingMembersIndependentCnt>6</VotingMembersIndependentCnt>
+      <TotalEmployeeCnt>0</TotalEmployeeCnt>
+      <TotalGrossUBIAmt>0</TotalGrossUBIAmt>
+      <PYContributionsGrantsAmt>79896</PYContributionsGrantsAmt>
+      <CYContributionsGrantsAmt>98700</CYContributionsGrantsAmt>
+      <PYProgramServiceRevenueAmt>28026</PYProgramServiceRevenueAmt>
+      <CYProgramServiceRevenueAmt>11700</CYProgramServiceRevenueAmt>
+      <CYInvestmentIncomeAmt>0</CYInvestmentIncomeAmt>
+      <PYOtherRevenueAmt>6573</PYOtherRevenueAmt>
+      <CYOtherRevenueAmt>5883</CYOtherRevenueAmt>
+      <PYTotalRevenueAmt>114495</PYTotalRevenueAmt>
+      <CYTotalRevenueAmt>116283</CYTotalRevenueAmt>
+      <CYGrantsAndSimilarPaidAmt>0</CYGrantsAndSimilarPaidAmt>
+      <CYBenefitsPaidToMembersAmt>0</CYBenefitsPaidToMembersAmt>
+      <PYSalariesCompEmpBnftPaidAmt>16980</PYSalariesCompEmpBnftPaidAmt>
+      <CYSalariesCompEmpBnftPaidAmt>5723</CYSalariesCompEmpBnftPaidAmt>
+      <CYTotalProfFndrsngExpnsAmt>0</CYTotalProfFndrsngExpnsAmt>
+      <CYTotalFundraisingExpenseAmt>1488</CYTotalFundraisingExpenseAmt>
+      <PYOtherExpensesAmt>98725</PYOtherExpensesAmt>
+      <CYOtherExpensesAmt>102119</CYOtherExpensesAmt>
+      <PYTotalExpensesAmt>115705</PYTotalExpensesAmt>
+      <CYTotalExpensesAmt>107842</CYTotalExpensesAmt>
+      <PYRevenuesLessExpensesAmt>-1210</PYRevenuesLessExpensesAmt>
+      <CYRevenuesLessExpensesAmt>8441</CYRevenuesLessExpensesAmt>
+      <TotalAssetsBOYAmt>-4</TotalAssetsBOYAmt>
+      <TotalAssetsEOYAmt>8437</TotalAssetsEOYAmt>
+      <TotalLiabilitiesEOYAmt>0</TotalLiabilitiesEOYAmt>
+      <NetAssetsOrFundBalancesBOYAmt>-4</NetAssetsOrFundBalancesBOYAmt>
+      <NetAssetsOrFundBalancesEOYAmt>8437</NetAssetsOrFundBalancesEOYAmt>
+      <InfoInScheduleOPartIIIInd>X</InfoInScheduleOPartIIIInd>
+      <MissionDesc>THE MISSION OF THE CAPITOL HILL JAZZ FOUNDATION IS TO SERVE THE WASHINGTON, D.C. JAZZ COMMUNITY BY PROVIDING A WEEKLY JAM SESSION, ANNUAL JAZZ FESTIVAL AND ARTS ADVOCACY ON BEHALF OF D.C. JAZZ MUSICIANS. OUR VISION IS TO FINANCIALLY ASSIST WASHINGTON D.C. BASED JAZZ MUSICIANS, VENUES AND JAZZ EDUCATION PROGRAMS.</MissionDesc>
+      <SignificantNewProgramSrvcInd>false</SignificantNewProgramSrvcInd>
+      <SignificantChangeInd>false</SignificantChangeInd>
+      <ExpenseAmt>2409</ExpenseAmt>
+      <Desc>THE CAPITOL HILL JAZZ JAM IS A WEEKLY JAZZ JAM SESSION HELD AT MR. HENRY'S RESTAURANT IN THE CAPITOL HILL NEIGHBORHOOD IN WASHINGTON D.C. EVERY WEDNESDAY EVENING.</Desc>
+      <ProgSrvcAccomActy2Grp>
+        <ExpenseAmt>1228</ExpenseAmt>
+        <Desc>THE D.C. JAZZ ARTS ADVOCACY INITIATIVE IS AIMED AT AIDING THE D.C. JAZZ COMMUNITY BY ENGAGING DISTRICT GOVERNMENT AGENCIES, PERFORMING ARTS RELATED ORGANIZATIONS, JAZZ EDUCATION PROGRAMS, D.C.'S SISTER CITIES AND LOCAL MEDIA FOR THE PRESERVATION, PROMULGATION AND DEVELOPMENT OF JAZZ EDUCATION FOR AND OF D.C. BASED JAZZ MUSICIANS.</Desc>
+      </ProgSrvcAccomActy2Grp>
+      <ProgSrvcAccomActy3Grp>
+        <ExpenseAmt>69732</ExpenseAmt>
+        <RevenueAmt>11700</RevenueAmt>
+        <Desc>THE HILLFEST JAZZ CONFERENCE AND FESTIVAL IS AN ANNUAL WEEK-LONG MUSIC CONFERENCE CONCLUDING WITH A DAY LONG MUSIC FESTIVAL HELD OUTDOORS IN THE CAPITOL HILL NEIGHBORHOOD THE FIRST WEEK IN OCTOBER.</Desc>
+      </ProgSrvcAccomActy3Grp>
+      <ProgSrvcAccomActyOtherGrp>
+        <ExpenseAmt>1778</ExpenseAmt>
+        <Desc>THE HILLFEST MUSIC EXPO IS DESIGNED TO IDENTIFY AND CELEBRATE OUR MUSIC INFRASTRUCTURE, CONNECT MUSICIANS WITH COMPANIES FOR SPONSORSHIPS, AND TO ENCOURAGE LARGE MUSIC OGANIZAIONS TO DO BUSINESS IN D.C. OTHER SPECIAL EVENTS ARE ALSO HOSTED BY THE CAPITAL JAZZ FOUNDATION.</Desc>
+      </ProgSrvcAccomActyOtherGrp>
+      <TotalOtherProgSrvcExpenseAmt>1778</TotalOtherProgSrvcExpenseAmt>
+      <TotalProgramServiceExpensesAmt>75147</TotalProgramServiceExpensesAmt>
+      <DescribedInSection501c3Ind referenceDocumentId="RetDoc4">true</DescribedInSection501c3Ind>
+      <ScheduleBRequiredInd referenceDocumentId="RetDoc1">true</ScheduleBRequiredInd>
+      <PoliticalCampaignActyInd>false</PoliticalCampaignActyInd>
+      <LobbyingActivitiesInd>false</LobbyingActivitiesInd>
+      <SubjectToProxyTaxInd>false</SubjectToProxyTaxInd>
+      <DonorAdvisedFundInd>false</DonorAdvisedFundInd>
+      <ConservationEasementsInd>false</ConservationEasementsInd>
+      <CollectionsOfArtInd>false</CollectionsOfArtInd>
+      <CreditCounselingInd>false</CreditCounselingInd>
+      <DonorRstrOrQuasiEndowmentsInd>false</DonorRstrOrQuasiEndowmentsInd>
+      <ReportLandBuildingEquipmentInd>false</ReportLandBuildingEquipmentInd>
+      <ReportInvestmentsOtherSecInd>false</ReportInvestmentsOtherSecInd>
+      <ReportProgramRelatedInvstInd>false</ReportProgramRelatedInvstInd>
+      <ReportOtherAssetsInd>false</ReportOtherAssetsInd>
+      <ReportOtherLiabilitiesInd>false</ReportOtherLiabilitiesInd>
+      <IncludeFIN48FootnoteInd>false</IncludeFIN48FootnoteInd>
+      <IndependentAuditFinclStmtInd>false</IndependentAuditFinclStmtInd>
+      <ConsolidatedAuditFinclStmtInd>false</ConsolidatedAuditFinclStmtInd>
+      <SchoolOperatingInd>false</SchoolOperatingInd>
+      <ForeignOfficeInd>false</ForeignOfficeInd>
+      <ForeignActivitiesInd>false</ForeignActivitiesInd>
+      <MoreThan5000KToOrgInd>false</MoreThan5000KToOrgInd>
+      <MoreThan5000KToIndividualsInd>false</MoreThan5000KToIndividualsInd>
+      <ProfessionalFundraisingInd>false</ProfessionalFundraisingInd>
+      <FundraisingActivitiesInd>false</FundraisingActivitiesInd>
+      <GamingActivitiesInd>false</GamingActivitiesInd>
+      <OperateHospitalInd>false</OperateHospitalInd>
+      <GrantsToOrganizationsInd>false</GrantsToOrganizationsInd>
+      <GrantsToIndividualsInd>false</GrantsToIndividualsInd>
+      <ScheduleJRequiredInd>false</ScheduleJRequiredInd>
+      <TaxExemptBondsInd>false</TaxExemptBondsInd>
+      <EngagedInExcessBenefitTransInd>false</EngagedInExcessBenefitTransInd>
+      <PYExcessBenefitTransInd>false</PYExcessBenefitTransInd>
+      <LoanOutstandingInd>false</LoanOutstandingInd>
+      <GrantToRelatedPersonInd>false</GrantToRelatedPersonInd>
+      <BusinessRlnWithOrgMemInd>false</BusinessRlnWithOrgMemInd>
+      <BusinessRlnWithFamMemInd>false</BusinessRlnWithFamMemInd>
+      <BusinessRlnWith35CtrlEntInd>false</BusinessRlnWith35CtrlEntInd>
+      <DeductibleNonCashContriInd>false</DeductibleNonCashContriInd>
+      <DeductibleArtContributionInd>false</DeductibleArtContributionInd>
+      <TerminateOperationsInd>false</TerminateOperationsInd>
+      <PartialLiquidationInd>false</PartialLiquidationInd>
+      <DisregardedEntityInd>false</DisregardedEntityInd>
+      <RelatedEntityInd>false</RelatedEntityInd>
+      <RelatedOrganizationCtrlEntInd>false</RelatedOrganizationCtrlEntInd>
+      <TrnsfrExmptNonChrtblRltdOrgInd>false</TrnsfrExmptNonChrtblRltdOrgInd>
+      <ActivitiesConductedPrtshpInd>false</ActivitiesConductedPrtshpInd>
+      <ScheduleORequiredInd>false</ScheduleORequiredInd>
+      <IRPDocumentCnt>0</IRPDocumentCnt>
+      <IRPDocumentW2GCnt>0</IRPDocumentW2GCnt>
+      <BackupWthldComplianceInd>false</BackupWthldComplianceInd>
+      <EmployeeCnt>0</EmployeeCnt>
+      <UnrelatedBusIncmOverLimitInd>false</UnrelatedBusIncmOverLimitInd>
+      <ForeignFinancialAccountInd>false</ForeignFinancialAccountInd>
+      <ProhibitedTaxShelterTransInd>false</ProhibitedTaxShelterTransInd>
+      <TaxablePartyNotificationInd>false</TaxablePartyNotificationInd>
+      <NondeductibleContributionsInd>false</NondeductibleContributionsInd>
+      <IndoorTanningServicesInd>false</IndoorTanningServicesInd>
+      <SubjToTaxRmnrtnExPrchtPymtInd>false</SubjToTaxRmnrtnExPrchtPymtInd>
+      <SubjectToExcsTaxNetInvstIncInd>false</SubjectToExcsTaxNetInvstIncInd>
+      <InfoInScheduleOPartVIInd>X</InfoInScheduleOPartVIInd>
+      <GoverningBodyVotingMembersCnt>6</GoverningBodyVotingMembersCnt>
+      <IndependentVotingMemberCnt>6</IndependentVotingMemberCnt>
+      <FamilyOrBusinessRlnInd>false</FamilyOrBusinessRlnInd>
+      <DelegationOfMgmtDutiesInd>false</DelegationOfMgmtDutiesInd>
+      <ChangeToOrgDocumentsInd>false</ChangeToOrgDocumentsInd>
+      <MaterialDiversionOrMisuseInd>false</MaterialDiversionOrMisuseInd>
+      <MembersOrStockholdersInd>false</MembersOrStockholdersInd>
+      <ElectionOfBoardMembersInd>false</ElectionOfBoardMembersInd>
+      <DecisionsSubjectToApprovaInd>false</DecisionsSubjectToApprovaInd>
+      <MinutesOfGoverningBodyInd>true</MinutesOfGoverningBodyInd>
+      <MinutesOfCommitteesInd>true</MinutesOfCommitteesInd>
+      <OfficerMailingAddressInd>false</OfficerMailingAddressInd>
+      <LocalChaptersInd>false</LocalChaptersInd>
+      <Form990ProvidedToGvrnBodyInd>false</Form990ProvidedToGvrnBodyInd>
+      <ConflictOfInterestPolicyInd>false</ConflictOfInterestPolicyInd>
+      <WhistleblowerPolicyInd>false</WhistleblowerPolicyInd>
+      <DocumentRetentionPolicyInd>false</DocumentRetentionPolicyInd>
+      <CompensationProcessCEOInd>false</CompensationProcessCEOInd>
+      <CompensationProcessOtherInd>false</CompensationProcessOtherInd>
+      <InvestmentInJointVentureInd>false</InvestmentInJointVentureInd>
+      <UponRequestInd>X</UponRequestInd>
+      <BooksInCareOfDetail>
+        <BusinessName>
+          <BusinessNameLine1Txt>MYRICK CPA</BusinessNameLine1Txt>
+        </BusinessName>
+        <PhoneNum>2027898898</PhoneNum>
+        <USAddress>
+          <AddressLine1Txt>805 15TH STREET NW SUITE 805</AddressLine1Txt>
+          <CityNm>WASHINGTON</CityNm>
+          <StateAbbreviationCd>DC</StateAbbreviationCd>
+          <ZIPCd>20005</ZIPCd>
+        </USAddress>
+      </BooksInCareOfDetail>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>HERBERT SCOTT</PersonNm>
+        <TitleTxt>EXECUTIVE DI</TitleTxt>
+        <AverageHoursPerWeekRt>30.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>5723</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>AARON HOLMES</PersonNm>
+        <TitleTxt>BOARD MEMBER</TitleTxt>
+        <AverageHoursPerWeekRt>5.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>AARON MEYERS</PersonNm>
+        <TitleTxt>BOARD CHAIRM</TitleTxt>
+        <AverageHoursPerWeekRt>10.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>MARY QUILLIAN-HELMS</PersonNm>
+        <TitleTxt>BOARD MEMBER</TitleTxt>
+        <AverageHoursPerWeekRt>5.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>TOM SWEENEY</PersonNm>
+        <TitleTxt>BOARD MEMBER</TitleTxt>
+        <AverageHoursPerWeekRt>5.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>DAVID WEINER</PersonNm>
+        <TitleTxt>VICE CHAIRMA</TitleTxt>
+        <AverageHoursPerWeekRt>5.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <TotalReportableCompFromOrgAmt>5723</TotalReportableCompFromOrgAmt>
+      <FormerOfcrEmployeesListedInd>false</FormerOfcrEmployeesListedInd>
+      <TotalCompGreaterThan150KInd>false</TotalCompGreaterThan150KInd>
+      <CompensationFromOtherSrcsInd>false</CompensationFromOtherSrcsInd>
+      <GovernmentGrantsAmt>75910</GovernmentGrantsAmt>
+      <AllOtherContributionsAmt>22790</AllOtherContributionsAmt>
+      <TotalContributionsAmt>98700</TotalContributionsAmt>
+      <ProgramServiceRevenueGrp>
+        <Desc>PERFORMANCE FEES AND EVENTS</Desc>
+        <TotalRevenueColumnAmt>11700</TotalRevenueColumnAmt>
+        <ExclusionAmt>11700</ExclusionAmt>
+      </ProgramServiceRevenueGrp>
+      <TotalProgramServiceRevenueAmt>11700</TotalProgramServiceRevenueAmt>
+      <FundraisingGrossIncomeAmt>5883</FundraisingGrossIncomeAmt>
+      <NetIncmFromFundraisingEvtGrp>
+        <TotalRevenueColumnAmt>5883</TotalRevenueColumnAmt>
+        <ExclusionAmt>5883</ExclusionAmt>
+      </NetIncmFromFundraisingEvtGrp>
+      <TotalRevenueGrp>
+        <TotalRevenueColumnAmt>116283</TotalRevenueColumnAmt>
+        <ExclusionAmt>17583</ExclusionAmt>
+      </TotalRevenueGrp>
+      <InfoInScheduleOPartIXInd>X</InfoInScheduleOPartIXInd>
+      <CompCurrentOfcrDirectorsGrp>
+        <TotalAmt>5723</TotalAmt>
+        <ProgramServicesAmt>3720</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>1431</ManagementAndGeneralAmt>
+        <FundraisingAmt>572</FundraisingAmt>
+      </CompCurrentOfcrDirectorsGrp>
+      <FeesForServicesOtherGrp>
+        <TotalAmt>30322</TotalAmt>
+        <ProgramServicesAmt>22722</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>7600</ManagementAndGeneralAmt>
+      </FeesForServicesOtherGrp>
+      <AdvertisingGrp>
+        <TotalAmt>1091</TotalAmt>
+        <ProgramServicesAmt>876</ProgramServicesAmt>
+        <FundraisingAmt>215</FundraisingAmt>
+      </AdvertisingGrp>
+      <OfficeExpensesGrp>
+        <TotalAmt>3119</TotalAmt>
+        <ManagementAndGeneralAmt>3119</ManagementAndGeneralAmt>
+      </OfficeExpensesGrp>
+      <OccupancyGrp>
+        <TotalAmt>7395</TotalAmt>
+        <ProgramServicesAmt>725</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>6547</ManagementAndGeneralAmt>
+        <FundraisingAmt>123</FundraisingAmt>
+      </OccupancyGrp>
+      <TravelGrp>
+        <TotalAmt>6970</TotalAmt>
+        <ProgramServicesAmt>959</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>6011</ManagementAndGeneralAmt>
+      </TravelGrp>
+      <ConferencesMeetingsGrp>
+        <TotalAmt>280</TotalAmt>
+        <ProgramServicesAmt>280</ProgramServicesAmt>
+      </ConferencesMeetingsGrp>
+      <OtherExpensesGrp>
+        <Desc>SPECIAL EVENTS</Desc>
+        <TotalAmt>44175</TotalAmt>
+        <ProgramServicesAmt>44175</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>TELEPHONE</Desc>
+        <TotalAmt>5186</TotalAmt>
+        <ProgramServicesAmt>509</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>4591</ManagementAndGeneralAmt>
+        <FundraisingAmt>86</FundraisingAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>BANK CHARGES</Desc>
+        <TotalAmt>1529</TotalAmt>
+        <ManagementAndGeneralAmt>1037</ManagementAndGeneralAmt>
+        <FundraisingAmt>492</FundraisingAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>MUSIC SUPPLIES</Desc>
+        <TotalAmt>1181</TotalAmt>
+        <ProgramServicesAmt>1181</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <AllOtherExpensesGrp>
+        <TotalAmt>871</TotalAmt>
+        <ManagementAndGeneralAmt>871</ManagementAndGeneralAmt>
+      </AllOtherExpensesGrp>
+      <TotalFunctionalExpensesGrp>
+        <TotalAmt>107842</TotalAmt>
+        <ProgramServicesAmt>75147</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>31207</ManagementAndGeneralAmt>
+        <FundraisingAmt>1488</FundraisingAmt>
+      </TotalFunctionalExpensesGrp>
+      <CashNonInterestBearingGrp>
+        <BOYAmt>-4</BOYAmt>
+        <EOYAmt>8437</EOYAmt>
+      </CashNonInterestBearingGrp>
+      <TotalAssetsGrp>
+        <BOYAmt>-4</BOYAmt>
+        <EOYAmt>8437</EOYAmt>
+      </TotalAssetsGrp>
+      <TotalLiabilitiesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </TotalLiabilitiesGrp>
+      <OrganizationFollowsFASB117Ind>X</OrganizationFollowsFASB117Ind>
+      <NoDonorRestrictionNetAssetsGrp>
+        <BOYAmt>-4</BOYAmt>
+        <EOYAmt>8437</EOYAmt>
+      </NoDonorRestrictionNetAssetsGrp>
+      <TotalNetAssetsFundBalanceGrp>
+        <BOYAmt>-4</BOYAmt>
+        <EOYAmt>8437</EOYAmt>
+      </TotalNetAssetsFundBalanceGrp>
+      <TotLiabNetAssetsFundBalanceGrp>
+        <BOYAmt>-4</BOYAmt>
+        <EOYAmt>8437</EOYAmt>
+      </TotLiabNetAssetsFundBalanceGrp>
+      <ReconcilationRevenueExpnssAmt>8441</ReconcilationRevenueExpnssAmt>
+      <MethodOfAccountingCashInd>X</MethodOfAccountingCashInd>
+      <AccountantCompileOrReviewInd>false</AccountantCompileOrReviewInd>
+      <FSAuditedInd>false</FSAuditedInd>
+    </IRS990>
+  </ReturnData>
+</Return>

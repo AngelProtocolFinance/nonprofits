@@ -1,0 +1,331 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.irs.gov/efile" returnVersion="2025v4.2">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2026-06-24T10:06:32-05:00</ReturnTs>
+    <TaxPeriodEndDt>2025-12-31</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmEIN>161468002</PreparerFirmEIN>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>CHIAMPOU TRAVIS BESAW &amp; KERSHNER LLP</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>45 BRYANT WOODS NORTH</AddressLine1Txt>
+        <CityNm>AMHERST</CityNm>
+        <StateAbbreviationCd>NY</StateAbbreviationCd>
+        <ZIPCd>14228</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990</ReturnTypeCd>
+    <TaxPeriodBeginDt>2025-01-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>861426056</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>BROTHERHOOD OF AMALGAMATED TRADES</BusinessNameLine1Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>BROT</BusinessNameControlTxt>
+      <PhoneNum>9147055488</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>777 WESTCHESTER AVENUE 101</AddressLine1Txt>
+        <CityNm>WHITE PLAINS</CityNm>
+        <StateAbbreviationCd>NY</StateAbbreviationCd>
+        <ZIPCd>10604</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>JOSHUA GOTTLIEB</PersonNm>
+      <PersonTitleTxt>PRESIDENT</PersonTitleTxt>
+      <PhoneNum>9147055488</PhoneNum>
+      <SignatureDt>2026-06-23</SignatureDt>
+      <DiscussWithPaidPreparerInd>1</DiscussWithPaidPreparerInd>
+    </BusinessOfficerGrp>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>EUGENE G KERSHNER</PreparerPersonNm>
+      <PTIN>P00601324</PTIN>
+      <PhoneNum>7166302400</PhoneNum>
+      <PreparationDt>2026-06-23</PreparationDt>
+    </PreparerPersonGrp>
+    <TaxYr>2025</TaxYr>
+    <BuildTS>2025-03-06 01:10:19Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="3">
+    <IRS990 documentId="RetDoc1038000001" referenceDocumentId="RetDoc1044400001">
+      <PrincipalOfficerNm>JOSHUA GOTTLIEB</PrincipalOfficerNm>
+      <USAddress>
+        <AddressLine1Txt>777 WESTCHESTER AVENUE SUITE 101</AddressLine1Txt>
+        <CityNm>WHITE PLAINS</CityNm>
+        <StateAbbreviationCd>NY</StateAbbreviationCd>
+        <ZIPCd>10604</ZIPCd>
+      </USAddress>
+      <GrossReceiptsAmt>241170</GrossReceiptsAmt>
+      <GroupReturnForAffiliatesInd>0</GroupReturnForAffiliatesInd>
+      <Organization501cInd organization501cTypeTxt="5">X</Organization501cInd>
+      <WebsiteAddressTxt>N/A</WebsiteAddressTxt>
+      <TypeOfOrganizationCorpInd>X</TypeOfOrganizationCorpInd>
+      <FormationYr>2021</FormationYr>
+      <LegalDomicileStateCd>NY</LegalDomicileStateCd>
+      <ActivityOrMissionDesc>LABOR UNION, REPRESENT MEMBERS WITH ALL LABOR ISSUES AND ORGANIZE WORKERS</ActivityOrMissionDesc>
+      <VotingMembersGoverningBodyCnt>3</VotingMembersGoverningBodyCnt>
+      <VotingMembersIndependentCnt>0</VotingMembersIndependentCnt>
+      <TotalEmployeeCnt>4</TotalEmployeeCnt>
+      <TotalVolunteersCnt>0</TotalVolunteersCnt>
+      <TotalGrossUBIAmt>0</TotalGrossUBIAmt>
+      <NetUnrelatedBusTxblIncmAmt>0</NetUnrelatedBusTxblIncmAmt>
+      <PYContributionsGrantsAmt>0</PYContributionsGrantsAmt>
+      <CYContributionsGrantsAmt>0</CYContributionsGrantsAmt>
+      <PYProgramServiceRevenueAmt>157195</PYProgramServiceRevenueAmt>
+      <CYProgramServiceRevenueAmt>241170</CYProgramServiceRevenueAmt>
+      <PYInvestmentIncomeAmt>0</PYInvestmentIncomeAmt>
+      <CYInvestmentIncomeAmt>0</CYInvestmentIncomeAmt>
+      <PYOtherRevenueAmt>0</PYOtherRevenueAmt>
+      <CYOtherRevenueAmt>0</CYOtherRevenueAmt>
+      <PYTotalRevenueAmt>157195</PYTotalRevenueAmt>
+      <CYTotalRevenueAmt>241170</CYTotalRevenueAmt>
+      <PYGrantsAndSimilarPaidAmt>0</PYGrantsAndSimilarPaidAmt>
+      <CYGrantsAndSimilarPaidAmt>0</CYGrantsAndSimilarPaidAmt>
+      <PYBenefitsPaidToMembersAmt>0</PYBenefitsPaidToMembersAmt>
+      <CYBenefitsPaidToMembersAmt>0</CYBenefitsPaidToMembersAmt>
+      <PYSalariesCompEmpBnftPaidAmt>69600</PYSalariesCompEmpBnftPaidAmt>
+      <CYSalariesCompEmpBnftPaidAmt>199828</CYSalariesCompEmpBnftPaidAmt>
+      <PYTotalProfFndrsngExpnsAmt>0</PYTotalProfFndrsngExpnsAmt>
+      <CYTotalProfFndrsngExpnsAmt>0</CYTotalProfFndrsngExpnsAmt>
+      <CYTotalFundraisingExpenseAmt>0</CYTotalFundraisingExpenseAmt>
+      <PYOtherExpensesAmt>69022</PYOtherExpensesAmt>
+      <CYOtherExpensesAmt>63965</CYOtherExpensesAmt>
+      <PYTotalExpensesAmt>138622</PYTotalExpensesAmt>
+      <CYTotalExpensesAmt>263793</CYTotalExpensesAmt>
+      <PYRevenuesLessExpensesAmt>18573</PYRevenuesLessExpensesAmt>
+      <CYRevenuesLessExpensesAmt>-22623</CYRevenuesLessExpensesAmt>
+      <TotalAssetsBOYAmt>51991</TotalAssetsBOYAmt>
+      <TotalAssetsEOYAmt>29368</TotalAssetsEOYAmt>
+      <TotalLiabilitiesBOYAmt>0</TotalLiabilitiesBOYAmt>
+      <TotalLiabilitiesEOYAmt>0</TotalLiabilitiesEOYAmt>
+      <NetAssetsOrFundBalancesBOYAmt>51991</NetAssetsOrFundBalancesBOYAmt>
+      <NetAssetsOrFundBalancesEOYAmt>29368</NetAssetsOrFundBalancesEOYAmt>
+      <MissionDesc>LABOR UNION, REPRESENT MEMBERS WITH ALL LABOR ISSUES AND ORGANIZE WORKERS</MissionDesc>
+      <SignificantNewProgramSrvcInd>0</SignificantNewProgramSrvcInd>
+      <SignificantChangeInd>0</SignificantChangeInd>
+      <ExpenseAmt>263793</ExpenseAmt>
+      <Desc>LABOR UNION</Desc>
+      <ProgSrvcAccomActy2Grp>
+        <Desc>REPRESENT WORKERS WITH LABOR ISSUES</Desc>
+      </ProgSrvcAccomActy2Grp>
+      <ProgSrvcAccomActy3Grp>
+        <Desc>ORGANIZE WORKERS</Desc>
+      </ProgSrvcAccomActy3Grp>
+      <TotalProgramServiceExpensesAmt>263793</TotalProgramServiceExpensesAmt>
+      <DescribedInSection501c3Ind>0</DescribedInSection501c3Ind>
+      <ScheduleBRequiredInd>0</ScheduleBRequiredInd>
+      <PoliticalCampaignActyInd referenceDocumentId="RetDoc1039700001">0</PoliticalCampaignActyInd>
+      <SubjectToProxyTaxInd referenceDocumentId="RetDoc1039700001">1</SubjectToProxyTaxInd>
+      <DonorAdvisedFundInd>0</DonorAdvisedFundInd>
+      <ConservationEasementsInd>0</ConservationEasementsInd>
+      <CollectionsOfArtInd>0</CollectionsOfArtInd>
+      <CreditCounselingInd>0</CreditCounselingInd>
+      <DonorRstrOrQuasiEndowmentsInd>0</DonorRstrOrQuasiEndowmentsInd>
+      <ReportLandBuildingEquipmentInd>0</ReportLandBuildingEquipmentInd>
+      <ReportInvestmentsOtherSecInd>0</ReportInvestmentsOtherSecInd>
+      <ReportProgramRelatedInvstInd>0</ReportProgramRelatedInvstInd>
+      <ReportOtherAssetsInd>0</ReportOtherAssetsInd>
+      <ReportOtherLiabilitiesInd>0</ReportOtherLiabilitiesInd>
+      <IncludeFIN48FootnoteInd>0</IncludeFIN48FootnoteInd>
+      <IndependentAuditFinclStmtInd>0</IndependentAuditFinclStmtInd>
+      <ConsolidatedAuditFinclStmtInd>0</ConsolidatedAuditFinclStmtInd>
+      <SchoolOperatingInd>0</SchoolOperatingInd>
+      <ForeignOfficeInd>0</ForeignOfficeInd>
+      <ForeignActivitiesInd>0</ForeignActivitiesInd>
+      <MoreThan5000KToOrgInd>0</MoreThan5000KToOrgInd>
+      <MoreThan5000KToIndividualsInd>0</MoreThan5000KToIndividualsInd>
+      <ProfessionalFundraisingInd>0</ProfessionalFundraisingInd>
+      <FundraisingActivitiesInd>0</FundraisingActivitiesInd>
+      <GamingActivitiesInd>0</GamingActivitiesInd>
+      <OperateHospitalInd>0</OperateHospitalInd>
+      <GrantsToOrganizationsInd>0</GrantsToOrganizationsInd>
+      <GrantsToIndividualsInd>0</GrantsToIndividualsInd>
+      <ScheduleJRequiredInd>0</ScheduleJRequiredInd>
+      <TaxExemptBondsInd>0</TaxExemptBondsInd>
+      <LoanOutstandingInd>0</LoanOutstandingInd>
+      <GrantToRelatedPersonInd>0</GrantToRelatedPersonInd>
+      <BusinessRlnWithOrgMemInd>0</BusinessRlnWithOrgMemInd>
+      <BusinessRlnWithFamMemInd>0</BusinessRlnWithFamMemInd>
+      <BusinessRlnWith35CtrlEntInd>0</BusinessRlnWith35CtrlEntInd>
+      <DeductibleNonCashContriInd>0</DeductibleNonCashContriInd>
+      <DeductibleArtContributionInd>0</DeductibleArtContributionInd>
+      <TerminateOperationsInd>0</TerminateOperationsInd>
+      <PartialLiquidationInd>0</PartialLiquidationInd>
+      <DisregardedEntityInd>0</DisregardedEntityInd>
+      <RelatedEntityInd>0</RelatedEntityInd>
+      <RelatedOrganizationCtrlEntInd>0</RelatedOrganizationCtrlEntInd>
+      <ActivitiesConductedPrtshpInd>0</ActivitiesConductedPrtshpInd>
+      <ScheduleORequiredInd>1</ScheduleORequiredInd>
+      <IRPDocumentCnt>0</IRPDocumentCnt>
+      <IRPDocumentW2GCnt>0</IRPDocumentW2GCnt>
+      <EmployeeCnt>4</EmployeeCnt>
+      <EmploymentTaxReturnsFiledInd>1</EmploymentTaxReturnsFiledInd>
+      <UnrelatedBusIncmOverLimitInd>0</UnrelatedBusIncmOverLimitInd>
+      <ForeignFinancialAccountInd>0</ForeignFinancialAccountInd>
+      <ProhibitedTaxShelterTransInd>0</ProhibitedTaxShelterTransInd>
+      <TaxablePartyNotificationInd>0</TaxablePartyNotificationInd>
+      <NondeductibleContributionsInd>0</NondeductibleContributionsInd>
+      <QuidProQuoContributionsInd>0</QuidProQuoContributionsInd>
+      <Form8282PropertyDisposedOfInd>0</Form8282PropertyDisposedOfInd>
+      <IndoorTanningServicesInd>0</IndoorTanningServicesInd>
+      <SubjToTaxRmnrtnExPrchtPymtInd>0</SubjToTaxRmnrtnExPrchtPymtInd>
+      <SubjectToExcsTaxNetInvstIncInd>0</SubjectToExcsTaxNetInvstIncInd>
+      <InfoInScheduleOPartVIInd>X</InfoInScheduleOPartVIInd>
+      <GoverningBodyVotingMembersCnt>3</GoverningBodyVotingMembersCnt>
+      <IndependentVotingMemberCnt>0</IndependentVotingMemberCnt>
+      <FamilyOrBusinessRlnInd>0</FamilyOrBusinessRlnInd>
+      <DelegationOfMgmtDutiesInd>0</DelegationOfMgmtDutiesInd>
+      <ChangeToOrgDocumentsInd>0</ChangeToOrgDocumentsInd>
+      <MaterialDiversionOrMisuseInd>0</MaterialDiversionOrMisuseInd>
+      <MembersOrStockholdersInd>0</MembersOrStockholdersInd>
+      <ElectionOfBoardMembersInd>0</ElectionOfBoardMembersInd>
+      <DecisionsSubjectToApprovaInd>0</DecisionsSubjectToApprovaInd>
+      <MinutesOfGoverningBodyInd>1</MinutesOfGoverningBodyInd>
+      <MinutesOfCommitteesInd>1</MinutesOfCommitteesInd>
+      <OfficerMailingAddressInd>0</OfficerMailingAddressInd>
+      <LocalChaptersInd>0</LocalChaptersInd>
+      <Form990ProvidedToGvrnBodyInd>1</Form990ProvidedToGvrnBodyInd>
+      <ConflictOfInterestPolicyInd>0</ConflictOfInterestPolicyInd>
+      <WhistleblowerPolicyInd>0</WhistleblowerPolicyInd>
+      <DocumentRetentionPolicyInd>0</DocumentRetentionPolicyInd>
+      <CompensationProcessCEOInd>0</CompensationProcessCEOInd>
+      <CompensationProcessOtherInd>0</CompensationProcessOtherInd>
+      <InvestmentInJointVentureInd>0</InvestmentInJointVentureInd>
+      <OtherWebsiteInd>X</OtherWebsiteInd>
+      <UponRequestInd>X</UponRequestInd>
+      <BooksInCareOfDetail>
+        <BusinessName>
+          <BusinessNameLine1Txt>THE ORGANIZATION</BusinessNameLine1Txt>
+        </BusinessName>
+        <PhoneNum>9147055488</PhoneNum>
+        <USAddress>
+          <AddressLine1Txt>777 WESTCHESTER AVENUE SUITE 101</AddressLine1Txt>
+          <CityNm>WHITE PLAINS</CityNm>
+          <StateAbbreviationCd>NY</StateAbbreviationCd>
+          <ZIPCd>10604</ZIPCd>
+        </USAddress>
+      </BooksInCareOfDetail>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>JOSHUA GOTTLIEB</PersonNm>
+        <TitleTxt>PRESIDENT</TitleTxt>
+        <AverageHoursPerWeekRt>20.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>62100</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>BRENDON DEVER</PersonNm>
+        <TitleTxt>SECRETARY/TREASURER</TitleTxt>
+        <AverageHoursPerWeekRt>20.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>61900</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>JESUS DUQUE</PersonNm>
+        <TitleTxt>VICE PRESIDENT</TitleTxt>
+        <AverageHoursPerWeekRt>20.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>20700</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <TotalReportableCompFromOrgAmt>144700</TotalReportableCompFromOrgAmt>
+      <TotReportableCompRltdOrgAmt>0</TotReportableCompRltdOrgAmt>
+      <TotalOtherCompensationAmt>0</TotalOtherCompensationAmt>
+      <IndivRcvdGreaterThan100KCnt>0</IndivRcvdGreaterThan100KCnt>
+      <FormerOfcrEmployeesListedInd>0</FormerOfcrEmployeesListedInd>
+      <TotalCompGreaterThan150KInd>0</TotalCompGreaterThan150KInd>
+      <CompensationFromOtherSrcsInd>0</CompensationFromOtherSrcsInd>
+      <CntrctRcvdGreaterThan100KCnt>0</CntrctRcvdGreaterThan100KCnt>
+      <ProgramServiceRevenueGrp>
+        <Desc>MEMBERSHIP DUES</Desc>
+        <BusinessCd>561000</BusinessCd>
+        <TotalRevenueColumnAmt>241170</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>241170</RelatedOrExemptFuncIncomeAmt>
+      </ProgramServiceRevenueGrp>
+      <TotalProgramServiceRevenueAmt>241170</TotalProgramServiceRevenueAmt>
+      <TotalRevenueGrp>
+        <TotalRevenueColumnAmt>241170</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>241170</RelatedOrExemptFuncIncomeAmt>
+        <UnrelatedBusinessRevenueAmt>0</UnrelatedBusinessRevenueAmt>
+        <ExclusionAmt>0</ExclusionAmt>
+      </TotalRevenueGrp>
+      <CompCurrentOfcrDirectorsGrp>
+        <TotalAmt>144700</TotalAmt>
+      </CompCurrentOfcrDirectorsGrp>
+      <OtherSalariesAndWagesGrp>
+        <TotalAmt>55128</TotalAmt>
+      </OtherSalariesAndWagesGrp>
+      <FeesForServicesLegalGrp>
+        <TotalAmt>13750</TotalAmt>
+      </FeesForServicesLegalGrp>
+      <FeesForServicesAccountingGrp>
+        <TotalAmt>2892</TotalAmt>
+      </FeesForServicesAccountingGrp>
+      <FeesForServicesOtherGrp>
+        <TotalAmt>3600</TotalAmt>
+      </FeesForServicesOtherGrp>
+      <AdvertisingGrp>
+        <TotalAmt>6839</TotalAmt>
+      </AdvertisingGrp>
+      <OfficeExpensesGrp>
+        <TotalAmt>3239</TotalAmt>
+      </OfficeExpensesGrp>
+      <OccupancyGrp>
+        <TotalAmt>24954</TotalAmt>
+      </OccupancyGrp>
+      <InsuranceGrp>
+        <TotalAmt>1013</TotalAmt>
+      </InsuranceGrp>
+      <OtherExpensesGrp>
+        <Desc>SERVICING</Desc>
+        <TotalAmt>7578</TotalAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>MEALS AND ENTERTAINMENT</Desc>
+        <TotalAmt>100</TotalAmt>
+      </OtherExpensesGrp>
+      <TotalFunctionalExpensesGrp>
+        <TotalAmt>263793</TotalAmt>
+      </TotalFunctionalExpensesGrp>
+      <CashNonInterestBearingGrp>
+        <BOYAmt>51991</BOYAmt>
+        <EOYAmt>29368</EOYAmt>
+      </CashNonInterestBearingGrp>
+      <TotalAssetsGrp>
+        <BOYAmt>51991</BOYAmt>
+        <EOYAmt>29368</EOYAmt>
+      </TotalAssetsGrp>
+      <TotalLiabilitiesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </TotalLiabilitiesGrp>
+      <OrganizationFollowsFASB117Ind>X</OrganizationFollowsFASB117Ind>
+      <NoDonorRestrictionNetAssetsGrp>
+        <BOYAmt>51991</BOYAmt>
+        <EOYAmt>29368</EOYAmt>
+      </NoDonorRestrictionNetAssetsGrp>
+      <TotalNetAssetsFundBalanceGrp>
+        <BOYAmt>51991</BOYAmt>
+        <EOYAmt>29368</EOYAmt>
+      </TotalNetAssetsFundBalanceGrp>
+      <TotLiabNetAssetsFundBalanceGrp>
+        <BOYAmt>51991</BOYAmt>
+        <EOYAmt>29368</EOYAmt>
+      </TotLiabNetAssetsFundBalanceGrp>
+      <ReconcilationRevenueExpnssAmt>-22623</ReconcilationRevenueExpnssAmt>
+      <OtherChangesInNetAssetsAmt>0</OtherChangesInNetAssetsAmt>
+      <MethodOfAccountingCashInd>X</MethodOfAccountingCashInd>
+      <AccountantCompileOrReviewInd>0</AccountantCompileOrReviewInd>
+      <FSAuditedInd>0</FSAuditedInd>
+      <FederalGrantAuditRequiredInd>0</FederalGrantAuditRequiredInd>
+    </IRS990>
+  </ReturnData>
+</Return>

@@ -41,15 +41,34 @@ export async function writeLoad(
   }
 }
 
-/** Fetches `file`; its Last-Modified becomes the run's `released_at`. */
-export async function download(
+/** A fetched file: its body, and its Last-Modified, which becomes the run's `released_at`. */
+export interface Downloaded {
+  body: ReadableStream<Uint8Array>;
+  releasedAt: string;
+}
+
+/** Fetches `file`. */
+export async function download(file: ImportFile): Promise<Downloaded> {
+  const downloaded = await downloadIfPresent(file);
+  if (downloaded === null) {
+    throw new Error(`${file.label} download failed: ${file.url}: HTTP 404`);
+  }
+  return downloaded;
+}
+
+/** Fetches `file`, or resolves null when the server has no such file (404). */
+export async function downloadIfPresent(
   file: ImportFile,
-): Promise<{ body: ReadableStream<Uint8Array>; releasedAt: string }> {
+): Promise<Downloaded | null> {
   let response: Response;
   try {
     response = await fetch(file.url);
   } catch (error) {
     throw downloadFailed(file, error);
+  }
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return null;
   }
   if (!response.ok || response.body === null) {
     throw new Error(
@@ -149,11 +168,23 @@ export function text(raw: string): string | null {
   return PLACEHOLDERS.has(value.toUpperCase()) ? null : value;
 }
 
-export function literal(value: string | null): string {
-  return value === null ? "NULL" : `'${value.replaceAll("'", "''")}'`;
+/** A host with a dot and a letters-only TLD, with an optional scheme, port and path. */
+const WEB_ADDRESS =
+  /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:[/?#]\S*)?$/i;
+
+/** Free text typed as a website: null unless it reads as a web address. */
+export function webAddress(raw: string): string | null {
+  const value = text(raw);
+  return value !== null && WEB_ADDRESS.test(value) ? value : null;
 }
 
-export function tuple(values: readonly (string | null)[]): string {
+export function literal(value: string | number | null): string {
+  if (value === null) return "NULL";
+  if (typeof value === "number") return String(value);
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+export function tuple(values: readonly (string | number | null)[]): string {
   return `(${values.map(literal).join(",")})`;
 }
 

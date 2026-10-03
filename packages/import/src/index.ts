@@ -7,6 +7,15 @@ export {
   importBmf,
 } from "./bmf.ts";
 export {
+  EFILE_BASE_URL,
+  EFILE_MIN_YIELD,
+  type EfileImportOptions,
+  type EfileImportSummary,
+  type EfileYield,
+  importEfile,
+  releaseYears,
+} from "./efile.ts";
+export {
   importList,
   LISTS,
   type ListImportOptions,

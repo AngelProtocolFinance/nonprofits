@@ -1,0 +1,292 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<irs:Return returnVersion="2025v4.1" xmlns="http://www.irs.gov/efile" xmlns:irs="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <irs:ReturnHeader binaryAttachmentCnt="0">
+    <irs:ReturnTs>2026-05-29T09:54:56-07:00</irs:ReturnTs>
+    <irs:TaxPeriodEndDt>2025-12-31</irs:TaxPeriodEndDt>
+    <irs:PreparerFirmGrp>
+      <irs:PreparerFirmEIN>832824408</irs:PreparerFirmEIN>
+      <irs:PreparerFirmName>
+        <irs:BusinessNameLine1Txt>TAXNERD INC</irs:BusinessNameLine1Txt>
+      </irs:PreparerFirmName>
+      <irs:PreparerUSAddress>
+        <irs:AddressLine1Txt>5865 RIDGEWAY CENTER PKWY STE 300</irs:AddressLine1Txt>
+        <irs:CityNm>MEMPHIS</irs:CityNm>
+        <irs:StateAbbreviationCd>TN</irs:StateAbbreviationCd>
+        <irs:ZIPCd>38120</irs:ZIPCd>
+      </irs:PreparerUSAddress>
+    </irs:PreparerFirmGrp>
+    <irs:ReturnTypeCd>990</irs:ReturnTypeCd>
+    <irs:TaxPeriodBeginDt>2025-01-01</irs:TaxPeriodBeginDt>
+    <irs:Filer>
+      <irs:EIN>992834231</irs:EIN>
+      <irs:BusinessName>
+        <irs:BusinessNameLine1Txt>EMPTY THE BENCH INC</irs:BusinessNameLine1Txt>
+      </irs:BusinessName>
+      <irs:BusinessNameControlTxt>EMPT</irs:BusinessNameControlTxt>
+      <irs:PhoneNum>6466710775</irs:PhoneNum>
+      <irs:USAddress>
+        <irs:AddressLine1Txt>12803 GROVEHURST AVE</irs:AddressLine1Txt>
+        <irs:CityNm>WINTER GARDEN</irs:CityNm>
+        <irs:StateAbbreviationCd>FL</irs:StateAbbreviationCd>
+        <irs:ZIPCd>34787</irs:ZIPCd>
+      </irs:USAddress>
+    </irs:Filer>
+    <irs:BusinessOfficerGrp>
+      <irs:PersonNm>TRAVIS NICHOLS</irs:PersonNm>
+      <irs:PersonTitleTxt>FOUNDER AND CEO</irs:PersonTitleTxt>
+      <irs:PhoneNum>6466710775</irs:PhoneNum>
+      <irs:SignatureDt>2026-05-29</irs:SignatureDt>
+      <irs:DiscussWithPaidPreparerInd>true</irs:DiscussWithPaidPreparerInd>
+    </irs:BusinessOfficerGrp>
+    <irs:PreparerPersonGrp>
+      <irs:PreparerPersonNm>JEREMIAH FLOWERS</irs:PreparerPersonNm>
+      <irs:PTIN>P01052046</irs:PTIN>
+      <irs:PhoneNum>8882034442</irs:PhoneNum>
+      <irs:PreparationDt>2026-05-29</irs:PreparationDt>
+      <irs:SelfEmployedInd>X</irs:SelfEmployedInd>
+    </irs:PreparerPersonGrp>
+    <irs:TaxYr>2025</irs:TaxYr>
+    <irs:BuildTS>2025-03-06 01:10:19Z</irs:BuildTS>
+  </irs:ReturnHeader>
+  <irs:ReturnData documentCnt="3">
+    <irs:IRS990 documentId="USXX01">
+      <irs:AmendedReturnInd>X</irs:AmendedReturnInd>
+      <irs:PrincipalOfficerNm>TRAVIS NICHOLS</irs:PrincipalOfficerNm>
+      <irs:USAddress>
+        <irs:AddressLine1Txt>12803 GROVEHURST AVE</irs:AddressLine1Txt>
+        <irs:CityNm>WINTER GARDEN</irs:CityNm>
+        <irs:StateAbbreviationCd>FL</irs:StateAbbreviationCd>
+        <irs:ZIPCd>34787</irs:ZIPCd>
+      </irs:USAddress>
+      <irs:GrossReceiptsAmt>249101</irs:GrossReceiptsAmt>
+      <irs:GroupReturnForAffiliatesInd>false</irs:GroupReturnForAffiliatesInd>
+      <irs:Organization501c3Ind>X</irs:Organization501c3Ind>
+      <irs:TypeOfOrganizationCorpInd>X</irs:TypeOfOrganizationCorpInd>
+      <irs:FormationYr>2024</irs:FormationYr>
+      <irs:LegalDomicileStateCd>CA</irs:LegalDomicileStateCd>
+      <irs:ActivityOrMissionDesc>become the change in order to outreach in love. We will reach, teach &amp; impact various communities providing tangible and intangible resources</irs:ActivityOrMissionDesc>
+      <irs:VotingMembersGoverningBodyCnt>0</irs:VotingMembersGoverningBodyCnt>
+      <irs:VotingMembersIndependentCnt>0</irs:VotingMembersIndependentCnt>
+      <irs:TotalEmployeeCnt>0</irs:TotalEmployeeCnt>
+      <irs:TotalGrossUBIAmt>0</irs:TotalGrossUBIAmt>
+      <irs:PYContributionsGrantsAmt>53100</irs:PYContributionsGrantsAmt>
+      <irs:CYContributionsGrantsAmt>249101</irs:CYContributionsGrantsAmt>
+      <irs:CYProgramServiceRevenueAmt>0</irs:CYProgramServiceRevenueAmt>
+      <irs:CYInvestmentIncomeAmt>0</irs:CYInvestmentIncomeAmt>
+      <irs:CYOtherRevenueAmt>0</irs:CYOtherRevenueAmt>
+      <irs:PYTotalRevenueAmt>53100</irs:PYTotalRevenueAmt>
+      <irs:CYTotalRevenueAmt>249101</irs:CYTotalRevenueAmt>
+      <irs:CYGrantsAndSimilarPaidAmt>0</irs:CYGrantsAndSimilarPaidAmt>
+      <irs:CYBenefitsPaidToMembersAmt>0</irs:CYBenefitsPaidToMembersAmt>
+      <irs:CYSalariesCompEmpBnftPaidAmt>0</irs:CYSalariesCompEmpBnftPaidAmt>
+      <irs:CYTotalProfFndrsngExpnsAmt>0</irs:CYTotalProfFndrsngExpnsAmt>
+      <irs:CYTotalFundraisingExpenseAmt>0</irs:CYTotalFundraisingExpenseAmt>
+      <irs:PYOtherExpensesAmt>52595</irs:PYOtherExpensesAmt>
+      <irs:CYOtherExpensesAmt>206337</irs:CYOtherExpensesAmt>
+      <irs:PYTotalExpensesAmt>52595</irs:PYTotalExpensesAmt>
+      <irs:CYTotalExpensesAmt>206337</irs:CYTotalExpensesAmt>
+      <irs:PYRevenuesLessExpensesAmt>505</irs:PYRevenuesLessExpensesAmt>
+      <irs:CYRevenuesLessExpensesAmt>42764</irs:CYRevenuesLessExpensesAmt>
+      <irs:TotalAssetsEOYAmt>0</irs:TotalAssetsEOYAmt>
+      <irs:TotalLiabilitiesEOYAmt>0</irs:TotalLiabilitiesEOYAmt>
+      <irs:NetAssetsOrFundBalancesEOYAmt>0</irs:NetAssetsOrFundBalancesEOYAmt>
+      <irs:MissionDesc>become the change in order to outreach in love. We will reach &amp; impact various communities providing tangible and intangible resources for people through education and sports training,</irs:MissionDesc>
+      <irs:Desc>GYM FEES: $126,000 BRANDED APPAREL &amp; EQUIPMENT: $60,000 ACADEMIC CURRICULUM: $41,000 SALARIES: $266,000 VANS/FOOD/HOTEL/VEHICLE FUEL/FLIGHTS: $140,800 UTILITIES: $9,782 TOLL FEES: 1,000 FURNITURE: $48,000 PLAYER &amp; PARENT TUITION FEES: $75,625 OFFICE EXPENSE: $2,100 GARDNER: $500</irs:Desc>
+      <irs:DescribedInSection501c3Ind referenceDocumentId="BX0101">true</irs:DescribedInSection501c3Ind>
+      <irs:ScheduleBRequiredInd>false</irs:ScheduleBRequiredInd>
+      <irs:PoliticalCampaignActyInd>false</irs:PoliticalCampaignActyInd>
+      <irs:LobbyingActivitiesInd>false</irs:LobbyingActivitiesInd>
+      <irs:SubjectToProxyTaxInd>false</irs:SubjectToProxyTaxInd>
+      <irs:DonorAdvisedFundInd>false</irs:DonorAdvisedFundInd>
+      <irs:ConservationEasementsInd>false</irs:ConservationEasementsInd>
+      <irs:CollectionsOfArtInd>false</irs:CollectionsOfArtInd>
+      <irs:CreditCounselingInd>false</irs:CreditCounselingInd>
+      <irs:DonorRstrOrQuasiEndowmentsInd>false</irs:DonorRstrOrQuasiEndowmentsInd>
+      <irs:ReportLandBuildingEquipmentInd>false</irs:ReportLandBuildingEquipmentInd>
+      <irs:ReportInvestmentsOtherSecInd>false</irs:ReportInvestmentsOtherSecInd>
+      <irs:ReportProgramRelatedInvstInd>false</irs:ReportProgramRelatedInvstInd>
+      <irs:ReportOtherAssetsInd>false</irs:ReportOtherAssetsInd>
+      <irs:ReportOtherLiabilitiesInd>false</irs:ReportOtherLiabilitiesInd>
+      <irs:IncludeFIN48FootnoteInd>false</irs:IncludeFIN48FootnoteInd>
+      <irs:IndependentAuditFinclStmtInd>false</irs:IndependentAuditFinclStmtInd>
+      <irs:ConsolidatedAuditFinclStmtInd>false</irs:ConsolidatedAuditFinclStmtInd>
+      <irs:SchoolOperatingInd>false</irs:SchoolOperatingInd>
+      <irs:ForeignOfficeInd>false</irs:ForeignOfficeInd>
+      <irs:ForeignActivitiesInd>false</irs:ForeignActivitiesInd>
+      <irs:MoreThan5000KToOrgInd>false</irs:MoreThan5000KToOrgInd>
+      <irs:MoreThan5000KToIndividualsInd>false</irs:MoreThan5000KToIndividualsInd>
+      <irs:ProfessionalFundraisingInd>false</irs:ProfessionalFundraisingInd>
+      <irs:FundraisingActivitiesInd>false</irs:FundraisingActivitiesInd>
+      <irs:GamingActivitiesInd>false</irs:GamingActivitiesInd>
+      <irs:OperateHospitalInd>false</irs:OperateHospitalInd>
+      <irs:GrantsToOrganizationsInd>false</irs:GrantsToOrganizationsInd>
+      <irs:GrantsToIndividualsInd>false</irs:GrantsToIndividualsInd>
+      <irs:ScheduleJRequiredInd>false</irs:ScheduleJRequiredInd>
+      <irs:TaxExemptBondsInd>false</irs:TaxExemptBondsInd>
+      <irs:InvestTaxExemptBondsInd>false</irs:InvestTaxExemptBondsInd>
+      <irs:EscrowAccountInd>false</irs:EscrowAccountInd>
+      <irs:OnBehalfOfIssuerInd>false</irs:OnBehalfOfIssuerInd>
+      <irs:EngagedInExcessBenefitTransInd>false</irs:EngagedInExcessBenefitTransInd>
+      <irs:PYExcessBenefitTransInd>false</irs:PYExcessBenefitTransInd>
+      <irs:LoanOutstandingInd>false</irs:LoanOutstandingInd>
+      <irs:GrantToRelatedPersonInd>false</irs:GrantToRelatedPersonInd>
+      <irs:BusinessRlnWithOrgMemInd>false</irs:BusinessRlnWithOrgMemInd>
+      <irs:BusinessRlnWithFamMemInd>false</irs:BusinessRlnWithFamMemInd>
+      <irs:BusinessRlnWith35CtrlEntInd>false</irs:BusinessRlnWith35CtrlEntInd>
+      <irs:DeductibleNonCashContriInd>false</irs:DeductibleNonCashContriInd>
+      <irs:DeductibleArtContributionInd>false</irs:DeductibleArtContributionInd>
+      <irs:TerminateOperationsInd>false</irs:TerminateOperationsInd>
+      <irs:PartialLiquidationInd>false</irs:PartialLiquidationInd>
+      <irs:DisregardedEntityInd>false</irs:DisregardedEntityInd>
+      <irs:RelatedEntityInd>false</irs:RelatedEntityInd>
+      <irs:RelatedOrganizationCtrlEntInd>false</irs:RelatedOrganizationCtrlEntInd>
+      <irs:TransactionWithControlEntInd>false</irs:TransactionWithControlEntInd>
+      <irs:TrnsfrExmptNonChrtblRltdOrgInd>false</irs:TrnsfrExmptNonChrtblRltdOrgInd>
+      <irs:ActivitiesConductedPrtshpInd>false</irs:ActivitiesConductedPrtshpInd>
+      <irs:ScheduleORequiredInd>false</irs:ScheduleORequiredInd>
+      <irs:InfoInScheduleOPartVInd>X</irs:InfoInScheduleOPartVInd>
+      <irs:IRPDocumentCnt>0</irs:IRPDocumentCnt>
+      <irs:IRPDocumentW2GCnt>0</irs:IRPDocumentW2GCnt>
+      <irs:BackupWthldComplianceInd>false</irs:BackupWthldComplianceInd>
+      <irs:EmployeeCnt>0</irs:EmployeeCnt>
+      <irs:EmploymentTaxReturnsFiledInd>false</irs:EmploymentTaxReturnsFiledInd>
+      <irs:UnrelatedBusIncmOverLimitInd>false</irs:UnrelatedBusIncmOverLimitInd>
+      <irs:Form990TFiledInd>false</irs:Form990TFiledInd>
+      <irs:ForeignFinancialAccountInd>false</irs:ForeignFinancialAccountInd>
+      <irs:ProhibitedTaxShelterTransInd>false</irs:ProhibitedTaxShelterTransInd>
+      <irs:TaxablePartyNotificationInd>false</irs:TaxablePartyNotificationInd>
+      <irs:Form8886TFiledInd>false</irs:Form8886TFiledInd>
+      <irs:NondeductibleContributionsInd>false</irs:NondeductibleContributionsInd>
+      <irs:NondeductibleContriDisclInd>false</irs:NondeductibleContriDisclInd>
+      <irs:QuidProQuoContributionsInd>false</irs:QuidProQuoContributionsInd>
+      <irs:QuidProQuoContriDisclInd>false</irs:QuidProQuoContriDisclInd>
+      <irs:Form8282PropertyDisposedOfInd>false</irs:Form8282PropertyDisposedOfInd>
+      <irs:RcvFndsToPayPrsnlBnftCntrctInd>false</irs:RcvFndsToPayPrsnlBnftCntrctInd>
+      <irs:PayPremiumsPrsnlBnftCntrctInd>false</irs:PayPremiumsPrsnlBnftCntrctInd>
+      <irs:Form8899Filedind>false</irs:Form8899Filedind>
+      <irs:Form1098CFiledInd>false</irs:Form1098CFiledInd>
+      <irs:DAFExcessBusinessHoldingsInd>false</irs:DAFExcessBusinessHoldingsInd>
+      <irs:TaxableDistributionsInd>false</irs:TaxableDistributionsInd>
+      <irs:DistributionToDonorInd>false</irs:DistributionToDonorInd>
+      <irs:OrgFiledInLieuOfForm1041Ind>false</irs:OrgFiledInLieuOfForm1041Ind>
+      <irs:LicensedMoreThanOneStateInd>false</irs:LicensedMoreThanOneStateInd>
+      <irs:IndoorTanningServicesInd>false</irs:IndoorTanningServicesInd>
+      <irs:Form720FiledInd>false</irs:Form720FiledInd>
+      <irs:SubjToTaxRmnrtnExPrchtPymtInd>false</irs:SubjToTaxRmnrtnExPrchtPymtInd>
+      <irs:SubjectToExcsTaxNetInvstIncInd>false</irs:SubjectToExcsTaxNetInvstIncInd>
+      <irs:ExcsTaxSect4951Or4952Or4953Ind>false</irs:ExcsTaxSect4951Or4952Or4953Ind>
+      <irs:InfoInScheduleOPartVIInd>X</irs:InfoInScheduleOPartVIInd>
+      <irs:GoverningBodyVotingMembersCnt>0</irs:GoverningBodyVotingMembersCnt>
+      <irs:IndependentVotingMemberCnt>0</irs:IndependentVotingMemberCnt>
+      <irs:FamilyOrBusinessRlnInd>false</irs:FamilyOrBusinessRlnInd>
+      <irs:DelegationOfMgmtDutiesInd>false</irs:DelegationOfMgmtDutiesInd>
+      <irs:ChangeToOrgDocumentsInd>false</irs:ChangeToOrgDocumentsInd>
+      <irs:MaterialDiversionOrMisuseInd>false</irs:MaterialDiversionOrMisuseInd>
+      <irs:MembersOrStockholdersInd>false</irs:MembersOrStockholdersInd>
+      <irs:ElectionOfBoardMembersInd>false</irs:ElectionOfBoardMembersInd>
+      <irs:DecisionsSubjectToApprovaInd>false</irs:DecisionsSubjectToApprovaInd>
+      <irs:MinutesOfGoverningBodyInd>true</irs:MinutesOfGoverningBodyInd>
+      <irs:MinutesOfCommitteesInd>false</irs:MinutesOfCommitteesInd>
+      <irs:OfficerMailingAddressInd>false</irs:OfficerMailingAddressInd>
+      <irs:LocalChaptersInd>false</irs:LocalChaptersInd>
+      <irs:PoliciesReferenceChaptersInd>false</irs:PoliciesReferenceChaptersInd>
+      <irs:Form990ProvidedToGvrnBodyInd>false</irs:Form990ProvidedToGvrnBodyInd>
+      <irs:ConflictOfInterestPolicyInd>false</irs:ConflictOfInterestPolicyInd>
+      <irs:AnnualDisclosureCoveredPrsnInd>false</irs:AnnualDisclosureCoveredPrsnInd>
+      <irs:RegularMonitoringEnfrcInd>false</irs:RegularMonitoringEnfrcInd>
+      <irs:WhistleblowerPolicyInd>false</irs:WhistleblowerPolicyInd>
+      <irs:DocumentRetentionPolicyInd>false</irs:DocumentRetentionPolicyInd>
+      <irs:CompensationProcessCEOInd>false</irs:CompensationProcessCEOInd>
+      <irs:CompensationProcessOtherInd>false</irs:CompensationProcessOtherInd>
+      <irs:InvestmentInJointVentureInd>false</irs:InvestmentInJointVentureInd>
+      <irs:WrittenPolicyOrProcedureInd>false</irs:WrittenPolicyOrProcedureInd>
+      <irs:BooksInCareOfDetail>
+        <irs:PersonNm>TRAVIS NICHOLS</irs:PersonNm>
+        <irs:PhoneNum>6466710775</irs:PhoneNum>
+        <irs:USAddress>
+          <irs:AddressLine1Txt>12803 GROVEHURST AVE</irs:AddressLine1Txt>
+          <irs:CityNm>WINTER GARDEN</irs:CityNm>
+          <irs:StateAbbreviationCd>FL</irs:StateAbbreviationCd>
+          <irs:ZIPCd>34787</irs:ZIPCd>
+        </irs:USAddress>
+      </irs:BooksInCareOfDetail>
+      <irs:NoListedPersonsCompensatedInd>X</irs:NoListedPersonsCompensatedInd>
+      <irs:Form990PartVIISectionAGrp>
+        <irs:PersonNm>TRAVIS NICHOLS</irs:PersonNm>
+        <irs:TitleTxt>PRESIDENT</irs:TitleTxt>
+        <irs:AverageHoursPerWeekRt>000.00</irs:AverageHoursPerWeekRt>
+        <irs:AverageHoursPerWeekRltdOrgRt>000.00</irs:AverageHoursPerWeekRltdOrgRt>
+        <irs:ReportableCompFromOrgAmt>0</irs:ReportableCompFromOrgAmt>
+        <irs:ReportableCompFromRltdOrgAmt>0</irs:ReportableCompFromRltdOrgAmt>
+        <irs:OtherCompensationAmt>0</irs:OtherCompensationAmt>
+      </irs:Form990PartVIISectionAGrp>
+      <irs:FormerOfcrEmployeesListedInd>false</irs:FormerOfcrEmployeesListedInd>
+      <irs:TotalCompGreaterThan150KInd>false</irs:TotalCompGreaterThan150KInd>
+      <irs:CompensationFromOtherSrcsInd>false</irs:CompensationFromOtherSrcsInd>
+      <irs:AllOtherContributionsAmt>249101</irs:AllOtherContributionsAmt>
+      <irs:TotalContributionsAmt>249101</irs:TotalContributionsAmt>
+      <irs:NetIncmFromFundraisingEvtGrp>
+        <irs:TotalRevenueColumnAmt>0</irs:TotalRevenueColumnAmt>
+      </irs:NetIncmFromFundraisingEvtGrp>
+      <irs:TotalRevenueGrp>
+        <irs:TotalRevenueColumnAmt>249101</irs:TotalRevenueColumnAmt>
+        <irs:RelatedOrExemptFuncIncomeAmt>0</irs:RelatedOrExemptFuncIncomeAmt>
+        <irs:UnrelatedBusinessRevenueAmt>0</irs:UnrelatedBusinessRevenueAmt>
+        <irs:ExclusionAmt>0</irs:ExclusionAmt>
+      </irs:TotalRevenueGrp>
+      <irs:FeesForServicesAccountingGrp>
+        <irs:TotalAmt>895</irs:TotalAmt>
+      </irs:FeesForServicesAccountingGrp>
+      <irs:TravelGrp>
+        <irs:TotalAmt>54519</irs:TotalAmt>
+      </irs:TravelGrp>
+      <irs:OtherExpensesGrp>
+        <irs:Desc>SUBCONTRACTOR PAY</irs:Desc>
+        <irs:TotalAmt>91893</irs:TotalAmt>
+      </irs:OtherExpensesGrp>
+      <irs:OtherExpensesGrp>
+        <irs:Desc>VAN PAYMENTS</irs:Desc>
+        <irs:TotalAmt>8030</irs:TotalAmt>
+      </irs:OtherExpensesGrp>
+      <irs:OtherExpensesGrp>
+        <irs:Desc>TRAVEL</irs:Desc>
+        <irs:TotalAmt>46000</irs:TotalAmt>
+      </irs:OtherExpensesGrp>
+      <irs:OtherExpensesGrp>
+        <irs:Desc>TOURNAMENT FEES</irs:Desc>
+        <irs:TotalAmt>5000</irs:TotalAmt>
+      </irs:OtherExpensesGrp>
+      <irs:TotalFunctionalExpensesGrp>
+        <irs:TotalAmt>206337</irs:TotalAmt>
+        <irs:ProgramServicesAmt>0</irs:ProgramServicesAmt>
+        <irs:ManagementAndGeneralAmt>0</irs:ManagementAndGeneralAmt>
+        <irs:FundraisingAmt>0</irs:FundraisingAmt>
+      </irs:TotalFunctionalExpensesGrp>
+      <irs:TotalAssetsGrp>
+        <irs:BOYAmt>0</irs:BOYAmt>
+        <irs:EOYAmt>0</irs:EOYAmt>
+      </irs:TotalAssetsGrp>
+      <irs:TotalLiabilitiesGrp>
+        <irs:BOYAmt>0</irs:BOYAmt>
+        <irs:EOYAmt>0</irs:EOYAmt>
+      </irs:TotalLiabilitiesGrp>
+      <irs:OrgDoesNotFollowFASB117Ind>X</irs:OrgDoesNotFollowFASB117Ind>
+      <irs:TotalNetAssetsFundBalanceGrp>
+        <irs:BOYAmt>0</irs:BOYAmt>
+        <irs:EOYAmt>0</irs:EOYAmt>
+      </irs:TotalNetAssetsFundBalanceGrp>
+      <irs:TotLiabNetAssetsFundBalanceGrp>
+        <irs:BOYAmt>0</irs:BOYAmt>
+        <irs:EOYAmt>0</irs:EOYAmt>
+      </irs:TotLiabNetAssetsFundBalanceGrp>
+      <irs:ReconcilationRevenueExpnssAmt>42764</irs:ReconcilationRevenueExpnssAmt>
+      <irs:InfoInScheduleOPartXIIInd>X</irs:InfoInScheduleOPartXIIInd>
+      <irs:MethodOfAccountingCashInd>X</irs:MethodOfAccountingCashInd>
+      <irs:AccountantCompileOrReviewInd>false</irs:AccountantCompileOrReviewInd>
+      <irs:FSAuditedInd>false</irs:FSAuditedInd>
+      <irs:AuditCommitteeInd>false</irs:AuditCommitteeInd>
+      <irs:FederalGrantAuditRequiredInd>false</irs:FederalGrantAuditRequiredInd>
+      <irs:FederalGrantAuditPerformedInd>false</irs:FederalGrantAuditPerformedInd>
+    </irs:IRS990>
+  </irs:ReturnData>
+</irs:Return>

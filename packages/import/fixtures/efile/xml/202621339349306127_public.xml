@@ -1,0 +1,323 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" returnVersion="2024v5.4">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2026-05-13T02:29:28-04:00</ReturnTs>
+    <TaxPeriodEndDt>2025-06-30</TaxPeriodEndDt>
+    <ReturnTypeCd>990</ReturnTypeCd>
+    <TaxPeriodBeginDt>2024-07-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>680471501</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>Clorox Company Voluntary Employees Beneficiary Association</BusinessNameLine1Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>CLOR</BusinessNameControlTxt>
+      <USAddress>
+        <AddressLine1Txt>PO BOX 24305</AddressLine1Txt>
+        <CityNm>Oakland</CityNm>
+        <StateAbbreviationCd>CA</StateAbbreviationCd>
+        <ZIPCd>94623</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>Jason H Kaufman</PersonNm>
+      <PersonTitleTxt>Senior Vice President U.S. Bank NA</PersonTitleTxt>
+      <PhoneNum>5034644472</PhoneNum>
+      <SignatureDt>2026-05-12</SignatureDt>
+    </BusinessOfficerGrp>
+    <IRSResponsiblePrtyInfoCurrInd>true</IRSResponsiblePrtyInfoCurrInd>
+    <TaxYr>2024</TaxYr>
+    <BuildTS>2025-03-06 01:10:19Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="4">
+    <IRS990 documentId="1" softwareVersionNum="26.2.0.2861" referenceDocumentId="3">
+      <PrincipalOfcrBusinessName>
+        <BusinessNameLine1Txt>Clorox Company Voluntary Employees Beneficiary Association</BusinessNameLine1Txt>
+      </PrincipalOfcrBusinessName>
+      <USAddress>
+        <AddressLine1Txt>PO BOX 24305</AddressLine1Txt>
+        <AddressLine2Txt>TAX DEPARTMENT</AddressLine2Txt>
+        <CityNm>Oakland</CityNm>
+        <StateAbbreviationCd>CA</StateAbbreviationCd>
+        <ZIPCd>94623</ZIPCd>
+      </USAddress>
+      <GrossReceiptsAmt>2113104</GrossReceiptsAmt>
+      <GroupReturnForAffiliatesInd>false</GroupReturnForAffiliatesInd>
+      <Organization501cInd organization501cTypeTxt="9">X</Organization501cInd>
+      <TypeOfOrganizationTrustInd>X</TypeOfOrganizationTrustInd>
+      <FormationYr>2000</FormationYr>
+      <LegalDomicileStateCd>CA</LegalDomicileStateCd>
+      <ActivityOrMissionDesc>The purpose of this organization is to fund health and welfare benefits offered to retired employees of the Clorox Company and its participating subsidiaries. Employer and employee contributions made to the organization are exempt from taxation per IRS Department Letter dated 3/18/2002.</ActivityOrMissionDesc>
+      <VotingMembersGoverningBodyCnt>6</VotingMembersGoverningBodyCnt>
+      <VotingMembersIndependentCnt>0</VotingMembersIndependentCnt>
+      <TotalEmployeeCnt>0</TotalEmployeeCnt>
+      <TotalGrossUBIAmt>0</TotalGrossUBIAmt>
+      <CYContributionsGrantsAmt>0</CYContributionsGrantsAmt>
+      <PYProgramServiceRevenueAmt>4132662</PYProgramServiceRevenueAmt>
+      <CYProgramServiceRevenueAmt>2104047</CYProgramServiceRevenueAmt>
+      <PYInvestmentIncomeAmt>4130</PYInvestmentIncomeAmt>
+      <CYInvestmentIncomeAmt>9057</CYInvestmentIncomeAmt>
+      <CYOtherRevenueAmt>0</CYOtherRevenueAmt>
+      <PYTotalRevenueAmt>4136792</PYTotalRevenueAmt>
+      <CYTotalRevenueAmt>2113104</CYTotalRevenueAmt>
+      <CYGrantsAndSimilarPaidAmt>0</CYGrantsAndSimilarPaidAmt>
+      <PYBenefitsPaidToMembersAmt>2280644</PYBenefitsPaidToMembersAmt>
+      <CYBenefitsPaidToMembersAmt>2184485</CYBenefitsPaidToMembersAmt>
+      <CYSalariesCompEmpBnftPaidAmt>0</CYSalariesCompEmpBnftPaidAmt>
+      <CYTotalProfFndrsngExpnsAmt>0</CYTotalProfFndrsngExpnsAmt>
+      <CYTotalFundraisingExpenseAmt>0</CYTotalFundraisingExpenseAmt>
+      <PYOtherExpensesAmt>649698</PYOtherExpensesAmt>
+      <CYOtherExpensesAmt>729104</CYOtherExpensesAmt>
+      <PYTotalExpensesAmt>2930342</PYTotalExpensesAmt>
+      <CYTotalExpensesAmt>2913589</CYTotalExpensesAmt>
+      <PYRevenuesLessExpensesAmt>1206450</PYRevenuesLessExpensesAmt>
+      <CYRevenuesLessExpensesAmt>-800485</CYRevenuesLessExpensesAmt>
+      <TotalAssetsBOYAmt>1681872</TotalAssetsBOYAmt>
+      <TotalAssetsEOYAmt>881387</TotalAssetsEOYAmt>
+      <TotalLiabilitiesEOYAmt>0</TotalLiabilitiesEOYAmt>
+      <NetAssetsOrFundBalancesBOYAmt>1681872</NetAssetsOrFundBalancesBOYAmt>
+      <NetAssetsOrFundBalancesEOYAmt>881387</NetAssetsOrFundBalancesEOYAmt>
+      <MissionDesc>The purpose of this organization is to fund health and welfare benefits offered to retired employees of the Clorox Company and its participating subsidiaries. Employer and employee contributions made to the organization are exempt from taxation per IRS Department Letter dated 3/18/2002.</MissionDesc>
+      <SignificantNewProgramSrvcInd>false</SignificantNewProgramSrvcInd>
+      <SignificantChangeInd>false</SignificantChangeInd>
+      <Desc>The Clorox Company Voluntary Employees Beneficiary Association ("VEBA Trust") was established for the purpose of providing security to active employees by holding employer funds contributed by Clorox and its subsidiaries and by employees for the payment of medical, dental, and vision benefits. On January 1, 2002, the trust agreement dated September 28, 2000 between The Clorox Company and Union Bank of California, N.A. (Trustee) was amended to add The Clorox Company Group Insurance Plan for Certain Retired and Disabled Participants (Plan No. 508) to the trust. On June 24, 2008, the VEBA Trust Agreement was amended to remove the current eligible employees from the VEBA Trust. Effective July 1, 2008 active employee contributions are no longer held in the VEBA Trust and certain benefits and expenses for the active employees are paid through the general assets of the Clorox Company. Effective July 1, 2018, The Clorox Company Group Insurance Plan for Retirees was established to provide benefits for eligible former employees of The Clorox Company.</Desc>
+      <DescribedInSection501c3Ind>false</DescribedInSection501c3Ind>
+      <ScheduleBRequiredInd>false</ScheduleBRequiredInd>
+      <PoliticalCampaignActyInd>false</PoliticalCampaignActyInd>
+      <LobbyingActivitiesInd>false</LobbyingActivitiesInd>
+      <SubjectToProxyTaxInd>false</SubjectToProxyTaxInd>
+      <DonorAdvisedFundInd referenceDocumentId="2">false</DonorAdvisedFundInd>
+      <ConservationEasementsInd referenceDocumentId="2">false</ConservationEasementsInd>
+      <CollectionsOfArtInd referenceDocumentId="2">false</CollectionsOfArtInd>
+      <CreditCounselingInd referenceDocumentId="2">false</CreditCounselingInd>
+      <DonorRstrOrQuasiEndowmentsInd referenceDocumentId="2">false</DonorRstrOrQuasiEndowmentsInd>
+      <ReportLandBuildingEquipmentInd referenceDocumentId="2">false</ReportLandBuildingEquipmentInd>
+      <ReportInvestmentsOtherSecInd referenceDocumentId="2">false</ReportInvestmentsOtherSecInd>
+      <ReportProgramRelatedInvstInd referenceDocumentId="2">false</ReportProgramRelatedInvstInd>
+      <ReportOtherAssetsInd referenceDocumentId="2">false</ReportOtherAssetsInd>
+      <ReportOtherLiabilitiesInd referenceDocumentId="2">false</ReportOtherLiabilitiesInd>
+      <IncludeFIN48FootnoteInd referenceDocumentId="2">false</IncludeFIN48FootnoteInd>
+      <IndependentAuditFinclStmtInd referenceDocumentId="2">true</IndependentAuditFinclStmtInd>
+      <ConsolidatedAuditFinclStmtInd referenceDocumentId="2">false</ConsolidatedAuditFinclStmtInd>
+      <SchoolOperatingInd>false</SchoolOperatingInd>
+      <ForeignOfficeInd>false</ForeignOfficeInd>
+      <ForeignActivitiesInd>false</ForeignActivitiesInd>
+      <MoreThan5000KToOrgInd>false</MoreThan5000KToOrgInd>
+      <MoreThan5000KToIndividualsInd>false</MoreThan5000KToIndividualsInd>
+      <ProfessionalFundraisingInd>false</ProfessionalFundraisingInd>
+      <FundraisingActivitiesInd>false</FundraisingActivitiesInd>
+      <GamingActivitiesInd>false</GamingActivitiesInd>
+      <OperateHospitalInd>false</OperateHospitalInd>
+      <GrantsToOrganizationsInd>false</GrantsToOrganizationsInd>
+      <GrantsToIndividualsInd>false</GrantsToIndividualsInd>
+      <ScheduleJRequiredInd>false</ScheduleJRequiredInd>
+      <TaxExemptBondsInd>false</TaxExemptBondsInd>
+      <EngagedInExcessBenefitTransInd>false</EngagedInExcessBenefitTransInd>
+      <PYExcessBenefitTransInd>false</PYExcessBenefitTransInd>
+      <LoanOutstandingInd>false</LoanOutstandingInd>
+      <GrantToRelatedPersonInd>false</GrantToRelatedPersonInd>
+      <BusinessRlnWithOrgMemInd>false</BusinessRlnWithOrgMemInd>
+      <BusinessRlnWithFamMemInd>false</BusinessRlnWithFamMemInd>
+      <BusinessRlnWith35CtrlEntInd>false</BusinessRlnWith35CtrlEntInd>
+      <DeductibleNonCashContriInd>false</DeductibleNonCashContriInd>
+      <DeductibleArtContributionInd>false</DeductibleArtContributionInd>
+      <TerminateOperationsInd>false</TerminateOperationsInd>
+      <PartialLiquidationInd>false</PartialLiquidationInd>
+      <DisregardedEntityInd referenceDocumentId="4">false</DisregardedEntityInd>
+      <RelatedEntityInd referenceDocumentId="4">true</RelatedEntityInd>
+      <RelatedOrganizationCtrlEntInd>false</RelatedOrganizationCtrlEntInd>
+      <TrnsfrExmptNonChrtblRltdOrgInd referenceDocumentId="4">false</TrnsfrExmptNonChrtblRltdOrgInd>
+      <ActivitiesConductedPrtshpInd referenceDocumentId="4">false</ActivitiesConductedPrtshpInd>
+      <ScheduleORequiredInd>true</ScheduleORequiredInd>
+      <IRPDocumentCnt>0</IRPDocumentCnt>
+      <IRPDocumentW2GCnt>0</IRPDocumentW2GCnt>
+      <EmployeeCnt>0</EmployeeCnt>
+      <UnrelatedBusIncmOverLimitInd>false</UnrelatedBusIncmOverLimitInd>
+      <ForeignFinancialAccountInd>false</ForeignFinancialAccountInd>
+      <ProhibitedTaxShelterTransInd>false</ProhibitedTaxShelterTransInd>
+      <TaxablePartyNotificationInd>false</TaxablePartyNotificationInd>
+      <NondeductibleContributionsInd>false</NondeductibleContributionsInd>
+      <QuidProQuoContributionsInd>false</QuidProQuoContributionsInd>
+      <Form8282PropertyDisposedOfInd>false</Form8282PropertyDisposedOfInd>
+      <RcvFndsToPayPrsnlBnftCntrctInd>false</RcvFndsToPayPrsnlBnftCntrctInd>
+      <PayPremiumsPrsnlBnftCntrctInd>false</PayPremiumsPrsnlBnftCntrctInd>
+      <Form8899Filedind>false</Form8899Filedind>
+      <Form1098CFiledInd>false</Form1098CFiledInd>
+      <DAFExcessBusinessHoldingsInd>false</DAFExcessBusinessHoldingsInd>
+      <TaxableDistributionsInd>false</TaxableDistributionsInd>
+      <DistributionToDonorInd>false</DistributionToDonorInd>
+      <IndoorTanningServicesInd>false</IndoorTanningServicesInd>
+      <SubjToTaxRmnrtnExPrchtPymtInd>false</SubjToTaxRmnrtnExPrchtPymtInd>
+      <SubjectToExcsTaxNetInvstIncInd>false</SubjectToExcsTaxNetInvstIncInd>
+      <ExcsTaxSect4951Or4952Or4953Ind>false</ExcsTaxSect4951Or4952Or4953Ind>
+      <InfoInScheduleOPartVIInd>X</InfoInScheduleOPartVIInd>
+      <GoverningBodyVotingMembersCnt>6</GoverningBodyVotingMembersCnt>
+      <IndependentVotingMemberCnt>0</IndependentVotingMemberCnt>
+      <FamilyOrBusinessRlnInd>false</FamilyOrBusinessRlnInd>
+      <DelegationOfMgmtDutiesInd>false</DelegationOfMgmtDutiesInd>
+      <ChangeToOrgDocumentsInd>false</ChangeToOrgDocumentsInd>
+      <MaterialDiversionOrMisuseInd>false</MaterialDiversionOrMisuseInd>
+      <MembersOrStockholdersInd>false</MembersOrStockholdersInd>
+      <ElectionOfBoardMembersInd>false</ElectionOfBoardMembersInd>
+      <DecisionsSubjectToApprovaInd>false</DecisionsSubjectToApprovaInd>
+      <MinutesOfGoverningBodyInd>true</MinutesOfGoverningBodyInd>
+      <MinutesOfCommitteesInd>true</MinutesOfCommitteesInd>
+      <OfficerMailingAddressInd>false</OfficerMailingAddressInd>
+      <LocalChaptersInd>false</LocalChaptersInd>
+      <Form990ProvidedToGvrnBodyInd>false</Form990ProvidedToGvrnBodyInd>
+      <ConflictOfInterestPolicyInd>false</ConflictOfInterestPolicyInd>
+      <WhistleblowerPolicyInd>false</WhistleblowerPolicyInd>
+      <DocumentRetentionPolicyInd>false</DocumentRetentionPolicyInd>
+      <CompensationProcessCEOInd>false</CompensationProcessCEOInd>
+      <CompensationProcessOtherInd>false</CompensationProcessOtherInd>
+      <InvestmentInJointVentureInd>false</InvestmentInJointVentureInd>
+      <StatesWhereCopyOfReturnIsFldCd>CA</StatesWhereCopyOfReturnIsFldCd>
+      <UponRequestInd>X</UponRequestInd>
+      <BooksInCareOfDetail>
+        <BusinessName>
+          <BusinessNameLine1Txt>The Clorox Company</BusinessNameLine1Txt>
+        </BusinessName>
+        <PhoneNum>5102717000</PhoneNum>
+        <USAddress>
+          <AddressLine1Txt>1221 Broadway</AddressLine1Txt>
+          <CityNm>Oakland</CityNm>
+          <StateAbbreviationCd>CA</StateAbbreviationCd>
+          <ZIPCd>946121888</ZIPCd>
+        </USAddress>
+      </BooksInCareOfDetail>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>Kirsten Marriner</PersonNm>
+        <TitleTxt>The Clorox Company (VEBA Sponsor)</TitleTxt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>3030531</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>Eric Reynolds</PersonNm>
+        <TitleTxt>The Clorox Company (VEBA Sponsor)</TitleTxt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>5408275</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>Luc Bellet</PersonNm>
+        <TitleTxt>The Clorox Company (VEBA Sponsor)</TitleTxt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>1344388</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>Chris Hyder</PersonNm>
+        <TitleTxt>The Clorox Company (VEBA Sponsor)</TitleTxt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>2882444</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>Apur Patel</PersonNm>
+        <TitleTxt>The Clorox Company (VEBA Sponsor)</TitleTxt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>751067</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>Paola Gonzalez</PersonNm>
+        <TitleTxt>The Clorox Company (VEBA Sponsor)</TitleTxt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>1288921</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>US Bank</PersonNm>
+        <TitleTxt>The Clorox Company (VEBA Trustee)</TitleTxt>
+        <InstitutionalTrusteeInd>X</InstitutionalTrusteeInd>
+        <ReportableCompFromOrgAmt>12000</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <TotalReportableCompFromOrgAmt>12000</TotalReportableCompFromOrgAmt>
+      <TotReportableCompRltdOrgAmt>14705626</TotReportableCompRltdOrgAmt>
+      <FormerOfcrEmployeesListedInd>false</FormerOfcrEmployeesListedInd>
+      <TotalCompGreaterThan150KInd>false</TotalCompGreaterThan150KInd>
+      <CompensationFromOtherSrcsInd>false</CompensationFromOtherSrcsInd>
+      <ProgramServiceRevenueGrp>
+        <Desc>Employer Contributions</Desc>
+        <TotalRevenueColumnAmt>192925</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>192925</RelatedOrExemptFuncIncomeAmt>
+      </ProgramServiceRevenueGrp>
+      <ProgramServiceRevenueGrp>
+        <Desc>Employee Contributions</Desc>
+        <TotalRevenueColumnAmt>1911122</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>1911122</RelatedOrExemptFuncIncomeAmt>
+      </ProgramServiceRevenueGrp>
+      <TotalProgramServiceRevenueAmt>2104047</TotalProgramServiceRevenueAmt>
+      <InvestmentIncomeGrp>
+        <TotalRevenueColumnAmt>9057</TotalRevenueColumnAmt>
+        <ExclusionAmt>9057</ExclusionAmt>
+      </InvestmentIncomeGrp>
+      <TotalRevenueGrp>
+        <TotalRevenueColumnAmt>2113104</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>2104047</RelatedOrExemptFuncIncomeAmt>
+        <ExclusionAmt>9057</ExclusionAmt>
+      </TotalRevenueGrp>
+      <BenefitsToMembersGrp>
+        <TotalAmt>2184485</TotalAmt>
+        <ProgramServicesAmt>2184485</ProgramServicesAmt>
+      </BenefitsToMembersGrp>
+      <InsuranceGrp>
+        <TotalAmt>619309</TotalAmt>
+        <ProgramServicesAmt>619309</ProgramServicesAmt>
+      </InsuranceGrp>
+      <OtherExpensesGrp>
+        <Desc>Administrative Expenses</Desc>
+        <TotalAmt>109795</TotalAmt>
+        <ProgramServicesAmt>109795</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <TotalFunctionalExpensesGrp>
+        <TotalAmt>2913589</TotalAmt>
+        <ProgramServicesAmt>2913589</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>0</ManagementAndGeneralAmt>
+        <FundraisingAmt>0</FundraisingAmt>
+      </TotalFunctionalExpensesGrp>
+      <SavingsAndTempCashInvstGrp>
+        <BOYAmt>1681872</BOYAmt>
+        <EOYAmt>881387</EOYAmt>
+      </SavingsAndTempCashInvstGrp>
+      <TotalAssetsGrp>
+        <BOYAmt>1681872</BOYAmt>
+        <EOYAmt>881387</EOYAmt>
+      </TotalAssetsGrp>
+      <TotalLiabilitiesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </TotalLiabilitiesGrp>
+      <OrganizationFollowsFASB117Ind>X</OrganizationFollowsFASB117Ind>
+      <DonorRestrictionNetAssetsGrp>
+        <BOYAmt>1681872</BOYAmt>
+        <EOYAmt>881387</EOYAmt>
+      </DonorRestrictionNetAssetsGrp>
+      <TotalNetAssetsFundBalanceGrp>
+        <BOYAmt>1681872</BOYAmt>
+        <EOYAmt>881387</EOYAmt>
+      </TotalNetAssetsFundBalanceGrp>
+      <TotLiabNetAssetsFundBalanceGrp>
+        <BOYAmt>1681872</BOYAmt>
+        <EOYAmt>881387</EOYAmt>
+      </TotLiabNetAssetsFundBalanceGrp>
+      <ReconcilationRevenueExpnssAmt>-800485</ReconcilationRevenueExpnssAmt>
+      <MethodOfAccountingAccrualInd>X</MethodOfAccountingAccrualInd>
+      <AccountantCompileOrReviewInd>false</AccountantCompileOrReviewInd>
+      <FSAuditedInd>true</FSAuditedInd>
+      <FSAuditedBasisGrp>
+        <ConsolidatedBasisFinclStmtInd>X</ConsolidatedBasisFinclStmtInd>
+      </FSAuditedBasisGrp>
+      <AuditCommitteeInd>true</AuditCommitteeInd>
+      <FederalGrantAuditRequiredInd>false</FederalGrantAuditRequiredInd>
+    </IRS990>
+  </ReturnData>
+</Return>

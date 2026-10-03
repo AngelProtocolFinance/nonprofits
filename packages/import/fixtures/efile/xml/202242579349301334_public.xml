@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" returnVersion="2020v4.0">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2022-09-14T14:39:54-04:00</ReturnTs>
+    <TaxPeriodEndDt>2021-10-31</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmEIN>030476953</PreparerFirmEIN>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>BMKR LLP</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>1200 VETERANS HWY STE 350</AddressLine1Txt>
+        <CityNm>HAUPPAUGE</CityNm>
+        <StateAbbreviationCd>NY</StateAbbreviationCd>
+        <ZIPCd>117883065</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990</ReturnTypeCd>
+    <TaxPeriodBeginDt>2020-11-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>112452456</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>CENTEREACH FIRE DEPARTMENT INC</BusinessNameLine1Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>CENT</BusinessNameControlTxt>
+      <PhoneNum>6315888652</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>9 SOUTH WASHINGTON AVENUE</AddressLine1Txt>
+        <CityNm>CENTEREACH</CityNm>
+        <StateAbbreviationCd>NY</StateAbbreviationCd>
+        <ZIPCd>11720</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>ROBERT FOERTSCH</PersonNm>
+      <PersonTitleTxt>PRESIDENT</PersonTitleTxt>
+      <PhoneNum>6315888652</PhoneNum>
+      <SignatureDt>2022-09-15</SignatureDt>
+      <DiscussWithPaidPreparerInd>true</DiscussWithPaidPreparerInd>
+    </BusinessOfficerGrp>
+    <SigningOfficerGrp>
+      <PersonFullName>
+        <PersonFirstNm>ROBERT</PersonFirstNm>
+        <PersonLastNm>FOERTSCH</PersonLastNm>
+      </PersonFullName>
+      <SSN>XXX-XX-XXXX</SSN>
+    </SigningOfficerGrp>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>JOSEPH MORTIMER</PreparerPersonNm>
+      <PTIN>P00908338</PTIN>
+      <PhoneNum>6312935000</PhoneNum>
+      <PreparationDt>2022-09-14</PreparationDt>
+    </PreparerPersonGrp>
+    <TaxYr>2020</TaxYr>
+    <BuildTS>2023-04-26 12:10:37Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="2">
+    <IRS990 documentId="RetDoc1" referenceDocumentId="RetDoc2">
+      <PrincipalOfficerNm>ROBERT FOERTSCH</PrincipalOfficerNm>
+      <USAddress>
+        <AddressLine1Txt>9 SOUTH WASHINGTON AVENUE</AddressLine1Txt>
+        <CityNm>CENTEREACH</CityNm>
+        <StateAbbreviationCd>NY</StateAbbreviationCd>
+        <ZIPCd>11720</ZIPCd>
+      </USAddress>
+      <GrossReceiptsAmt>233194</GrossReceiptsAmt>
+      <GroupReturnForAffiliatesInd>false</GroupReturnForAffiliatesInd>
+      <Organization501cInd organization501cTypeTxt="4">X</Organization501cInd>
+      <WebsiteAddressTxt>WWW.CENTEREACHFD.ORG</WebsiteAddressTxt>
+      <TypeOfOrganizationCorpInd>X</TypeOfOrganizationCorpInd>
+      <LegalDomicileStateCd>NY</LegalDomicileStateCd>
+      <ActivityOrMissionDesc>FIRE FIGHTING AND RESCUE</ActivityOrMissionDesc>
+      <VotingMembersGoverningBodyCnt>0</VotingMembersGoverningBodyCnt>
+      <VotingMembersIndependentCnt>0</VotingMembersIndependentCnt>
+      <TotalEmployeeCnt>0</TotalEmployeeCnt>
+      <TotalGrossUBIAmt>0</TotalGrossUBIAmt>
+      <PYContributionsGrantsAmt>114777</PYContributionsGrantsAmt>
+      <CYContributionsGrantsAmt>233057</CYContributionsGrantsAmt>
+      <CYProgramServiceRevenueAmt>0</CYProgramServiceRevenueAmt>
+      <PYInvestmentIncomeAmt>175</PYInvestmentIncomeAmt>
+      <CYInvestmentIncomeAmt>137</CYInvestmentIncomeAmt>
+      <CYOtherRevenueAmt>0</CYOtherRevenueAmt>
+      <PYTotalRevenueAmt>114952</PYTotalRevenueAmt>
+      <CYTotalRevenueAmt>233194</CYTotalRevenueAmt>
+      <CYGrantsAndSimilarPaidAmt>0</CYGrantsAndSimilarPaidAmt>
+      <CYBenefitsPaidToMembersAmt>0</CYBenefitsPaidToMembersAmt>
+      <CYSalariesCompEmpBnftPaidAmt>0</CYSalariesCompEmpBnftPaidAmt>
+      <CYTotalProfFndrsngExpnsAmt>0</CYTotalProfFndrsngExpnsAmt>
+      <CYTotalFundraisingExpenseAmt>0</CYTotalFundraisingExpenseAmt>
+      <PYOtherExpensesAmt>135550</PYOtherExpensesAmt>
+      <CYOtherExpensesAmt>132554</CYOtherExpensesAmt>
+      <PYTotalExpensesAmt>135550</PYTotalExpensesAmt>
+      <CYTotalExpensesAmt>132554</CYTotalExpensesAmt>
+      <PYRevenuesLessExpensesAmt>-20598</PYRevenuesLessExpensesAmt>
+      <CYRevenuesLessExpensesAmt>100640</CYRevenuesLessExpensesAmt>
+      <TotalAssetsBOYAmt>266060</TotalAssetsBOYAmt>
+      <TotalAssetsEOYAmt>378466</TotalAssetsEOYAmt>
+      <TotalLiabilitiesEOYAmt>0</TotalLiabilitiesEOYAmt>
+      <NetAssetsOrFundBalancesBOYAmt>266060</NetAssetsOrFundBalancesBOYAmt>
+      <NetAssetsOrFundBalancesEOYAmt>378466</NetAssetsOrFundBalancesEOYAmt>
+      <InfoInScheduleOPartIIIInd>X</InfoInScheduleOPartIIIInd>
+      <MissionDesc>FIRE FIGHTING AND RESCUE</MissionDesc>
+      <SignificantNewProgramSrvcInd>false</SignificantNewProgramSrvcInd>
+      <SignificantChangeInd>false</SignificantChangeInd>
+      <ExpenseAmt>63284</ExpenseAmt>
+      <Desc>SUPPLYING EQUIPMENT AND SUPPLIES TO FIREFIGHTERS</Desc>
+      <ProgSrvcAccomActy2Grp>
+        <ExpenseAmt>68911</ExpenseAmt>
+        <Desc>COMMUNITY ACTIVITIES HOLIDAY PARTIES FOR CHILDREN, COMMUNITY PICNICS,SPORTS AND ACTIVITIES, FIRE PREVENTION EDUCATION, ASSISTANCE TO NEEDY.</Desc>
+      </ProgSrvcAccomActy2Grp>
+      <ProgSrvcAccomActyOtherGrp>
+        <ExpenseAmt>359</ExpenseAmt>
+        <Desc>THIS IS FOR LEGAL FEES PAID DURING THE FISCAL YEAR.</Desc>
+      </ProgSrvcAccomActyOtherGrp>
+      <TotalOtherProgSrvcExpenseAmt>359</TotalOtherProgSrvcExpenseAmt>
+      <TotalProgramServiceExpensesAmt>132554</TotalProgramServiceExpensesAmt>
+      <DescribedInSection501c3Ind>false</DescribedInSection501c3Ind>
+      <ScheduleBRequiredInd>false</ScheduleBRequiredInd>
+      <PoliticalCampaignActyInd>false</PoliticalCampaignActyInd>
+      <SubjectToProxyTaxInd>false</SubjectToProxyTaxInd>
+      <DonorAdvisedFundInd>false</DonorAdvisedFundInd>
+      <ConservationEasementsInd>false</ConservationEasementsInd>
+      <CollectionsOfArtInd>false</CollectionsOfArtInd>
+      <CreditCounselingInd>false</CreditCounselingInd>
+      <DonorRstrOrQuasiEndowmentsInd>false</DonorRstrOrQuasiEndowmentsInd>
+      <ReportLandBuildingEquipmentInd>false</ReportLandBuildingEquipmentInd>
+      <ReportInvestmentsOtherSecInd>false</ReportInvestmentsOtherSecInd>
+      <ReportProgramRelatedInvstInd>false</ReportProgramRelatedInvstInd>
+      <ReportOtherAssetsInd>false</ReportOtherAssetsInd>
+      <ReportOtherLiabilitiesInd>false</ReportOtherLiabilitiesInd>
+      <IncludeFIN48FootnoteInd>false</IncludeFIN48FootnoteInd>
+      <IndependentAuditFinclStmtInd>false</IndependentAuditFinclStmtInd>
+      <ConsolidatedAuditFinclStmtInd>false</ConsolidatedAuditFinclStmtInd>
+      <SchoolOperatingInd>false</SchoolOperatingInd>
+      <ForeignOfficeInd>false</ForeignOfficeInd>
+      <ForeignActivitiesInd>false</ForeignActivitiesInd>
+      <MoreThan5000KToOrgInd>false</MoreThan5000KToOrgInd>
+      <MoreThan5000KToIndividualsInd>false</MoreThan5000KToIndividualsInd>
+      <ProfessionalFundraisingInd>false</ProfessionalFundraisingInd>
+      <FundraisingActivitiesInd>false</FundraisingActivitiesInd>
+      <GamingActivitiesInd>false</GamingActivitiesInd>
+      <OperateHospitalInd>false</OperateHospitalInd>
+      <GrantsToOrganizationsInd>false</GrantsToOrganizationsInd>
+      <GrantsToIndividualsInd>false</GrantsToIndividualsInd>
+      <ScheduleJRequiredInd>false</ScheduleJRequiredInd>
+      <TaxExemptBondsInd>false</TaxExemptBondsInd>
+      <EngagedInExcessBenefitTransInd>false</EngagedInExcessBenefitTransInd>
+      <PYExcessBenefitTransInd>false</PYExcessBenefitTransInd>
+      <LoanOutstandingInd>false</LoanOutstandingInd>
+      <GrantToRelatedPersonInd>false</GrantToRelatedPersonInd>
+      <BusinessRlnWithOrgMemInd>false</BusinessRlnWithOrgMemInd>
+      <BusinessRlnWithFamMemInd>false</BusinessRlnWithFamMemInd>
+      <BusinessRlnWith35CtrlEntInd>false</BusinessRlnWith35CtrlEntInd>
+      <DeductibleNonCashContriInd>false</DeductibleNonCashContriInd>
+      <DeductibleArtContributionInd>false</DeductibleArtContributionInd>
+      <TerminateOperationsInd>false</TerminateOperationsInd>
+      <PartialLiquidationInd>false</PartialLiquidationInd>
+      <DisregardedEntityInd>false</DisregardedEntityInd>
+      <RelatedEntityInd>false</RelatedEntityInd>
+      <RelatedOrganizationCtrlEntInd>false</RelatedOrganizationCtrlEntInd>
+      <ActivitiesConductedPrtshpInd>false</ActivitiesConductedPrtshpInd>
+      <ScheduleORequiredInd>false</ScheduleORequiredInd>
+      <IRPDocumentCnt>0</IRPDocumentCnt>
+      <IRPDocumentW2GCnt>0</IRPDocumentW2GCnt>
+      <BackupWthldComplianceInd>false</BackupWthldComplianceInd>
+      <EmployeeCnt>0</EmployeeCnt>
+      <UnrelatedBusIncmOverLimitInd>false</UnrelatedBusIncmOverLimitInd>
+      <ForeignFinancialAccountInd>false</ForeignFinancialAccountInd>
+      <ProhibitedTaxShelterTransInd>false</ProhibitedTaxShelterTransInd>
+      <TaxablePartyNotificationInd>false</TaxablePartyNotificationInd>
+      <NondeductibleContributionsInd>false</NondeductibleContributionsInd>
+      <IndoorTanningServicesInd>false</IndoorTanningServicesInd>
+      <SubjToTaxRmnrtnExPrchtPymtInd>false</SubjToTaxRmnrtnExPrchtPymtInd>
+      <SubjectToExcsTaxNetInvstIncInd>false</SubjectToExcsTaxNetInvstIncInd>
+      <GoverningBodyVotingMembersCnt>0</GoverningBodyVotingMembersCnt>
+      <IndependentVotingMemberCnt>0</IndependentVotingMemberCnt>
+      <FamilyOrBusinessRlnInd>false</FamilyOrBusinessRlnInd>
+      <DelegationOfMgmtDutiesInd>false</DelegationOfMgmtDutiesInd>
+      <ChangeToOrgDocumentsInd>false</ChangeToOrgDocumentsInd>
+      <MaterialDiversionOrMisuseInd>false</MaterialDiversionOrMisuseInd>
+      <MembersOrStockholdersInd>false</MembersOrStockholdersInd>
+      <ElectionOfBoardMembersInd>false</ElectionOfBoardMembersInd>
+      <DecisionsSubjectToApprovaInd>false</DecisionsSubjectToApprovaInd>
+      <MinutesOfGoverningBodyInd>true</MinutesOfGoverningBodyInd>
+      <MinutesOfCommitteesInd>true</MinutesOfCommitteesInd>
+      <OfficerMailingAddressInd>false</OfficerMailingAddressInd>
+      <LocalChaptersInd>false</LocalChaptersInd>
+      <Form990ProvidedToGvrnBodyInd>false</Form990ProvidedToGvrnBodyInd>
+      <ConflictOfInterestPolicyInd>false</ConflictOfInterestPolicyInd>
+      <WhistleblowerPolicyInd>false</WhistleblowerPolicyInd>
+      <DocumentRetentionPolicyInd>false</DocumentRetentionPolicyInd>
+      <CompensationProcessCEOInd>false</CompensationProcessCEOInd>
+      <CompensationProcessOtherInd>false</CompensationProcessOtherInd>
+      <InvestmentInJointVentureInd>false</InvestmentInJointVentureInd>
+      <BooksInCareOfDetail>
+        <PersonNm>CENTEREACH FIRE DEPARTMENT</PersonNm>
+        <PhoneNum>6315888652</PhoneNum>
+        <USAddress>
+          <AddressLine1Txt>9 SOUTH WASHINGTON AVE</AddressLine1Txt>
+          <CityNm>CENTEREACH</CityNm>
+          <StateAbbreviationCd>NY</StateAbbreviationCd>
+          <ZIPCd>11720</ZIPCd>
+        </USAddress>
+      </BooksInCareOfDetail>
+      <NoListedPersonsCompensatedInd>X</NoListedPersonsCompensatedInd>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>THOMAS O'KEEFE</PersonNm>
+        <TitleTxt>VICE PRESIDE</TitleTxt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>ROBERT FOERTSCH</PersonNm>
+        <TitleTxt>PRESIDENT</TitleTxt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <FormerOfcrEmployeesListedInd>false</FormerOfcrEmployeesListedInd>
+      <TotalCompGreaterThan150KInd>false</TotalCompGreaterThan150KInd>
+      <CompensationFromOtherSrcsInd>false</CompensationFromOtherSrcsInd>
+      <AllOtherContributionsAmt>233057</AllOtherContributionsAmt>
+      <TotalContributionsAmt>233057</TotalContributionsAmt>
+      <InvestmentIncomeGrp>
+        <TotalRevenueColumnAmt>137</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>137</RelatedOrExemptFuncIncomeAmt>
+      </InvestmentIncomeGrp>
+      <TotalRevenueGrp>
+        <TotalRevenueColumnAmt>233194</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>137</RelatedOrExemptFuncIncomeAmt>
+      </TotalRevenueGrp>
+      <FeesForServicesLegalGrp>
+        <TotalAmt>359</TotalAmt>
+        <ProgramServicesAmt>359</ProgramServicesAmt>
+      </FeesForServicesLegalGrp>
+      <OfficeExpensesGrp>
+        <TotalAmt>2337</TotalAmt>
+        <ProgramServicesAmt>2337</ProgramServicesAmt>
+      </OfficeExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>COMMUNITY EVENTS</Desc>
+        <TotalAmt>68911</TotalAmt>
+        <ProgramServicesAmt>68911</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>OTHER</Desc>
+        <TotalAmt>30314</TotalAmt>
+        <ProgramServicesAmt>30314</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>FUNDRAISING EXPENSES</Desc>
+        <TotalAmt>19712</TotalAmt>
+        <ProgramServicesAmt>19712</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>GIFTS AND AWARDS</Desc>
+        <TotalAmt>4939</TotalAmt>
+        <ProgramServicesAmt>4939</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <AllOtherExpensesGrp>
+        <TotalAmt>5982</TotalAmt>
+        <ProgramServicesAmt>5982</ProgramServicesAmt>
+      </AllOtherExpensesGrp>
+      <TotalFunctionalExpensesGrp>
+        <TotalAmt>132554</TotalAmt>
+        <ProgramServicesAmt>132554</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>0</ManagementAndGeneralAmt>
+        <FundraisingAmt>0</FundraisingAmt>
+      </TotalFunctionalExpensesGrp>
+      <CashNonInterestBearingGrp>
+        <BOYAmt>266060</BOYAmt>
+        <EOYAmt>378466</EOYAmt>
+      </CashNonInterestBearingGrp>
+      <TotalAssetsGrp>
+        <BOYAmt>266060</BOYAmt>
+        <EOYAmt>378466</EOYAmt>
+      </TotalAssetsGrp>
+      <TotalLiabilitiesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </TotalLiabilitiesGrp>
+      <OrganizationFollowsFASB117Ind>X</OrganizationFollowsFASB117Ind>
+      <NoDonorRestrictionNetAssetsGrp>
+        <BOYAmt>266060</BOYAmt>
+        <EOYAmt>378466</EOYAmt>
+      </NoDonorRestrictionNetAssetsGrp>
+      <TotalNetAssetsFundBalanceGrp>
+        <BOYAmt>266060</BOYAmt>
+        <EOYAmt>378466</EOYAmt>
+      </TotalNetAssetsFundBalanceGrp>
+      <TotLiabNetAssetsFundBalanceGrp>
+        <BOYAmt>266060</BOYAmt>
+        <EOYAmt>378466</EOYAmt>
+      </TotLiabNetAssetsFundBalanceGrp>
+      <ReconcilationRevenueExpnssAmt>100640</ReconcilationRevenueExpnssAmt>
+      <PriorPeriodAdjustmentsAmt>11766</PriorPeriodAdjustmentsAmt>
+      <MethodOfAccountingCashInd>X</MethodOfAccountingCashInd>
+      <AccountantCompileOrReviewInd>false</AccountantCompileOrReviewInd>
+      <FSAuditedInd>false</FSAuditedInd>
+    </IRS990>
+  </ReturnData>
+</Return>

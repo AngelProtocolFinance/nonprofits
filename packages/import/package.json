@@ -12,8 +12,10 @@
   },
   "dependencies": {
     "@nonprofits/db": "workspace:*",
+    "@zip.js/zip.js": "catalog:",
     "csv-parse": "catalog:",
     "fflate": "catalog:",
+    "saxes": "catalog:",
     "wrangler": "catalog:"
   }
 }

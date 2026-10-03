@@ -1,0 +1,325 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" returnVersion="2024v5.0">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2025-12-26T17:38:43-05:00</ReturnTs>
+    <TaxPeriodEndDt>2025-09-30</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmEIN>470999914</PreparerFirmEIN>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>FRANK J PASATIERI INC</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>21105 ASPENWOOD DR</AddressLine1Txt>
+        <CityNm>PLAINVIEW</CityNm>
+        <StateAbbreviationCd>NY</StateAbbreviationCd>
+        <ZIPCd>118032146</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990</ReturnTypeCd>
+    <TaxPeriodBeginDt>2024-10-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>131520977</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>THE ART &amp; ANTIQUE DEALERS LEAGUE OF</BusinessNameLine1Txt>
+        <BusinessNameLine2Txt>AMERICA INC</BusinessNameLine2Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>ART&amp;</BusinessNameControlTxt>
+      <PhoneNum>2128797558</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>PO BOX 2066 LENOX HILL STATION</AddressLine1Txt>
+        <CityNm>NEW YORK</CityNm>
+        <StateAbbreviationCd>NY</StateAbbreviationCd>
+        <ZIPCd>10021</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>DAVID MAYER</PersonNm>
+      <PersonTitleTxt>SECRETARY/TREASURER</PersonTitleTxt>
+      <PhoneNum>2128797558</PhoneNum>
+      <SignatureDt>2025-12-26</SignatureDt>
+      <DiscussWithPaidPreparerInd>true</DiscussWithPaidPreparerInd>
+    </BusinessOfficerGrp>
+    <IRSResponsiblePrtyInfoCurrInd>true</IRSResponsiblePrtyInfoCurrInd>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>FRANK PASATIERI CPA</PreparerPersonNm>
+      <PTIN>P01292702</PTIN>
+      <PhoneNum>5167827938</PhoneNum>
+      <PreparationDt>2025-12-26</PreparationDt>
+    </PreparerPersonGrp>
+    <TaxYr>2024</TaxYr>
+    <BuildTS>2025-03-06 01:10:19Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="2">
+    <IRS990 documentId="RetDoc1" referenceDocumentId="RetDoc2">
+      <PrincipalOfficerNm>DAVID MAYER</PrincipalOfficerNm>
+      <USAddress>
+        <AddressLine1Txt>28 SCHOOL STREET</AddressLine1Txt>
+        <CityNm>WOODBURY</CityNm>
+        <StateAbbreviationCd>CT</StateAbbreviationCd>
+        <ZIPCd>06798</ZIPCd>
+      </USAddress>
+      <GrossReceiptsAmt>42900</GrossReceiptsAmt>
+      <GroupReturnForAffiliatesInd>false</GroupReturnForAffiliatesInd>
+      <Organization501cInd organization501cTypeTxt="6">X</Organization501cInd>
+      <WebsiteAddressTxt>ARTANTIQUEDEALERSLEAG.ORG</WebsiteAddressTxt>
+      <TypeOfOrganizationCorpInd>X</TypeOfOrganizationCorpInd>
+      <LegalDomicileStateCd>NY</LegalDomicileStateCd>
+      <ActivityOrMissionDesc>NOT FOR PROFIT LEAGUE OF ART &amp; ANTIQUE DEALERS.</ActivityOrMissionDesc>
+      <VotingMembersGoverningBodyCnt>3</VotingMembersGoverningBodyCnt>
+      <VotingMembersIndependentCnt>3</VotingMembersIndependentCnt>
+      <TotalEmployeeCnt>0</TotalEmployeeCnt>
+      <TotalGrossUBIAmt>0</TotalGrossUBIAmt>
+      <CYContributionsGrantsAmt>0</CYContributionsGrantsAmt>
+      <PYProgramServiceRevenueAmt>47245</PYProgramServiceRevenueAmt>
+      <CYProgramServiceRevenueAmt>42900</CYProgramServiceRevenueAmt>
+      <CYInvestmentIncomeAmt>0</CYInvestmentIncomeAmt>
+      <CYOtherRevenueAmt>0</CYOtherRevenueAmt>
+      <PYTotalRevenueAmt>47245</PYTotalRevenueAmt>
+      <CYTotalRevenueAmt>42900</CYTotalRevenueAmt>
+      <CYGrantsAndSimilarPaidAmt>0</CYGrantsAndSimilarPaidAmt>
+      <CYBenefitsPaidToMembersAmt>0</CYBenefitsPaidToMembersAmt>
+      <PYSalariesCompEmpBnftPaidAmt>32760</PYSalariesCompEmpBnftPaidAmt>
+      <CYSalariesCompEmpBnftPaidAmt>32760</CYSalariesCompEmpBnftPaidAmt>
+      <CYTotalProfFndrsngExpnsAmt>0</CYTotalProfFndrsngExpnsAmt>
+      <CYTotalFundraisingExpenseAmt>0</CYTotalFundraisingExpenseAmt>
+      <PYOtherExpensesAmt>32511</PYOtherExpensesAmt>
+      <CYOtherExpensesAmt>27348</CYOtherExpensesAmt>
+      <PYTotalExpensesAmt>65271</PYTotalExpensesAmt>
+      <CYTotalExpensesAmt>60108</CYTotalExpensesAmt>
+      <PYRevenuesLessExpensesAmt>-18026</PYRevenuesLessExpensesAmt>
+      <CYRevenuesLessExpensesAmt>-17208</CYRevenuesLessExpensesAmt>
+      <TotalAssetsBOYAmt>26857</TotalAssetsBOYAmt>
+      <TotalAssetsEOYAmt>9649</TotalAssetsEOYAmt>
+      <TotalLiabilitiesEOYAmt>0</TotalLiabilitiesEOYAmt>
+      <NetAssetsOrFundBalancesBOYAmt>26857</NetAssetsOrFundBalancesBOYAmt>
+      <NetAssetsOrFundBalancesEOYAmt>9649</NetAssetsOrFundBalancesEOYAmt>
+      <InfoInScheduleOPartIIIInd>X</InfoInScheduleOPartIIIInd>
+      <MissionDesc>NOT FOR PROFIT LEAGUE OF ART &amp; ANTIQUE DEALERS.</MissionDesc>
+      <SignificantNewProgramSrvcInd>false</SignificantNewProgramSrvcInd>
+      <SignificantChangeInd>false</SignificantChangeInd>
+      <Desc>NOT FOR PROFIT LEAGUE OF ART &amp; ANTIQUE DEALERS.</Desc>
+      <ProgSrvcAccomActy2Grp>
+        <Desc>NOT FOR PROFIT LEAGUE OF ART &amp; ANTIQUE DEALERS.</Desc>
+      </ProgSrvcAccomActy2Grp>
+      <ProgSrvcAccomActy3Grp>
+        <Desc>NOT FOR PROFIT LEAGUE OF ART &amp; ANTIQUE DEALERS.</Desc>
+      </ProgSrvcAccomActy3Grp>
+      <ProgSrvcAccomActyOtherGrp>
+        <ExpenseAmt>53756</ExpenseAmt>
+        <Desc>NOT FOR PROFIT LEAGUE OF ART &amp; ANTIQUE DEALERS.</Desc>
+      </ProgSrvcAccomActyOtherGrp>
+      <TotalOtherProgSrvcExpenseAmt>53756</TotalOtherProgSrvcExpenseAmt>
+      <TotalProgramServiceExpensesAmt>53756</TotalProgramServiceExpensesAmt>
+      <DescribedInSection501c3Ind>false</DescribedInSection501c3Ind>
+      <ScheduleBRequiredInd>false</ScheduleBRequiredInd>
+      <PoliticalCampaignActyInd>false</PoliticalCampaignActyInd>
+      <SubjectToProxyTaxInd>false</SubjectToProxyTaxInd>
+      <DonorAdvisedFundInd>false</DonorAdvisedFundInd>
+      <ConservationEasementsInd>false</ConservationEasementsInd>
+      <CollectionsOfArtInd>false</CollectionsOfArtInd>
+      <CreditCounselingInd>false</CreditCounselingInd>
+      <DonorRstrOrQuasiEndowmentsInd>false</DonorRstrOrQuasiEndowmentsInd>
+      <ReportLandBuildingEquipmentInd>false</ReportLandBuildingEquipmentInd>
+      <ReportInvestmentsOtherSecInd>false</ReportInvestmentsOtherSecInd>
+      <ReportProgramRelatedInvstInd>false</ReportProgramRelatedInvstInd>
+      <ReportOtherAssetsInd>false</ReportOtherAssetsInd>
+      <ReportOtherLiabilitiesInd>false</ReportOtherLiabilitiesInd>
+      <IncludeFIN48FootnoteInd>false</IncludeFIN48FootnoteInd>
+      <IndependentAuditFinclStmtInd>false</IndependentAuditFinclStmtInd>
+      <ConsolidatedAuditFinclStmtInd>false</ConsolidatedAuditFinclStmtInd>
+      <SchoolOperatingInd>false</SchoolOperatingInd>
+      <ForeignOfficeInd>false</ForeignOfficeInd>
+      <ForeignActivitiesInd>false</ForeignActivitiesInd>
+      <MoreThan5000KToOrgInd>false</MoreThan5000KToOrgInd>
+      <MoreThan5000KToIndividualsInd>false</MoreThan5000KToIndividualsInd>
+      <ProfessionalFundraisingInd>false</ProfessionalFundraisingInd>
+      <FundraisingActivitiesInd>false</FundraisingActivitiesInd>
+      <GamingActivitiesInd>false</GamingActivitiesInd>
+      <OperateHospitalInd>false</OperateHospitalInd>
+      <GrantsToOrganizationsInd>false</GrantsToOrganizationsInd>
+      <GrantsToIndividualsInd>false</GrantsToIndividualsInd>
+      <ScheduleJRequiredInd>false</ScheduleJRequiredInd>
+      <TaxExemptBondsInd>false</TaxExemptBondsInd>
+      <LoanOutstandingInd>false</LoanOutstandingInd>
+      <GrantToRelatedPersonInd>false</GrantToRelatedPersonInd>
+      <BusinessRlnWithOrgMemInd>false</BusinessRlnWithOrgMemInd>
+      <BusinessRlnWithFamMemInd>false</BusinessRlnWithFamMemInd>
+      <BusinessRlnWith35CtrlEntInd>false</BusinessRlnWith35CtrlEntInd>
+      <DeductibleNonCashContriInd>false</DeductibleNonCashContriInd>
+      <DeductibleArtContributionInd>false</DeductibleArtContributionInd>
+      <TerminateOperationsInd>false</TerminateOperationsInd>
+      <PartialLiquidationInd>false</PartialLiquidationInd>
+      <DisregardedEntityInd>false</DisregardedEntityInd>
+      <RelatedEntityInd>false</RelatedEntityInd>
+      <RelatedOrganizationCtrlEntInd>false</RelatedOrganizationCtrlEntInd>
+      <ActivitiesConductedPrtshpInd>false</ActivitiesConductedPrtshpInd>
+      <ScheduleORequiredInd>false</ScheduleORequiredInd>
+      <IRPDocumentCnt>1</IRPDocumentCnt>
+      <IRPDocumentW2GCnt>0</IRPDocumentW2GCnt>
+      <BackupWthldComplianceInd>false</BackupWthldComplianceInd>
+      <EmployeeCnt>0</EmployeeCnt>
+      <UnrelatedBusIncmOverLimitInd>false</UnrelatedBusIncmOverLimitInd>
+      <ForeignFinancialAccountInd>false</ForeignFinancialAccountInd>
+      <ProhibitedTaxShelterTransInd>false</ProhibitedTaxShelterTransInd>
+      <TaxablePartyNotificationInd>false</TaxablePartyNotificationInd>
+      <NondeductibleContributionsInd>false</NondeductibleContributionsInd>
+      <IndoorTanningServicesInd>false</IndoorTanningServicesInd>
+      <SubjToTaxRmnrtnExPrchtPymtInd>false</SubjToTaxRmnrtnExPrchtPymtInd>
+      <SubjectToExcsTaxNetInvstIncInd>false</SubjectToExcsTaxNetInvstIncInd>
+      <GoverningBodyVotingMembersCnt>3</GoverningBodyVotingMembersCnt>
+      <IndependentVotingMemberCnt>3</IndependentVotingMemberCnt>
+      <FamilyOrBusinessRlnInd>false</FamilyOrBusinessRlnInd>
+      <DelegationOfMgmtDutiesInd>false</DelegationOfMgmtDutiesInd>
+      <ChangeToOrgDocumentsInd>false</ChangeToOrgDocumentsInd>
+      <MaterialDiversionOrMisuseInd>false</MaterialDiversionOrMisuseInd>
+      <MembersOrStockholdersInd>false</MembersOrStockholdersInd>
+      <ElectionOfBoardMembersInd>false</ElectionOfBoardMembersInd>
+      <DecisionsSubjectToApprovaInd>false</DecisionsSubjectToApprovaInd>
+      <MinutesOfGoverningBodyInd>true</MinutesOfGoverningBodyInd>
+      <MinutesOfCommitteesInd>true</MinutesOfCommitteesInd>
+      <OfficerMailingAddressInd>false</OfficerMailingAddressInd>
+      <LocalChaptersInd>false</LocalChaptersInd>
+      <Form990ProvidedToGvrnBodyInd>false</Form990ProvidedToGvrnBodyInd>
+      <ConflictOfInterestPolicyInd>false</ConflictOfInterestPolicyInd>
+      <WhistleblowerPolicyInd>false</WhistleblowerPolicyInd>
+      <DocumentRetentionPolicyInd>false</DocumentRetentionPolicyInd>
+      <CompensationProcessCEOInd>false</CompensationProcessCEOInd>
+      <CompensationProcessOtherInd>false</CompensationProcessOtherInd>
+      <InvestmentInJointVentureInd>false</InvestmentInJointVentureInd>
+      <BooksInCareOfDetail>
+        <PersonNm>DAVID MAYER</PersonNm>
+        <PhoneNum>2128797558</PhoneNum>
+        <USAddress>
+          <AddressLine1Txt>28 SCHOOL STREET</AddressLine1Txt>
+          <CityNm>WOODBURY</CityNm>
+          <StateAbbreviationCd>CT</StateAbbreviationCd>
+          <ZIPCd>06798</ZIPCd>
+        </USAddress>
+      </BooksInCareOfDetail>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>ROBERT SIMON</PersonNm>
+        <TitleTxt>VICE-PRESIDE</TitleTxt>
+        <AverageHoursPerWeekRt>5.00</AverageHoursPerWeekRt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>CLINTON HOWELL</PersonNm>
+        <TitleTxt>PRESIDENT</TitleTxt>
+        <AverageHoursPerWeekRt>5.00</AverageHoursPerWeekRt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>DAVID MAYER</PersonNm>
+        <TitleTxt>SECRETARY/TR</TitleTxt>
+        <AverageHoursPerWeekRt>25.00</AverageHoursPerWeekRt>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>32760</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <TotalReportableCompFromOrgAmt>32760</TotalReportableCompFromOrgAmt>
+      <FormerOfcrEmployeesListedInd>false</FormerOfcrEmployeesListedInd>
+      <TotalCompGreaterThan150KInd>false</TotalCompGreaterThan150KInd>
+      <CompensationFromOtherSrcsInd>false</CompensationFromOtherSrcsInd>
+      <ProgramServiceRevenueGrp>
+        <Desc>MEMBER DUES</Desc>
+        <TotalRevenueColumnAmt>42900</TotalRevenueColumnAmt>
+        <ExclusionAmt>42900</ExclusionAmt>
+      </ProgramServiceRevenueGrp>
+      <TotalProgramServiceRevenueAmt>42900</TotalProgramServiceRevenueAmt>
+      <TotalRevenueGrp>
+        <TotalRevenueColumnAmt>42900</TotalRevenueColumnAmt>
+        <ExclusionAmt>42900</ExclusionAmt>
+      </TotalRevenueGrp>
+      <CompCurrentOfcrDirectorsGrp>
+        <TotalAmt>32760</TotalAmt>
+        <ProgramServicesAmt>32760</ProgramServicesAmt>
+      </CompCurrentOfcrDirectorsGrp>
+      <FeesForServicesAccountingGrp>
+        <TotalAmt>850</TotalAmt>
+        <ManagementAndGeneralAmt>850</ManagementAndGeneralAmt>
+      </FeesForServicesAccountingGrp>
+      <OfficeExpensesGrp>
+        <TotalAmt>1801</TotalAmt>
+        <ProgramServicesAmt>1801</ProgramServicesAmt>
+      </OfficeExpensesGrp>
+      <TravelGrp>
+        <TotalAmt>314</TotalAmt>
+        <ProgramServicesAmt>314</ProgramServicesAmt>
+      </TravelGrp>
+      <ConferencesMeetingsGrp>
+        <TotalAmt>6409</TotalAmt>
+        <ProgramServicesAmt>6409</ProgramServicesAmt>
+      </ConferencesMeetingsGrp>
+      <InsuranceGrp>
+        <TotalAmt>930</TotalAmt>
+        <ProgramServicesAmt>930</ProgramServicesAmt>
+      </InsuranceGrp>
+      <OtherExpensesGrp>
+        <Desc>RENT</Desc>
+        <TotalAmt>5502</TotalAmt>
+        <ManagementAndGeneralAmt>5502</ManagementAndGeneralAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>INTERNET SERVICES</Desc>
+        <TotalAmt>4896</TotalAmt>
+        <ProgramServicesAmt>4896</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>MISCELLANEOUS</Desc>
+        <TotalAmt>2500</TotalAmt>
+        <ProgramServicesAmt>2500</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>CINOA DUES</Desc>
+        <TotalAmt>2423</TotalAmt>
+        <ProgramServicesAmt>2423</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <AllOtherExpensesGrp>
+        <TotalAmt>1723</TotalAmt>
+        <ProgramServicesAmt>1723</ProgramServicesAmt>
+      </AllOtherExpensesGrp>
+      <TotalFunctionalExpensesGrp>
+        <TotalAmt>60108</TotalAmt>
+        <ProgramServicesAmt>53756</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>6352</ManagementAndGeneralAmt>
+        <FundraisingAmt>0</FundraisingAmt>
+      </TotalFunctionalExpensesGrp>
+      <CashNonInterestBearingGrp>
+        <BOYAmt>26857</BOYAmt>
+        <EOYAmt>9649</EOYAmt>
+      </CashNonInterestBearingGrp>
+      <TotalAssetsGrp>
+        <BOYAmt>26857</BOYAmt>
+        <EOYAmt>9649</EOYAmt>
+      </TotalAssetsGrp>
+      <TotalLiabilitiesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </TotalLiabilitiesGrp>
+      <OrganizationFollowsFASB117Ind>X</OrganizationFollowsFASB117Ind>
+      <NoDonorRestrictionNetAssetsGrp>
+        <BOYAmt>26857</BOYAmt>
+        <EOYAmt>9649</EOYAmt>
+      </NoDonorRestrictionNetAssetsGrp>
+      <TotalNetAssetsFundBalanceGrp>
+        <BOYAmt>26857</BOYAmt>
+        <EOYAmt>9649</EOYAmt>
+      </TotalNetAssetsFundBalanceGrp>
+      <TotLiabNetAssetsFundBalanceGrp>
+        <BOYAmt>26857</BOYAmt>
+        <EOYAmt>9649</EOYAmt>
+      </TotLiabNetAssetsFundBalanceGrp>
+      <ReconcilationRevenueExpnssAmt>-17208</ReconcilationRevenueExpnssAmt>
+      <MethodOfAccountingCashInd>X</MethodOfAccountingCashInd>
+      <AccountantCompileOrReviewInd>false</AccountantCompileOrReviewInd>
+      <FSAuditedInd>false</FSAuditedInd>
+    </IRS990>
+  </ReturnData>
+</Return>

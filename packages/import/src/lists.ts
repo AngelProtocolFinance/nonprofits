@@ -14,6 +14,7 @@ import {
   text,
   tuple,
   upsertOrgs,
+  webAddress,
   writeLoad,
 } from "./load.ts";
 import { applyLoad, type D1Target } from "./wrangler.ts";
@@ -83,16 +84,6 @@ function date(raw: string, field: number, required: boolean): string | null {
     );
   }
   return `${year}-${String(m).padStart(2, "0")}-${day}`;
-}
-
-/** A host with a dot and a letters-only TLD, with an optional scheme, port and path. */
-const WEB_ADDRESS =
-  /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:[/?#]\S*)?$/i;
-
-/** Free text typed as a website: null unless it reads as a web address. */
-function webAddress(raw: string): string | null {
-  const value = text(raw);
-  return value !== null && WEB_ADDRESS.test(value) ? value : null;
 }
 
 const LAYOUTS: Record<ListName, Layout> = {

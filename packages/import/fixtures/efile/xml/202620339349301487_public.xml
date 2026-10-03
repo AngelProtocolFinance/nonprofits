@@ -1,0 +1,350 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Return returnVersion="2024v5.1" xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2026-02-02T16:41:34-05:00</ReturnTs>
+    <TaxPeriodEndDt>2024-12-31</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmEIN>931925705</PreparerFirmEIN>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>A TAX KOORE PROFESSIONAL LLC</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>8100 NORTH POINT BLVD SUITE F</AddressLine1Txt>
+        <CityNm>WINSTON SALEM</CityNm>
+        <StateAbbreviationCd>NC</StateAbbreviationCd>
+        <ZIPCd>27105</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990</ReturnTypeCd>
+    <TaxPeriodBeginDt>2024-01-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>813192688</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>KRE8IVU INC</BusinessNameLine1Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>KRE8</BusinessNameControlTxt>
+      <PhoneNum>3362885738</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>211 E 10TH STREET</AddressLine1Txt>
+        <CityNm>LEXINGTON</CityNm>
+        <StateAbbreviationCd>NC</StateAbbreviationCd>
+        <ZIPCd>27295</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>DOUGLAS GREENE</PersonNm>
+      <PersonTitleTxt>PRESIDENT FOUNDER</PersonTitleTxt>
+      <PhoneNum>3362885738</PhoneNum>
+      <SignatureDt>2025-03-29</SignatureDt>
+      <DiscussWithPaidPreparerInd>true</DiscussWithPaidPreparerInd>
+    </BusinessOfficerGrp>
+    <IRSResponsiblePrtyInfoCurrInd>true</IRSResponsiblePrtyInfoCurrInd>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>LATOYA MOORE</PreparerPersonNm>
+      <PTIN>P01936785</PTIN>
+      <PhoneNum>3364229639</PhoneNum>
+      <PreparationDt>2025-07-29</PreparationDt>
+      <SelfEmployedInd>X</SelfEmployedInd>
+    </PreparerPersonGrp>
+    <TaxYr>2024</TaxYr>
+    <BuildTS>2025-03-06 01:10:19Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="3">
+    <IRS990 documentId="DOCID990">
+      <PrincipalOfficerNm>DOUGLAS GREENE</PrincipalOfficerNm>
+      <USAddress>
+        <AddressLine1Txt>385 TOBACCO RD</AddressLine1Txt>
+        <CityNm>LEXINGTON</CityNm>
+        <StateAbbreviationCd>NC</StateAbbreviationCd>
+        <ZIPCd>27295</ZIPCd>
+      </USAddress>
+      <GrossReceiptsAmt>218813</GrossReceiptsAmt>
+      <GroupReturnForAffiliatesInd>false</GroupReturnForAffiliatesInd>
+      <Organization501c3Ind>X</Organization501c3Ind>
+      <WebsiteAddressTxt>HTTPS://KRE8IVU.COM/</WebsiteAddressTxt>
+      <TypeOfOrganizationCorpInd>X</TypeOfOrganizationCorpInd>
+      <FormationYr>2016</FormationYr>
+      <LegalDomicileStateCd>NC</LegalDomicileStateCd>
+      <ActivityOrMissionDesc>Empowering at-risk youth through Audio Production and Filmmaking education.</ActivityOrMissionDesc>
+      <VotingMembersGoverningBodyCnt>8</VotingMembersGoverningBodyCnt>
+      <VotingMembersIndependentCnt>8</VotingMembersIndependentCnt>
+      <TotalEmployeeCnt>0</TotalEmployeeCnt>
+      <TotalVolunteersCnt>8</TotalVolunteersCnt>
+      <TotalGrossUBIAmt>0</TotalGrossUBIAmt>
+      <CYContributionsGrantsAmt>218813</CYContributionsGrantsAmt>
+      <CYProgramServiceRevenueAmt>0</CYProgramServiceRevenueAmt>
+      <CYInvestmentIncomeAmt>0</CYInvestmentIncomeAmt>
+      <CYOtherRevenueAmt>0</CYOtherRevenueAmt>
+      <CYTotalRevenueAmt>218813</CYTotalRevenueAmt>
+      <CYGrantsAndSimilarPaidAmt>0</CYGrantsAndSimilarPaidAmt>
+      <CYBenefitsPaidToMembersAmt>0</CYBenefitsPaidToMembersAmt>
+      <CYSalariesCompEmpBnftPaidAmt>74459</CYSalariesCompEmpBnftPaidAmt>
+      <CYTotalProfFndrsngExpnsAmt>0</CYTotalProfFndrsngExpnsAmt>
+      <CYTotalFundraisingExpenseAmt>0</CYTotalFundraisingExpenseAmt>
+      <CYOtherExpensesAmt>73567</CYOtherExpensesAmt>
+      <CYTotalExpensesAmt>148026</CYTotalExpensesAmt>
+      <CYRevenuesLessExpensesAmt>70787</CYRevenuesLessExpensesAmt>
+      <TotalAssetsEOYAmt>70787</TotalAssetsEOYAmt>
+      <TotalLiabilitiesEOYAmt>0</TotalLiabilitiesEOYAmt>
+      <NetAssetsOrFundBalancesEOYAmt>70787</NetAssetsOrFundBalancesEOYAmt>
+      <MissionDesc>To empower at-risk youth through immersive STEAM learning in music production, audio engineering, and film education.</MissionDesc>
+      <SignificantNewProgramSrvcInd>false</SignificantNewProgramSrvcInd>
+      <SignificantChangeInd>false</SignificantChangeInd>
+      <Desc>To empower at-risk youth through immersive STEAM learning in music production, audio engineering, and film education.</Desc>
+      <ProgSrvcAccomActy2Grp>
+        <Desc>To empower at-risk youth through immersive STEAM learning in music production, audio engineering, and film education.</Desc>
+      </ProgSrvcAccomActy2Grp>
+      <ProgSrvcAccomActy3Grp>
+        <Desc>To empower at-risk youth through immersive STEAM learning in music production, audio engineering, and film education.</Desc>
+      </ProgSrvcAccomActy3Grp>
+      <DescribedInSection501c3Ind>false</DescribedInSection501c3Ind>
+      <ScheduleBRequiredInd>false</ScheduleBRequiredInd>
+      <PoliticalCampaignActyInd>false</PoliticalCampaignActyInd>
+      <LobbyingActivitiesInd>false</LobbyingActivitiesInd>
+      <SubjectToProxyTaxInd>false</SubjectToProxyTaxInd>
+      <DonorAdvisedFundInd>false</DonorAdvisedFundInd>
+      <ConservationEasementsInd>false</ConservationEasementsInd>
+      <CollectionsOfArtInd>false</CollectionsOfArtInd>
+      <CreditCounselingInd>false</CreditCounselingInd>
+      <DonorRstrOrQuasiEndowmentsInd>false</DonorRstrOrQuasiEndowmentsInd>
+      <ReportLandBuildingEquipmentInd>false</ReportLandBuildingEquipmentInd>
+      <ReportInvestmentsOtherSecInd>false</ReportInvestmentsOtherSecInd>
+      <ReportProgramRelatedInvstInd>false</ReportProgramRelatedInvstInd>
+      <ReportOtherAssetsInd>false</ReportOtherAssetsInd>
+      <ReportOtherLiabilitiesInd>false</ReportOtherLiabilitiesInd>
+      <IncludeFIN48FootnoteInd>false</IncludeFIN48FootnoteInd>
+      <IndependentAuditFinclStmtInd>false</IndependentAuditFinclStmtInd>
+      <ConsolidatedAuditFinclStmtInd>false</ConsolidatedAuditFinclStmtInd>
+      <SchoolOperatingInd>false</SchoolOperatingInd>
+      <ForeignOfficeInd>false</ForeignOfficeInd>
+      <ForeignActivitiesInd>false</ForeignActivitiesInd>
+      <MoreThan5000KToOrgInd>false</MoreThan5000KToOrgInd>
+      <MoreThan5000KToIndividualsInd>false</MoreThan5000KToIndividualsInd>
+      <ProfessionalFundraisingInd>false</ProfessionalFundraisingInd>
+      <FundraisingActivitiesInd>false</FundraisingActivitiesInd>
+      <GamingActivitiesInd>false</GamingActivitiesInd>
+      <OperateHospitalInd>false</OperateHospitalInd>
+      <GrantsToOrganizationsInd>false</GrantsToOrganizationsInd>
+      <GrantsToIndividualsInd>false</GrantsToIndividualsInd>
+      <ScheduleJRequiredInd>false</ScheduleJRequiredInd>
+      <TaxExemptBondsInd>false</TaxExemptBondsInd>
+      <EngagedInExcessBenefitTransInd>false</EngagedInExcessBenefitTransInd>
+      <PYExcessBenefitTransInd>false</PYExcessBenefitTransInd>
+      <LoanOutstandingInd>false</LoanOutstandingInd>
+      <GrantToRelatedPersonInd>false</GrantToRelatedPersonInd>
+      <BusinessRlnWithOrgMemInd>false</BusinessRlnWithOrgMemInd>
+      <BusinessRlnWithFamMemInd>false</BusinessRlnWithFamMemInd>
+      <BusinessRlnWith35CtrlEntInd>false</BusinessRlnWith35CtrlEntInd>
+      <DeductibleNonCashContriInd>false</DeductibleNonCashContriInd>
+      <DeductibleArtContributionInd>false</DeductibleArtContributionInd>
+      <TerminateOperationsInd>false</TerminateOperationsInd>
+      <PartialLiquidationInd>false</PartialLiquidationInd>
+      <DisregardedEntityInd>false</DisregardedEntityInd>
+      <RelatedEntityInd>false</RelatedEntityInd>
+      <RelatedOrganizationCtrlEntInd>false</RelatedOrganizationCtrlEntInd>
+      <TrnsfrExmptNonChrtblRltdOrgInd>false</TrnsfrExmptNonChrtblRltdOrgInd>
+      <ActivitiesConductedPrtshpInd>false</ActivitiesConductedPrtshpInd>
+      <ScheduleORequiredInd>false</ScheduleORequiredInd>
+      <IRPDocumentCnt>0</IRPDocumentCnt>
+      <IRPDocumentW2GCnt>0</IRPDocumentW2GCnt>
+      <BackupWthldComplianceInd>true</BackupWthldComplianceInd>
+      <EmployeeCnt>0</EmployeeCnt>
+      <UnrelatedBusIncmOverLimitInd>false</UnrelatedBusIncmOverLimitInd>
+      <ForeignFinancialAccountInd>false</ForeignFinancialAccountInd>
+      <ProhibitedTaxShelterTransInd>false</ProhibitedTaxShelterTransInd>
+      <TaxablePartyNotificationInd>false</TaxablePartyNotificationInd>
+      <NondeductibleContributionsInd>false</NondeductibleContributionsInd>
+      <DAFExcessBusinessHoldingsInd>false</DAFExcessBusinessHoldingsInd>
+      <OrgFiledInLieuOfForm1041Ind>false</OrgFiledInLieuOfForm1041Ind>
+      <IndoorTanningServicesInd>false</IndoorTanningServicesInd>
+      <SubjToTaxRmnrtnExPrchtPymtInd>false</SubjToTaxRmnrtnExPrchtPymtInd>
+      <SubjectToExcsTaxNetInvstIncInd>false</SubjectToExcsTaxNetInvstIncInd>
+      <InfoInScheduleOPartVIInd>X</InfoInScheduleOPartVIInd>
+      <GoverningBodyVotingMembersCnt>8</GoverningBodyVotingMembersCnt>
+      <IndependentVotingMemberCnt>8</IndependentVotingMemberCnt>
+      <FamilyOrBusinessRlnInd>false</FamilyOrBusinessRlnInd>
+      <DelegationOfMgmtDutiesInd>false</DelegationOfMgmtDutiesInd>
+      <ChangeToOrgDocumentsInd>false</ChangeToOrgDocumentsInd>
+      <MaterialDiversionOrMisuseInd>false</MaterialDiversionOrMisuseInd>
+      <MembersOrStockholdersInd>false</MembersOrStockholdersInd>
+      <ElectionOfBoardMembersInd>false</ElectionOfBoardMembersInd>
+      <DecisionsSubjectToApprovaInd>true</DecisionsSubjectToApprovaInd>
+      <MinutesOfGoverningBodyInd>true</MinutesOfGoverningBodyInd>
+      <MinutesOfCommitteesInd>true</MinutesOfCommitteesInd>
+      <OfficerMailingAddressInd>false</OfficerMailingAddressInd>
+      <LocalChaptersInd>false</LocalChaptersInd>
+      <Form990ProvidedToGvrnBodyInd>true</Form990ProvidedToGvrnBodyInd>
+      <ConflictOfInterestPolicyInd>false</ConflictOfInterestPolicyInd>
+      <WhistleblowerPolicyInd>false</WhistleblowerPolicyInd>
+      <DocumentRetentionPolicyInd>false</DocumentRetentionPolicyInd>
+      <CompensationProcessCEOInd>false</CompensationProcessCEOInd>
+      <CompensationProcessOtherInd>false</CompensationProcessOtherInd>
+      <InvestmentInJointVentureInd>false</InvestmentInJointVentureInd>
+      <BooksInCareOfDetail>
+        <PersonNm>DOUGLAS GREENE</PersonNm>
+        <PhoneNum>9802885738</PhoneNum>
+        <USAddress>
+          <AddressLine1Txt>385 TABACCO RD</AddressLine1Txt>
+          <CityNm>LEXINGTON</CityNm>
+          <StateAbbreviationCd>NC</StateAbbreviationCd>
+          <ZIPCd>27295</ZIPCd>
+        </USAddress>
+      </BooksInCareOfDetail>
+      <NoListedPersonsCompensatedInd>X</NoListedPersonsCompensatedInd>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>DOUGLAS GREENE</PersonNm>
+        <TitleTxt>EXECUTIVE DIRECTOR</TitleTxt>
+        <AverageHoursPerWeekRt>40</AverageHoursPerWeekRt>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>NATHANIEL MOORE</PersonNm>
+        <TitleTxt>BOARD MEMBER</TitleTxt>
+        <AverageHoursPerWeekRt>1</AverageHoursPerWeekRt>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>PHILLIP DEANS</PersonNm>
+        <TitleTxt>BOARD MEMBER</TitleTxt>
+        <AverageHoursPerWeekRt>1</AverageHoursPerWeekRt>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>JELANI HARRIS</PersonNm>
+        <TitleTxt>BOARD MEMBER</TitleTxt>
+        <AverageHoursPerWeekRt>1</AverageHoursPerWeekRt>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>CHARLES BRISCOE</PersonNm>
+        <TitleTxt>BOARD MEMBER</TitleTxt>
+        <AverageHoursPerWeekRt>1</AverageHoursPerWeekRt>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>MIGUEL KEATON</PersonNm>
+        <TitleTxt>BOARD MEMBER</TitleTxt>
+        <AverageHoursPerWeekRt>1</AverageHoursPerWeekRt>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>LOLITTA BATTLE</PersonNm>
+        <TitleTxt>FIANCIAL OFFICER</TitleTxt>
+        <AverageHoursPerWeekRt>30</AverageHoursPerWeekRt>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <FormerOfcrEmployeesListedInd>false</FormerOfcrEmployeesListedInd>
+      <TotalCompGreaterThan150KInd>false</TotalCompGreaterThan150KInd>
+      <CompensationFromOtherSrcsInd>false</CompensationFromOtherSrcsInd>
+      <RelatedOrganizationsAmt>218813</RelatedOrganizationsAmt>
+      <TotalContributionsAmt>218813</TotalContributionsAmt>
+      <TotalRevenueGrp>
+        <TotalRevenueColumnAmt>218813</TotalRevenueColumnAmt>
+      </TotalRevenueGrp>
+      <InfoInScheduleOPartIXInd>X</InfoInScheduleOPartIXInd>
+      <OtherSalariesAndWagesGrp>
+        <TotalAmt>62770</TotalAmt>
+        <ManagementAndGeneralAmt>62770</ManagementAndGeneralAmt>
+      </OtherSalariesAndWagesGrp>
+      <PayrollTaxesGrp>
+        <TotalAmt>11689</TotalAmt>
+        <ManagementAndGeneralAmt>11689</ManagementAndGeneralAmt>
+      </PayrollTaxesGrp>
+      <AdvertisingGrp>
+        <TotalAmt>9040</TotalAmt>
+        <ManagementAndGeneralAmt>9040</ManagementAndGeneralAmt>
+      </AdvertisingGrp>
+      <OfficeExpensesGrp>
+        <TotalAmt>6630</TotalAmt>
+        <ManagementAndGeneralAmt>6630</ManagementAndGeneralAmt>
+      </OfficeExpensesGrp>
+      <TravelGrp>
+        <TotalAmt>308</TotalAmt>
+        <ManagementAndGeneralAmt>308</ManagementAndGeneralAmt>
+      </TravelGrp>
+      <InterestGrp>
+        <TotalAmt>48</TotalAmt>
+        <ManagementAndGeneralAmt>48</ManagementAndGeneralAmt>
+      </InterestGrp>
+      <InsuranceGrp>
+        <TotalAmt>4917</TotalAmt>
+        <ManagementAndGeneralAmt>4917</ManagementAndGeneralAmt>
+      </InsuranceGrp>
+      <OtherExpensesGrp>
+        <Desc>FRINGE EMPLOYEE BENEFITS</Desc>
+        <TotalAmt>1472</TotalAmt>
+        <ManagementAndGeneralAmt>1472</ManagementAndGeneralAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>PROFESSIONAL SERVICES</Desc>
+        <TotalAmt>27393</TotalAmt>
+        <ManagementAndGeneralAmt>27393</ManagementAndGeneralAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>COMMUNICATIONS AND TELEPHONE</Desc>
+        <TotalAmt>4809</TotalAmt>
+        <ManagementAndGeneralAmt>4809</ManagementAndGeneralAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>DATA PROCESSING SERVICES</Desc>
+        <TotalAmt>3523</TotalAmt>
+        <ManagementAndGeneralAmt>3523</ManagementAndGeneralAmt>
+      </OtherExpensesGrp>
+      <AllOtherExpensesGrp>
+        <TotalAmt>15427</TotalAmt>
+        <ManagementAndGeneralAmt>15427</ManagementAndGeneralAmt>
+      </AllOtherExpensesGrp>
+      <TotalFunctionalExpensesGrp>
+        <TotalAmt>148026</TotalAmt>
+        <ProgramServicesAmt>0</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>148026</ManagementAndGeneralAmt>
+        <FundraisingAmt>0</FundraisingAmt>
+      </TotalFunctionalExpensesGrp>
+      <CashNonInterestBearingGrp>
+        <EOYAmt>70787</EOYAmt>
+      </CashNonInterestBearingGrp>
+      <TotalAssetsGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>70787</EOYAmt>
+      </TotalAssetsGrp>
+      <TotalLiabilitiesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </TotalLiabilitiesGrp>
+      <OrgDoesNotFollowFASB117Ind>X</OrgDoesNotFollowFASB117Ind>
+      <CapStkTrPrinCurrentFundsGrp>
+        <EOYAmt>70787</EOYAmt>
+      </CapStkTrPrinCurrentFundsGrp>
+      <RtnEarnEndowmentIncmOthFndsGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </RtnEarnEndowmentIncmOthFndsGrp>
+      <TotalNetAssetsFundBalanceGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>70787</EOYAmt>
+      </TotalNetAssetsFundBalanceGrp>
+      <TotLiabNetAssetsFundBalanceGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>70787</EOYAmt>
+      </TotLiabNetAssetsFundBalanceGrp>
+      <ReconcilationRevenueExpnssAmt>70787</ReconcilationRevenueExpnssAmt>
+      <MethodOfAccountingCashInd>X</MethodOfAccountingCashInd>
+      <AccountantCompileOrReviewInd>false</AccountantCompileOrReviewInd>
+      <FSAuditedInd>false</FSAuditedInd>
+    </IRS990>
+  </ReturnData>
+</Return>
