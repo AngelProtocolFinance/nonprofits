@@ -43,6 +43,7 @@ describe("API key guard on GET /v1/orgs/:ein", () => {
     `Bearer npk_${"a".repeat(63)}`,
     `Bearer npk_${"a".repeat(63)}_`,
     `Basic npk_${"a".repeat(64)}`,
+    `npk_${"a".repeat(64)}`,
   ])(
     "refuses a malformed key (%s): 401 invalid_api_key naming the format",
     async (authorization) => {
@@ -50,6 +51,9 @@ describe("API key guard on GET /v1/orgs/:ein", () => {
         headers: { authorization },
       });
       expect(response.status).toBe(401);
+      expect(response.headers.get("www-authenticate")).toBe(
+        'Bearer realm="nonprofits", error="invalid_token"',
+      );
       expect(await response.json()).toMatchObject({
         code: "invalid_api_key",
         detail:
@@ -117,6 +121,9 @@ describe("admin key endpoints", () => {
       headers: { authorization },
     });
     expect(after.status).toBe(401);
+    expect(after.headers.get("www-authenticate")).toBe(
+      'Bearer realm="nonprofits", error="invalid_token"',
+    );
     expect(await after.json()).toMatchObject({
       code: "revoked_api_key",
       detail:
@@ -134,10 +141,42 @@ describe("admin key endpoints", () => {
     expect(table).not.toContain(issued.key.slice("npk_".length));
   });
 
+  test("logs each refused key as one info line without key material, and no base-URL warning", async () => {
+    const revoked = await issueKey(server);
+    await postAdmin(server, `/admin/keys/${revoked.id}/revoke`);
+    const unknown = `npk_${"Z".repeat(64)}`;
+    const before = server.getLogs().length;
+
+    for (const key of [unknown, revoked.key]) {
+      await server.fetch("/v1/orgs/530196605", {
+        headers: { authorization: `Bearer ${key}` },
+      });
+    }
+
+    const refusals = server
+      .getLogs()
+      .slice(before)
+      .map(({ level, message }) => ({ level, message }));
+    expect(refusals).toStrictEqual([
+      { level: "info", message: "api key refused: INVALID_API_KEY" },
+      { level: "info", message: "api key refused: KEY_DISABLED" },
+    ]);
+    expect(JSON.stringify(server.getLogs())).not.toMatch(/Base URL is not set/);
+  });
+
   test("revoking an id that was never issued is 404 key_not_found", async () => {
     const response = await postAdmin(server, "/admin/keys/no-such-key/revoke");
     expect(response.status).toBe(404);
     expect(await response.json()).toMatchObject({ code: "key_not_found" });
+  });
+
+  test("revoking an id that isn't valid percent-encoding is 400 invalid_request, not a bare 500", async () => {
+    const response = await postAdmin(server, "/admin/keys/%E0%A4%A/revoke");
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toBe(
+      "application/problem+json",
+    );
+    expect(await response.json()).toMatchObject({ code: "invalid_request" });
   });
 
   test.each([

@@ -1,12 +1,13 @@
-import { getAuth } from "./auth.ts";
+import { isAPIError } from "better-auth/api";
+import { getAuth, MAX_KEY_NAME_LENGTH } from "./auth.ts";
 import { problem } from "./problem.ts";
 
 // an unset secret reads as undefined; the floor also refuses a guessable one
 const MIN_ADMIN_TOKEN_LENGTH = 32;
+// `.dev.vars.example`'s value: long enough to pass the floor, and public
+const ADMIN_TOKEN_PLACEHOLDER = "replace-with-32-plus-random-characters";
 const REVOKE_PATH = /^\/admin\/keys\/([^/]+)\/revoke$/;
 const EMAIL = /^[^\s@]+@[^\s@]+$/;
-// the api-key plugin's default maximumNameLength
-const MAX_NAME_LENGTH = 32;
 
 /** What the CLI prints on create; the only response that ever carries `key`. */
 interface IssuedKey {
@@ -25,7 +26,24 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
     : {};
 }
 
-/** One better-auth user per owner email: reused if present, created if not. */
+/** The one better-auth user per owner email: reused if present, created if not. */
+async function ownerFor(auth: ReturnType<typeof getAuth>, email: string) {
+  const { internalAdapter } = await auth.$context;
+  const existing = await internalAdapter.findUserByEmail(email);
+  if (existing !== null) return existing.user;
+  try {
+    return await internalAdapter.createUser(
+      { email, name: email },
+      { method: "admin" },
+    );
+  } catch (error) {
+    // a concurrent issue for the same new email created it first: email is UNIQUE
+    const winner = await internalAdapter.findUserByEmail(email);
+    if (winner !== null) return winner.user;
+    throw error;
+  }
+}
+
 async function createKey(request: Request, env: Env): Promise<Response> {
   const body = await readJson(request);
   const email =
@@ -38,23 +56,17 @@ async function createKey(request: Request, env: Env): Promise<Response> {
     name !== undefined &&
     (typeof name !== "string" ||
       name.length < 1 ||
-      name.length > MAX_NAME_LENGTH)
+      name.length > MAX_KEY_NAME_LENGTH)
   ) {
     return problem(
       400,
       "invalid_request",
-      `\`name\` is optional, 1 to ${MAX_NAME_LENGTH} characters.`,
+      `\`name\` is optional, 1 to ${MAX_KEY_NAME_LENGTH} characters.`,
     );
   }
 
   const auth = getAuth(env);
-  const { internalAdapter } = await auth.$context;
-  const user =
-    (await internalAdapter.findUserByEmail(email))?.user ??
-    (await internalAdapter.createUser(
-      { email, name: email },
-      { method: "admin" },
-    ));
+  const user = await ownerFor(auth, email);
   const created = await auth.api.createApiKey({
     body: { userId: user.id, ...(name === undefined ? {} : { name }) },
   });
@@ -101,9 +113,41 @@ async function isAdmin(request: Request, env: Env): Promise<boolean> {
   return crypto.subtle.timingSafeEqual(sent, expected);
 }
 
+/** better-auth's own refusals keep their status; anything else is a problem 500, never a bare one. */
+function failure(error: unknown): Response {
+  if (isAPIError(error) && error.statusCode === 404) {
+    return problem(404, "key_not_found", "No such key.");
+  }
+  if (isAPIError(error) && error.statusCode < 500) {
+    return problem(400, "invalid_request", error.message);
+  }
+  console.error(
+    JSON.stringify({
+      event: "admin_failed",
+      cause: error instanceof Error ? `${error.name}: ${error.message}` : error,
+    }),
+  );
+  return problem(
+    500,
+    "internal_error",
+    "The key operation failed on the server. Retry; if it keeps failing, check the Worker logs.",
+  );
+}
+
 /** Operator-only key management under `/admin/`, for the key CLI. */
 export async function admin(request: Request, env: Env): Promise<Response> {
-  if ((env.ADMIN_TOKEN?.length ?? 0) < MIN_ADMIN_TOKEN_LENGTH) {
+  try {
+    return await route(request, env);
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+async function route(request: Request, env: Env): Promise<Response> {
+  if (
+    (env.ADMIN_TOKEN?.length ?? 0) < MIN_ADMIN_TOKEN_LENGTH ||
+    env.ADMIN_TOKEN === ADMIN_TOKEN_PLACEHOLDER
+  ) {
     return problem(
       503,
       "admin_disabled",
@@ -130,7 +174,17 @@ export async function admin(request: Request, env: Env): Promise<Response> {
     if (request.method !== "POST") {
       return problem(405, "method_not_allowed", "Use POST.", { allow: "POST" });
     }
-    return revokeKey(decodeURIComponent(revoke[1]), env);
+    let keyId: string;
+    try {
+      keyId = decodeURIComponent(revoke[1]);
+    } catch {
+      return problem(
+        400,
+        "invalid_request",
+        "The key id in the path is not valid percent-encoding.",
+      );
+    }
+    return revokeKey(keyId, env);
   }
   return problem(404, "route_not_found", `No route for ${pathname}.`);
 }

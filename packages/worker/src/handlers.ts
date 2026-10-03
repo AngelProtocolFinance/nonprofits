@@ -1,10 +1,11 @@
+import { API_KEY_TABLE_NAME, defaultKeyHasher } from "@better-auth/api-key";
 import {
   lookupOrg,
   type OrgLookupError,
   type OrgResponse,
   type Result,
 } from "@nonprofits/core";
-import { API_KEY_PREFIX, getAuth } from "./auth.ts";
+import { API_KEY_LETTERS, API_KEY_PREFIX, getAuth } from "./auth.ts";
 import { D1OrgReader } from "./d1-org-reader.ts";
 
 /** What every transport (REST, MCP) hands a handler. */
@@ -20,8 +21,11 @@ export type AuthError = {
   message: string;
 };
 
+/** The key store failed mid-check, so there is no verdict on the key: a 503, never a 401. */
+export type AuthUnavailable = { code: "auth_unavailable"; message: string };
+
 /** Every refusal a handler can return; transports map each `code`. */
-export type HandlerError = OrgLookupError | AuthError;
+export type HandlerError = OrgLookupError | AuthError | AuthUnavailable;
 
 /** The caller a valid key stands for. */
 export interface Principal {
@@ -29,7 +33,32 @@ export interface Principal {
   tier: "default";
 }
 
-const KEY_FORMAT = new RegExp(`^${API_KEY_PREFIX}[A-Za-z]{64}$`);
+const KEY_FORMAT = new RegExp(
+  `^${API_KEY_PREFIX}[A-Za-z]{${API_KEY_LETTERS}}$`,
+);
+
+/**
+ * The key in an `Authorization: Bearer <key>` header, for every transport.
+ * Any other value is sent the wrong way, so it comes back as "", which
+ * `authorize` refuses as malformed rather than missing.
+ */
+export function bearerCredential(authorization: string | null): string | null {
+  if (authorization === null) return null;
+  return /^Bearer +(\S+)$/i.exec(authorization)?.[1] ?? "";
+}
+
+/** The `WWW-Authenticate` value a key refusal carries; a sent-but-refused key is `invalid_token` (RFC 6750 §3.1). */
+export function challenge(error: HandlerError): string | null {
+  switch (error.code) {
+    case "missing_api_key":
+      return 'Bearer realm="nonprofits"';
+    case "invalid_api_key":
+    case "revoked_api_key":
+      return 'Bearer realm="nonprofits", error="invalid_token"';
+    default:
+      return null;
+  }
+}
 
 /** Every key refusal ends by saying how to get a key. */
 function refuse(
@@ -45,11 +74,28 @@ function refuse(
   };
 }
 
+function unavailable(cause: unknown): Result<never, AuthUnavailable> {
+  console.error(
+    JSON.stringify({
+      event: "auth_unavailable",
+      cause: cause instanceof Error ? `${cause.name}: ${cause.message}` : cause,
+    }),
+  );
+  return {
+    ok: false,
+    error: {
+      code: "auth_unavailable",
+      message:
+        "The key check is unavailable right now; nothing is wrong with your key. Retry shortly.",
+    },
+  };
+}
+
 /** The key guard every transport runs before any quota or data read. */
 export async function authorize(
   credential: string | null,
   env: Env,
-): Promise<Result<Principal, AuthError>> {
+): Promise<Result<Principal, AuthError | AuthUnavailable>> {
   if (credential === null) {
     return refuse(
       "missing_api_key",
@@ -59,17 +105,33 @@ export async function authorize(
   if (!KEY_FORMAT.test(credential)) {
     return refuse(
       "invalid_api_key",
-      `API key is malformed: expected \`${API_KEY_PREFIX}\` followed by 64 letters, sent as \`Authorization: Bearer <key>\`.`,
+      `API key is malformed: expected \`${API_KEY_PREFIX}\` followed by ${API_KEY_LETTERS} letters, sent as \`Authorization: Bearer <key>\`.`,
     );
   }
-  const verified = await getAuth(env).api.verifyApiKey({
-    body: { key: credential },
-  });
+  const auth = getAuth(env);
+  let verified: Awaited<ReturnType<typeof auth.api.verifyApiKey>>;
+  try {
+    verified = await auth.api.verifyApiKey({ body: { key: credential } });
+  } catch (error) {
+    return unavailable(error);
+  }
   // revoking disables the key rather than deleting it, so it can be named here
   if (verified.error?.code === "KEY_DISABLED") {
     return refuse("revoked_api_key", "API key has been revoked.");
   }
   if (!verified.valid || verified.key === null) {
+    // the plugin reports a failed read or write as INVALID_API_KEY too: a stored key means it was storage
+    try {
+      const { adapter } = await auth.$context;
+      const stored = await adapter.findOne({
+        model: API_KEY_TABLE_NAME,
+        where: [{ field: "key", value: await defaultKeyHasher(credential) }],
+        select: ["id"],
+      });
+      if (stored !== null) return unavailable(verified.error);
+    } catch (error) {
+      return unavailable(error);
+    }
     return refuse(
       "invalid_api_key",
       "API key not recognized: check it was copied whole.",

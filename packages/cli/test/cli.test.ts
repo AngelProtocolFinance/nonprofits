@@ -1,19 +1,12 @@
+import { createServer } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { createTestHarness } from "wrangler";
+import {
+  createWorkerHarness,
+  TEST_SECRETS,
+} from "../../worker/test/harness.ts";
 import { run } from "../src/index.ts";
 
-const ADMIN_TOKEN = "test-only-admin-token-0123456789abcdef";
-const server = createTestHarness({
-  workers: [
-    {
-      configPath: new URL("../../worker/wrangler.jsonc", import.meta.url),
-      secrets: {
-        BETTER_AUTH_SECRET: "test-only-better-auth-secret-0123456789abcdef",
-        ADMIN_TOKEN,
-      },
-    },
-  ],
-});
+const server = createWorkerHarness();
 let baseUrl: string;
 
 beforeAll(async () => {
@@ -25,11 +18,15 @@ afterAll(async () => {
   await server.close();
 });
 
-async function cli(args: string[], adminToken = ADMIN_TOKEN) {
+async function cli(
+  args: string[],
+  adminToken = TEST_SECRETS.ADMIN_TOKEN,
+  url = baseUrl,
+) {
   let stdout = "";
   let stderr = "";
   const code = await run(args, {
-    env: { NONPROFITS_URL: baseUrl, ADMIN_TOKEN: adminToken },
+    env: { NONPROFITS_URL: url, ADMIN_TOKEN: adminToken },
     stdout: (text) => {
       stdout += text;
     },
@@ -38,6 +35,20 @@ async function cli(args: string[], adminToken = ADMIN_TOKEN) {
     },
   });
   return { code, stdout, stderr };
+}
+
+/** A port that was just free and is now closed, so a connection to it is refused. */
+async function closedPort(): Promise<number> {
+  const listener = createServer();
+  await new Promise<void>((resolve) =>
+    listener.listen(0, "127.0.0.1", resolve),
+  );
+  const address = listener.address();
+  await new Promise((resolve) => listener.close(resolve));
+  if (address === null || typeof address === "string") {
+    throw new Error("expected a TCP address");
+  }
+  return address.port;
 }
 
 function lookupWith(key: string) {
@@ -91,6 +102,20 @@ describe("keys CLI", () => {
     expect(stdout).toBe("");
     expect(stderr).toBe(
       "admin_unauthorized: Admin endpoints need `Authorization: Bearer <ADMIN_TOKEN>`.\n",
+    );
+  });
+
+  test("an unreachable Worker exits 1 with one line naming NONPROFITS_URL and wrangler dev", async () => {
+    const url = `http://127.0.0.1:${await closedPort()}/`;
+    const { code, stdout, stderr } = await cli(
+      ["revoke", "some-id"],
+      TEST_SECRETS.ADMIN_TOKEN,
+      url,
+    );
+    expect(code).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toBe(
+      `Can't reach the Worker at ${url} (NONPROFITS_URL). Start it locally with \`pnpm --filter @nonprofits/worker dev\` (wrangler dev), or point NONPROFITS_URL at the deployed Worker.\n`,
     );
   });
 });

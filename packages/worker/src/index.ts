@@ -1,5 +1,10 @@
 import { admin } from "./admin.ts";
-import { type HandlerError, lookup } from "./handlers.ts";
+import {
+  bearerCredential,
+  challenge,
+  type HandlerError,
+  lookup,
+} from "./handlers.ts";
 import { problem } from "./problem.ts";
 
 const ORG_PATH = /^\/v1\/orgs\/([^/]+)$/;
@@ -10,14 +15,8 @@ const STATUS = {
   invalid_api_key: 401,
   revoked_api_key: 401,
   not_found: 404,
+  auth_unavailable: 503,
 } as const satisfies Record<HandlerError["code"], number>;
-
-/** A Bearer token, any other `Authorization` value whole (refused as malformed), or null. */
-function credentialOf(request: Request): string | null {
-  const authorization = request.headers.get("authorization");
-  if (authorization === null) return null;
-  return /^Bearer +(.*)$/i.exec(authorization)?.[1] ?? authorization;
-}
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -33,16 +32,17 @@ export default {
 
     const result = await lookup(match[1], {
       env,
-      credential: credentialOf(request),
+      credential: bearerCredential(request.headers.get("authorization")),
       now: new Date(),
     });
     if (result.ok) return Response.json(result.value);
-    const status = STATUS[result.error.code];
+    const { error } = result;
+    const wwwAuthenticate = challenge(error);
     return problem(
-      status,
-      result.error.code,
-      result.error.message,
-      status === 401 ? { "www-authenticate": 'Bearer realm="nonprofits"' } : {},
+      STATUS[error.code],
+      error.code,
+      error.message,
+      wwwAuthenticate === null ? {} : { "www-authenticate": wwwAuthenticate },
     );
   },
 } satisfies ExportedHandler<Env>;

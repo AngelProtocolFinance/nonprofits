@@ -67,14 +67,23 @@ export async function run(args: string[], io: Io): Promise<number> {
     return 2;
   }
 
-  const response = await fetch(new URL(path, baseUrl), {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${adminToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(new URL(path, baseUrl), {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${adminToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // fetch rejects only when no HTTP response came back: refused, DNS, TLS
+    io.stderr(
+      `Can't reach the Worker at ${baseUrl} (NONPROFITS_URL). Start it locally with \`pnpm --filter @nonprofits/worker dev\` (wrangler dev), or point NONPROFITS_URL at the deployed Worker.\n`,
+    );
+    return 1;
+  }
   if (!response.ok) {
     io.stderr(`${await describeRefusal(response)}\n`);
     return 1;
