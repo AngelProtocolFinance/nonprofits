@@ -2,35 +2,47 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { flipActiveSlotSql } from "@nonprofits/db";
+import { claimSlotSql, flipActiveSlotSql } from "@nonprofits/db";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
+  buildDataSlot,
   createWorkerHarness,
   type Harness,
   issueWhitelistedKey,
   listenSeeded,
-  rebuildSearchIndex,
-  seedDataSlot,
+  seeded,
+  serveDataSlot,
   testEnv,
 } from "./harness.ts";
 
 const RED_CROSS = "530196605";
 const SLOT_B_NAME = "AMERICAN RED CROSS SLOT B";
 
-describe("with the pointer on slot b", () => {
+describe("with the pointer flipped to slot b", () => {
   const server = createWorkerHarness();
   let authorization: string;
 
+  // every lookup below follows the flip: the Worker reads the pointer on its
+  // first data request, and nothing here makes one before the flip
   beforeAll(async () => {
     await listenSeeded(server);
-    await seedDataSlot(server, "b");
-    const { APP_DB, DATA_DB_B } = await testEnv(server);
-    await DATA_DB_B.prepare("UPDATE orgs SET name = ?1 WHERE ein = ?2")
-      .bind(SLOT_B_NAME, RED_CROSS)
-      .all();
-    await rebuildSearchIndex(server, "b");
+    const { APP_DB } = await testEnv(server);
     await APP_DB.prepare(
-      flipActiveSlotSql("a", "b", "build-b", "2026-10-03T05:00:00Z"),
+      claimSlotSql("b", "build-b", "2026-10-03T04:00:00Z"),
+    ).all();
+    await buildDataSlot(
+      server,
+      "b",
+      "build-b",
+      seeded(async (db) => {
+        await db
+          .prepare("UPDATE orgs SET name = ?1 WHERE ein = ?2")
+          .bind(SLOT_B_NAME, RED_CROSS)
+          .all();
+      }),
+    );
+    await APP_DB.prepare(
+      flipActiveSlotSql("a", "build-b", "2026-10-03T05:00:00Z"),
     ).all();
     authorization = `Bearer ${(await issueWhitelistedKey(server)).key}`;
   });
@@ -96,7 +108,7 @@ describe("with slot a serving", () => {
     expect(before.status).toBe(200);
     await before.body?.cancel();
 
-    await seedDataSlot(server, "a");
+    await serveDataSlot(server, "a", "seed-a", seeded());
 
     const after = await server.fetch(`/v1/orgs/${RED_CROSS}`, { headers });
     expect(after.status).toBe(200);

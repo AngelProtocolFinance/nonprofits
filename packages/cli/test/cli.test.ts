@@ -2,7 +2,7 @@ import { createServer } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createWorkerHarness,
-  resetDataSlot,
+  serveDataSlot,
   TEST_SECRETS,
   testEnv,
 } from "../../worker/test/harness.ts";
@@ -15,7 +15,7 @@ beforeAll(async () => {
   baseUrl = (await server.listen()).url.href;
   await server.getWorker().applyD1Migrations("APP_DB");
   // the served data DB, empty: an authorized lookup is not_found
-  await resetDataSlot(server, "a");
+  await serveDataSlot(server, "a", "empty-a");
 });
 
 afterAll(async () => {

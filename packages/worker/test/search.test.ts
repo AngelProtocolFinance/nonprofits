@@ -2,10 +2,11 @@ import type { OrgSearchResponse } from "@nonprofits/core";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createWorkerHarness,
+  type Fill,
   issueWhitelistedKey,
   listenSeeded,
-  rebuildSearchIndex,
-  testEnv,
+  seeded,
+  serveDataSlot,
 } from "./harness.ts";
 
 const server = createWorkerHarness();
@@ -34,17 +35,21 @@ const NEAR_MISSES = [
 
 const RED_CROSS_ORDER = ["530196605", "581771391", "362276983", "841189480"];
 
-beforeAll(async () => {
-  await listenSeeded(server);
-  const { DATA_DB_A } = await testEnv(server);
-  await DATA_DB_A.batch(
+/** The near misses, beside the fixture's Red Cross. */
+const nearMisses: Fill = async (db) => {
+  await db.batch(
     NEAR_MISSES.map(({ ein, name, subsection }) =>
-      DATA_DB_A.prepare(
-        "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id) VALUES (?1, ?2, 1, ?3, iif(?3 IS NULL, NULL, 1))",
-      ).bind(ein, name, subsection),
+      db
+        .prepare(
+          "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id) VALUES (?1, ?2, 1, ?3, iif(?3 IS NULL, NULL, 1))",
+        )
+        .bind(ein, name, subsection),
     ),
   );
-  await rebuildSearchIndex(server);
+};
+
+beforeAll(async () => {
+  await listenSeeded(server, nearMisses);
   authorization = `Bearer ${(await issueWhitelistedKey(server)).key}`;
 });
 
@@ -251,16 +256,25 @@ describe("GET /v1/search", () => {
   });
 
   test("reads only the names holding every word, not every name holding one", async () => {
-    const { DATA_DB_A } = await testEnv(server);
     const filler = Array.from({ length: 300 }, (_, i) => String(900000000 + i));
-    await DATA_DB_A.batch(
-      filler.map((ein) =>
-        DATA_DB_A.prepare(
-          "INSERT INTO orgs (ein, name, name_run_id) VALUES (?1, 'FILLER FOUNDATION OF THE CROSS ROADS', 1)",
-        ).bind(ein),
-      ),
+    // the served slot is sealed: rebuild it with the fillers beside the near misses
+    await serveDataSlot(
+      server,
+      "a",
+      "seed-a",
+      seeded(async (db) => {
+        await nearMisses(db);
+        await db.batch(
+          filler.map((ein) =>
+            db
+              .prepare(
+                "INSERT INTO orgs (ein, name, name_run_id) VALUES (?1, 'FILLER FOUNDATION OF THE CROSS ROADS', 1)",
+              )
+              .bind(ein),
+          ),
+        );
+      }),
     );
-    await rebuildSearchIndex(server);
     server.clearLogs();
 
     const fillers = await search("q=filler&limit=50");

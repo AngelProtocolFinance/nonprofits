@@ -4,6 +4,7 @@ import {
   type DataSlot,
   rebuildSearchIndexSql,
   resetGenerationSql,
+  sealGenerationSql,
 } from "@nonprofits/db";
 import { createTestHarness } from "wrangler";
 import { runSql } from "./d1-sql.ts";
@@ -12,7 +13,7 @@ interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   all<T>(): Promise<{ results: T[] }>;
 }
-interface TestD1 {
+export interface TestD1 {
   prepare(sql: string): D1Statement;
   batch(statements: D1Statement[]): Promise<unknown>;
 }
@@ -51,46 +52,66 @@ export async function testEnv(server: Harness): Promise<TestEnv> {
   return (await server.getWorker().getEnv()) as unknown as TestEnv;
 }
 
-/** The search index rebuild an import runs after each load, on `slot`'s data DB. */
-export async function rebuildSearchIndex(
-  server: Harness,
-  slot: DataSlot = "a",
-): Promise<void> {
-  const env = await testEnv(server);
-  await runSql(env[DATA_DB_BINDING[slot]], rebuildSearchIndexSql(""));
-}
+/** Rows a test writes into a data DB before it is sealed. */
+export type Fill = (db: TestD1) => Promise<void>;
 
-/** Resets `slot`'s data DB to an empty generation. */
-export async function resetDataSlot(
-  server: Harness,
-  slot: DataSlot,
-): Promise<void> {
-  const db = (await testEnv(server))[DATA_DB_BINDING[slot]];
-  await runSql(db, resetGenerationSql(slot, `test-${slot}`));
-}
-
-/** Resets `slot`'s data DB and fills it with `fixtures/seed.sql`, indexed for search. */
-export async function seedDataSlot(
-  server: Harness,
-  slot: DataSlot,
-): Promise<void> {
-  await resetDataSlot(server, slot);
-  const seed = await readFile(
-    new URL("../fixtures/seed.sql", import.meta.url),
-    "utf8",
-  );
-  await runSql((await testEnv(server))[DATA_DB_BINDING[slot]], seed);
-  await rebuildSearchIndex(server, slot);
+/** Fills a data DB with `fixtures/seed.sql`, then whatever `fill` adds. */
+export function seeded(fill?: Fill): Fill {
+  return async (db) => {
+    const seed = await readFile(
+      new URL("../fixtures/seed.sql", import.meta.url),
+      "utf8",
+    );
+    await runSql(db, seed);
+    await fill?.(db);
+  };
 }
 
 /**
- * Starts the Worker on a migrated app DB, with data slot a (the one the
- * pointer starts on) holding `fixtures/seed.sql`.
+ * Builds `slot` as an import does: reset for `buildId`, filled, its search
+ * index rebuilt, then sealed, after which it takes no writes.
  */
-export async function listenSeeded(server: Harness): Promise<void> {
+export async function buildDataSlot(
+  server: Harness,
+  slot: DataSlot,
+  buildId: string,
+  fill?: Fill,
+): Promise<void> {
+  const db = (await testEnv(server))[DATA_DB_BINDING[slot]];
+  await runSql(db, resetGenerationSql(slot, buildId));
+  await fill?.(db);
+  await runSql(db, rebuildSearchIndexSql(""));
+  await db.prepare(sealGenerationSql(buildId)).all();
+}
+
+/**
+ * `buildDataSlot`, then the pointer set on `slot` and `buildId` as a flip
+ * leaves it, without the claim a real flip needs.
+ */
+export async function serveDataSlot(
+  server: Harness,
+  slot: DataSlot,
+  buildId: string,
+  fill?: Fill,
+): Promise<void> {
+  await buildDataSlot(server, slot, buildId, fill);
+  const { APP_DB } = await testEnv(server);
+  await APP_DB.prepare("UPDATE data_generation SET active = ?1, build_id = ?2")
+    .bind(slot, buildId)
+    .all();
+}
+
+/**
+ * Starts the Worker on a migrated app DB serving slot a, which holds
+ * `fixtures/seed.sql` and whatever `fill` adds.
+ */
+export async function listenSeeded(
+  server: Harness,
+  fill?: Fill,
+): Promise<void> {
   await server.listen();
   await server.getWorker().applyD1Migrations("APP_DB");
-  await seedDataSlot(server, "a");
+  await serveDataSlot(server, "a", "seed-a", seeded(fill));
 }
 
 export interface IssuedKey {

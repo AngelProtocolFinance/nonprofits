@@ -11,6 +11,7 @@
     "db:reset:local": "node scripts/local-data.ts reset",
     "db:seed:local": "node scripts/local-data.ts seed",
     "db:search-index:local": "node scripts/local-data.ts search-index",
+    "db:seal:local": "node scripts/local-data.ts seal",
     "db:flip:local": "node scripts/local-data.ts flip",
     "types": "wrangler types --strict-vars=false",
     "auth:generate": "auth generate --config auth.generate.ts --output .wrangler/auth-schema.sql --yes",

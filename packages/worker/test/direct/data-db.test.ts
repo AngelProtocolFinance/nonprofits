@@ -1,4 +1,9 @@
-import { READ_DATA_META_SQL, resetGenerationSql } from "@nonprofits/db";
+import {
+  type DataSlot,
+  READ_DATA_META_SQL,
+  resetGenerationSql,
+  sealGenerationSql,
+} from "@nonprofits/db";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { createTestHarness } from "wrangler";
 import { createActiveDataDb } from "../../src/data-db.ts";
@@ -14,9 +19,15 @@ beforeAll(async () => {
   await server.listen();
   await server.getWorker().applyD1Migrations("APP_DB");
   env = (await server.getWorker().getEnv()) as Env;
-  await runSql(env.DATA_DB_A, resetGenerationSql("a", "build-a"));
-  await runSql(env.DATA_DB_B, resetGenerationSql("b", "build-b"));
+  await build(env.DATA_DB_A, "a", "build-a");
+  await build(env.DATA_DB_B, "b", "build-b");
 });
+
+/** An empty generation in `slot`, sealed for `buildId`. */
+async function build(db: D1Database, slot: DataSlot, buildId: string) {
+  await runSql(db, resetGenerationSql(slot, buildId));
+  await db.prepare(sealGenerationSql(buildId)).run();
+}
 
 afterAll(async () => {
   await server.close();
@@ -24,9 +35,12 @@ afterAll(async () => {
 
 const T0 = Date.parse("2026-10-03T12:00:00Z");
 
-async function point(slot: "a" | "b") {
-  await env.APP_DB.prepare("UPDATE data_generation SET active = ?1")
-    .bind(slot)
+/** Sets the pointer as a flip would leave it. */
+async function point(slot: DataSlot, buildId = `build-${slot}`) {
+  await env.APP_DB.prepare(
+    "UPDATE data_generation SET active = ?1, build_id = ?2",
+  )
+    .bind(slot, buildId)
     .run();
 }
 
@@ -66,4 +80,56 @@ test("fails when the pointer can't be read and no slot was ever read", async () 
   await expect(createActiveDataDb()(pointerDown, T0)).rejects.toThrow(
     "simulated storage outage",
   );
+});
+
+test("fails when the pointer names a slot not sealed for its build and none was served", async () => {
+  await point("b", "build-x");
+
+  await expect(createActiveDataDb()(env, T0)).rejects.toThrow(
+    "slot b is not sealed for build build-x",
+  );
+});
+
+test("after a failed pointer read, serves the last slot 30 s before reading again", async () => {
+  const activeDataDb = createActiveDataDb();
+  await point("b");
+  await activeDataDb(env, T0);
+  let reads = 0;
+  const pointerDown = {
+    ...env,
+    APP_DB: {
+      prepare: () => {
+        reads++;
+        throw new Error("D1_ERROR: simulated storage outage");
+      },
+    } as unknown as D1Database,
+  };
+
+  await activeDataDb(pointerDown, T0 + 30_000);
+  const served = await activeDataDb(pointerDown, T0 + 59_999);
+  await activeDataDb(pointerDown, T0 + 60_000);
+
+  expect(await slotOf(served)).toBe("b");
+  expect(reads).toBe(2);
+});
+
+// last: it leaves slot b on another build
+test("keeps the slot it serves until the pointer names one sealed for its build", async () => {
+  const activeDataDb = createActiveDataDb();
+  await point("a");
+  await activeDataDb(env, T0);
+
+  await point("b", "build-x");
+  const mismatched = await activeDataDb(env, T0 + 30_000);
+  await runSql(env.DATA_DB_B, resetGenerationSql("b", "build-b2"));
+  await point("b", "build-b2");
+  const building = await activeDataDb(env, T0 + 60_000);
+  await env.DATA_DB_B.prepare(sealGenerationSql("build-b2")).run();
+  const sealed = await activeDataDb(env, T0 + 90_000);
+
+  expect([
+    await slotOf(mismatched),
+    await slotOf(building),
+    await slotOf(sealed),
+  ]).toEqual(["a", "a", "b"]);
 });

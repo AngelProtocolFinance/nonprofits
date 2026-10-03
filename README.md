@@ -28,16 +28,18 @@ From `packages/worker`, against local D1 seeded with fixture rows:
 
 ```sh
 cp .dev.vars.example .dev.vars   # then fill each secret: openssl rand -base64 32
-pnpm db:migrate:local            # APP_DB: auth, key limits and usage, the data pointer
-pnpm db:reset:local a            # DATA_DB_A: drop and rebuild the data tables, empty
-pnpm db:seed:local a
-pnpm db:search-index:local a
+pnpm db:migrate:local            # APP_DB: auth, key limits and usage, the data pointer (on slot a, empty)
+pnpm db:reset:local b            # claim slot b and rebuild its data tables, empty
+pnpm db:seed:local b
+pnpm db:search-index:local b
+pnpm db:seal:local b             # read-only from here until its next reset
+pnpm db:flip:local b             # serve it
 pnpm dev
 ```
 
-The Worker reads IRS data from one of two data databases, `DATA_DB_A` or `DATA_DB_B` (slots `a` and `b`), whichever the one-row `data_generation` table in `APP_DB` names; it starts on `a`. Keys and usage live in `APP_DB`, so resetting a data slot never touches them. A data DB has no migrations: `db:reset:local <slot>` drops its tables and rebuilds the current schema empty. To serve the other slot, fill it the same way, then `pnpm db:flip:local <slot>`. Each Worker isolate rereads the pointer at most every 30 s, so a flip reaches every request within 30 s, and each lookup or search is answered whole from one slot or the other.
+The Worker reads IRS data from one of two data databases, `DATA_DB_A` or `DATA_DB_B` (slots `a` and `b`), whichever the one-row `data_generation` table in `APP_DB` names. Keys and usage live in `APP_DB`, so resetting a data slot never touches them. A data DB has no migrations: `db:reset:local <slot>` claims the slot in `data_generation` and drops and rebuilds its tables empty. The served slot can't be claimed, so a build always goes into the other one. `db:seal:local <slot>` marks the build complete, after which the slot refuses every write until its next reset. `db:flip:local <slot>` serves a sealed slot, and flipping back to the previous slot is a rollback, for as long as nothing has reset it. Each Worker isolate rereads the pointer at most every 30 s, and it switches only to a slot whose own `data_meta` is sealed for the build the pointer names; until then it keeps serving the slot it had. A flip therefore reaches every request within 30 s, and each lookup or search is answered whole from one slot or the other.
 
-`/v1/search` reads a full-text index that a reset creates empty and every load rebuilds. After seeding a slot that holds orgs, rebuild its index with `pnpm db:search-index:local <slot>`.
+`/v1/search` reads a full-text index that a reset creates empty and every load rebuilds. After seeding a slot that holds orgs, rebuild its index with `pnpm db:search-index:local <slot>` before sealing it.
 
 A request with no `Authorization` header is served keyless: 5 requests per UTC day and 1 per minute per client. A client is its IP from `CF-Connecting-IP` (an IPv6 address counts as its /64), plus the `CF-Worker` zone when another zone's Worker sent the request. It is stored only as an HMAC keyed by the `IP_HASH_SECRET` secret, never the raw IP. Worker-hosted integrators should use a key: requests from other zones' Workers may all reach us from one Cloudflare IP. A key lifts the keyless limits, sent as `Authorization: Bearer <key>`; a malformed, unknown or revoked key is a 401, never served keyless. Keys are issued and revoked through the Worker's admin endpoints, with `ADMIN_TOKEN` read from `.dev.vars`:
 

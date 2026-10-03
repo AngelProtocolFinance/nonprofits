@@ -1,4 +1,5 @@
 export {
+  claimSlotSql,
   DATA_DB_BINDING,
   type DataDbBinding,
   type DataSlot,
@@ -6,6 +7,7 @@ export {
   otherSlot,
   READ_ACTIVE_SLOT_SQL,
   READ_DATA_META_SQL,
+  releaseClaimSql,
   resetGenerationSql,
   sealGenerationSql,
 } from "./generation.ts";
