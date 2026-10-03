@@ -3,7 +3,7 @@ import {
   type OrgLookupError,
   type OrgResponse,
   type Result,
-} from "@irs-lookup/core";
+} from "@nonprofits/core";
 import { D1OrgReader } from "./d1-org-reader.ts";
 
 /** What every transport (REST, MCP) hands a handler. */

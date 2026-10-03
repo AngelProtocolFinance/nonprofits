@@ -1,5 +1,5 @@
 {
-  "name": "@irs-lookup/worker",
+  "name": "@nonprofits/worker",
   "private": true,
   "type": "module",
   "exports": {
@@ -16,7 +16,7 @@
     "wrangler": "catalog:"
   },
   "dependencies": {
-    "@irs-lookup/core": "workspace:*",
-    "@irs-lookup/db": "workspace:*"
+    "@nonprofits/core": "workspace:*",
+    "@nonprofits/db": "workspace:*"
   }
 }

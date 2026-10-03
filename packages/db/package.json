@@ -1,5 +1,5 @@
 {
-  "name": "@irs-lookup/db",
+  "name": "@nonprofits/db",
   "private": true,
   "type": "module",
   "exports": {

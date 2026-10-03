@@ -1,4 +1,4 @@
-export const SERVICE_NAME = "irs-lookup";
+export const SERVICE_NAME = "nonprofits";
 
 export { normalizeEin } from "./ein.ts";
 export { lookupOrg } from "./lookup.ts";

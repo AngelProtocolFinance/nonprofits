@@ -1,4 +1,4 @@
-# irs-lookup
+# nonprofits
 
 Look up IRS exempt organizations by EIN, over REST and MCP.
 

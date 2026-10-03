@@ -1,5 +1,5 @@
 {
-  "name": "@irs-lookup/cli",
+  "name": "@nonprofits/cli",
   "private": true,
   "type": "module",
   "exports": {

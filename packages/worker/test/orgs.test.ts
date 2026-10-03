@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { OrgResponse } from "@irs-lookup/core";
+import type { OrgResponse } from "@nonprofits/core";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createTestHarness } from "wrangler";
 

@@ -5,8 +5,8 @@ import type {
   OrgRecord,
   Program,
   SourceFile,
-} from "@irs-lookup/core";
-import type { ImportSource } from "@irs-lookup/db";
+} from "@nonprofits/core";
+import type { ImportSource } from "@nonprofits/db";
 
 interface OrgRow {
   ein: string;

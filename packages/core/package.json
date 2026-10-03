@@ -1,5 +1,5 @@
 {
-  "name": "@irs-lookup/core",
+  "name": "@nonprofits/core",
   "private": true,
   "type": "module",
   "exports": {
