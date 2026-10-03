@@ -22,7 +22,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   import:
-    runs-on: ubuntu-latest
+    # blacksmith (blacksmith.sh), as in ci.yml
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 350
     steps:
       - name: Check the Cloudflare secrets are set

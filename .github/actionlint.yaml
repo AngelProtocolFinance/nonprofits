@@ -1,0 +1,4 @@
+self-hosted-runner:
+  # blacksmith.sh runner labels used by the workflows
+  labels:
+    - blacksmith-4vcpu-ubuntu-2404
