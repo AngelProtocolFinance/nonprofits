@@ -1,12 +1,13 @@
 import type { Result } from "@nonprofits/core";
 import { admin } from "./admin.ts";
 import {
-  bearerCredential,
+  clientRequestOf,
   type HandlerContext,
   type HandlerError,
   lookup,
   search,
 } from "./handlers.ts";
+import { logFailure } from "./log.ts";
 import { mcp } from "./mcp.ts";
 import { problem } from "./problem.ts";
 import { pruneUsage } from "./quota.ts";
@@ -28,34 +29,45 @@ function respond(result: Result<unknown, HandlerError>): Response {
     : refusalResponse(result.error);
 }
 
+async function route(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const { pathname } = url;
+  if (pathname.startsWith("/admin/")) return admin(request, env);
+  if (pathname === "/mcp") return mcp(request, env);
+  const ein = ORG_PATH.exec(pathname)?.[1];
+  if (ein === undefined && pathname !== SEARCH_PATH) {
+    return problem(404, "route_not_found", `No route for ${pathname}.`);
+  }
+  if (request.method !== "GET") {
+    return problem(405, "method_not_allowed", "Use GET.", { allow: "GET" });
+  }
+
+  const ctx: HandlerContext = {
+    ...clientRequestOf(request),
+    env,
+    now: new Date(),
+  };
+  if (ein !== undefined) return respond(await lookup(ein, ctx));
+  return respond(
+    await search(
+      { query: url.searchParams.get("q") ?? "", limit: limitOf(url) },
+      ctx,
+    ),
+  );
+}
+
 export default {
   async fetch(request, env): Promise<Response> {
-    const url = new URL(request.url);
-    const { pathname } = url;
-    if (pathname.startsWith("/admin/")) return admin(request, env);
-    if (pathname === "/mcp") return mcp(request, env);
-    const ein = ORG_PATH.exec(pathname)?.[1];
-    if (ein === undefined && pathname !== SEARCH_PATH) {
-      return problem(404, "route_not_found", `No route for ${pathname}.`);
+    try {
+      return await route(request, env);
+    } catch (error) {
+      logFailure("internal_error", error);
+      return problem(
+        500,
+        "internal_error",
+        "The request failed on the server. Retry; if it keeps failing, tell the operator.",
+      );
     }
-    if (request.method !== "GET") {
-      return problem(405, "method_not_allowed", "Use GET.", { allow: "GET" });
-    }
-
-    const ctx: HandlerContext = {
-      env,
-      credential: bearerCredential(request.headers.get("authorization")),
-      clientIp: request.headers.get("cf-connecting-ip"),
-      cfWorker: request.headers.get("cf-worker"),
-      now: new Date(),
-    };
-    if (ein !== undefined) return respond(await lookup(ein, ctx));
-    return respond(
-      await search(
-        { query: url.searchParams.get("q") ?? "", limit: limitOf(url) },
-        ctx,
-      ),
-    );
   },
 
   async scheduled(controller, env): Promise<void> {

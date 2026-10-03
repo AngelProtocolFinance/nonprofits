@@ -1,7 +1,12 @@
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import { createTestHarness } from "wrangler";
 import { admin } from "../../src/admin.ts";
-import { authorize, bearerCredential, lookup } from "../../src/handlers.ts";
+import {
+  authorize,
+  bearerCredential,
+  clientRequestOf,
+  lookup,
+} from "../../src/handlers.ts";
 import { emptyServedData } from "./empty-data.ts";
 import { failingD1 } from "./failing-d1.ts";
 
@@ -111,6 +116,22 @@ test("with IP_HASH_SECRET unset, a request with a key is refused unavailable too
   expect(result).toMatchObject({
     ok: false,
     error: { code: "auth_unavailable" },
+  });
+});
+
+test("a request's client is its bearer key, CF-Connecting-IP and CF-Worker headers", () => {
+  const request = new Request("http://localhost/mcp", {
+    headers: {
+      authorization: "Bearer npk_sent",
+      "cf-connecting-ip": "203.0.113.23",
+      "cf-worker": "zone.example",
+    },
+  });
+
+  expect(clientRequestOf(request)).toStrictEqual({
+    credential: "npk_sent",
+    clientIp: "203.0.113.23",
+    cfWorker: "zone.example",
   });
 });
 

@@ -8,10 +8,10 @@ import {
   type Result,
   searchOrgs,
 } from "@nonprofits/core";
+import { READ_ACTIVE_SLOT_SQL } from "@nonprofits/db";
 import { API_KEY_LETTERS, API_KEY_PREFIX } from "./auth.ts";
 import { clientSubject } from "./client.ts";
 import { D1OrgReader } from "./d1-org-reader.ts";
-import { D1OrgSearcher } from "./d1-org-searcher.ts";
 import { activeDataDb } from "./data-db.ts";
 import { logFailure } from "./log.ts";
 import {
@@ -26,6 +26,7 @@ import {
   type QuotaError,
   type Tier,
 } from "./quota.ts";
+import { cachedSearch } from "./search-cache.ts";
 import { isSecretSet } from "./secret.ts";
 
 /** What a transport hands a handler that authorizes the request itself (REST). */
@@ -149,8 +150,18 @@ export interface ClientRequest {
    * a shared value would put every client in one bucket.
    */
   clientIp: string | null;
-  /** The `CF-Worker` header: the zone of the Worker that sent this request, if one did. */
+  /** The `CF-Worker` header as sent: `clientSubject` trusts it only from Cloudflare's cross-zone Worker address. */
   cfWorker: string | null;
+}
+
+/** The client a request is, read from its headers the same way on every transport. */
+export function clientRequestOf(request: Request): ClientRequest {
+  const { headers } = request;
+  return {
+    credential: bearerCredential(headers.get("authorization")),
+    clientIp: headers.get("cf-connecting-ip"),
+    cfWorker: headers.get("cf-worker"),
+  };
 }
 
 /** The request's client as a usage subject, or unavailable while the secret keying its hash is unset. */
@@ -352,30 +363,80 @@ async function authorizeAs(
   };
 }
 
-function emit(metrics: { event: string; outcome: string; rowsRead: number }) {
+function emit(metrics: {
+  event: string;
+  outcome: string;
+  rowsRead: number;
+  cached?: boolean;
+}) {
   console.log(JSON.stringify(metrics));
 }
 
-/**
- * Runs a core op over the data DB the pointer names, turning a thrown D1
- * error, or no data DB to read, into `data_unavailable`.
- */
-async function readData<T, E extends HandlerError>(
-  caller: Caller,
-  op: (db: D1Database) => Promise<Result<T, E>>,
-): Promise<Result<T, E | DataUnavailable>> {
+const DATA_FAILED: DataUnavailable = {
+  code: "data_unavailable",
+  message:
+    "The org data store failed to answer; nothing is wrong with your request. Retry shortly.",
+};
+
+const DATA_NOT_LOADED: DataUnavailable = {
+  code: "data_unavailable",
+  message:
+    "No org data is loaded yet: the service is waiting for its first IRS import. Nothing is wrong with your request, and it wasn't counted.",
+};
+
+/** The pointer's `build_id` until the first import flips it (`0003_data_generation.sql`). */
+const NEVER_BUILT = "empty";
+
+/** Why no data DB could be served: never loaded, or a failure to retry past. */
+async function unservable(env: Env): Promise<DataUnavailable> {
   try {
-    return await op(await activeDataDb(caller.env, caller.now.getTime()));
+    const pointer = await env.APP_DB.prepare(READ_ACTIVE_SLOT_SQL).first<{
+      build_id: string;
+    }>();
+    return pointer?.build_id === NEVER_BUILT ? DATA_NOT_LOADED : DATA_FAILED;
+  } catch {
+    return DATA_FAILED;
+  }
+}
+
+/** Ends a core op from inside its reader, with a refusal the op can't return itself. */
+class Refused extends Error {
+  constructor(readonly refusal: HandlerError) {
+    super(refusal.code);
+  }
+}
+
+/**
+ * The served data DB, for a call core has validated: resolved, then the call
+ * counted. Invalid input never gets here, and a call no data DB can answer is
+ * refused before it is counted.
+ */
+async function admit(caller: Caller): Promise<D1Database> {
+  let db: D1Database;
+  try {
+    db = await activeDataDb(caller.env, caller.now.getTime());
   } catch (error) {
     logFailure("data_unavailable", error);
-    return {
-      ok: false,
-      error: {
-        code: "data_unavailable",
-        message:
-          "The org data store failed to answer; nothing is wrong with your request. Retry shortly.",
-      },
-    };
+    throw new Refused(await unservable(caller.env));
+  }
+  const metered = await meter(caller);
+  if (!metered.ok) throw new Refused(metered.error);
+  return db;
+}
+
+/**
+ * Runs a core op whose reader calls `admit` before its first read, turning a
+ * refusal into its result and a thrown D1 error into `data_unavailable`.
+ */
+async function answer<T, E extends HandlerError>(
+  op: () => Promise<Result<T, E>>,
+): Promise<Result<T, E | HandlerError>> {
+  try {
+    return await op();
+  } catch (error) {
+    if (error instanceof Refused) return { ok: false, error: error.refusal };
+    logFailure("data_unavailable", error);
+    return { ok: false, error: DATA_FAILED };
   }
 }
 
@@ -392,17 +453,15 @@ export async function lookupAs(
   ein: string,
   caller: Caller,
 ): Promise<Result<OrgResponse, HandlerError>> {
-  const metered = await meter(caller);
-  if (!metered.ok) return metered;
-
   let rowsRead = 0;
-  const result = await readData(caller, (db) =>
-    lookupOrg(
-      ein,
-      new D1OrgReader(db, (rows) => {
-        rowsRead += rows;
-      }),
-    ),
+  const countRows = (rows: number) => {
+    rowsRead += rows;
+  };
+  const result = await answer(() =>
+    lookupOrg(ein, {
+      read: async (valid) =>
+        new D1OrgReader(await admit(caller), countRows).read(valid),
+    }),
   );
   emit({
     event: "org_lookup",
@@ -427,22 +486,30 @@ export async function searchAs(
   input: SearchInput,
   caller: Caller,
 ): Promise<Result<OrgSearchResponse, HandlerError>> {
-  const metered = await meter(caller);
-  if (!metered.ok) return metered;
-
   let rowsRead = 0;
-  const result = await readData(caller, (db) =>
-    searchOrgs(
-      input,
-      new D1OrgSearcher(db, (rows) => {
-        rowsRead += rows;
-      }),
-    ),
+  let cached = false;
+  const countRows = (rows: number) => {
+    rowsRead += rows;
+  };
+  const result = await answer(() =>
+    searchOrgs(input, {
+      search: async (words, limit) => {
+        const found = await cachedSearch(
+          await admit(caller),
+          words,
+          limit,
+          countRows,
+        );
+        cached = found.cached;
+        return found.records;
+      },
+    }),
   );
   emit({
     event: "org_search",
     outcome: result.ok ? "ok" : result.error.code,
     rowsRead,
+    cached,
   });
   return result;
 }

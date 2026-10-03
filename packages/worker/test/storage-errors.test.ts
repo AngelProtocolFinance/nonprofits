@@ -28,7 +28,7 @@ const UNAVAILABLE = {
 };
 
 describe("a D1 failure behind a data read", () => {
-  test("answers a search with a 503 problem, not a bare 500", async () => {
+  test("answers an uncached search with a 503 problem, not a bare 500", async () => {
     const { DATA_DB_A } = await testEnv(server);
     const before = await server.fetch("/v1/search?q=red%20cross", {
       headers: { authorization },
@@ -36,7 +36,8 @@ describe("a D1 failure behind a data read", () => {
     expect(before.status).toBe(200);
     await DATA_DB_A.batch([DATA_DB_A.prepare("DROP TABLE orgs_fts")]);
 
-    const response = await server.fetch("/v1/search?q=red%20cross", {
+    // a search not yet cached: the cache answers a repeat without D1
+    const response = await server.fetch("/v1/search?q=national%20red%20cross", {
       headers: { authorization },
     });
 

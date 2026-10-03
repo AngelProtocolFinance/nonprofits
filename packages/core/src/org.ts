@@ -116,8 +116,12 @@ export interface OrgRecord {
   ein: string;
   name: { value: string; source: SourceFile } | null;
   address: { value: Address; source: SourceFile } | null;
-  /** null when the org is not in the current BMF. */
-  bmf: { subsection: string; source: SourceFile } | null;
+  /** null when the org is not in the current BMF. `rulingDate` is `YYYY-MM`. */
+  bmf: {
+    subsection: string;
+    rulingDate: string | null;
+    source: SourceFile;
+  } | null;
   pub78: { listed: boolean; source: SourceFile } | null;
   /** Dates are null when the org is not on the list. */
   revocation: {

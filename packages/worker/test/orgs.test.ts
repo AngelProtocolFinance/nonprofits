@@ -178,9 +178,7 @@ describe("GET /v1/orgs/:ein", () => {
       releasedAt: "2026-09-02T12:00:00.000Z",
       fetchedAt: "2026-09-10T03:06:00.000Z",
     });
-    expect(body.notes).toContain(
-      "not in the current BMF: 501(c)(3) status unknown",
-    );
+    expect(body.notes).toContain("revoked; not in the current BMF");
   });
 
   test("answers 405 for a method other than GET", async () => {
@@ -234,7 +232,10 @@ describe("GET /v1/orgs/:ein", () => {
       mission: null,
       activitySummary:
         "Free tutoring and book distribution for adult learners.",
-      notes: ["mission is on Schedule O, not extracted"],
+      notes: [
+        "mission is on Schedule O, not extracted",
+        "latest 990 lists no programs",
+      ],
     });
     expect(body.provenance.mission).toBeNull();
     expect(body.provenance.finances).toMatchObject({
@@ -253,6 +254,25 @@ describe("GET /v1/orgs/:ein", () => {
         "no e-filed 990 in the last 3 release years",
         "no website on record",
       ],
+    });
+  });
+
+  test("answers an org the BMF recognized again after its revocation as not revoked, citing the BMF", async () => {
+    const { body } = await getOrg("/v1/orgs/461234567");
+    expect(body).toMatchObject({
+      revoked: false,
+      revocationDate: "2021-05-17",
+      reinstatementDate: null,
+      notes: [
+        "reinstated per the current BMF ruling date; the revocation list shows no reinstatement yet",
+        "no e-filed 990 in the last 3 release years",
+        "no website on record",
+      ],
+    });
+    expect(body.provenance.revoked).toStrictEqual({
+      file: "https://www.irs.gov/pub/irs-soi/eo_dc.csv",
+      releasedAt: "2026-09-08T12:00:00.000Z",
+      fetchedAt: "2026-09-10T03:00:00.000Z",
     });
   });
 

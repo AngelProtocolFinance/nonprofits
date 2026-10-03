@@ -46,10 +46,18 @@ function network(ip: string): string {
 }
 
 /**
+ * The `CF-Connecting-IP` Cloudflare sets on every Worker subrequest from one
+ * Cloudflare zone to another (developers.cloudflare.com/fundamentals/reference/http-headers/),
+ * so only from it does `CF-Worker` name the sender: from any other IP the
+ * header may be the client's own, and rotating it would mint fresh quota.
+ */
+const CROSS_ZONE_WORKER_IP = "2a06:98c0:3600::103";
+
+/**
  * The usage subject for a client: `ip:` and an HMAC keyed by `secret` of its
- * network, plus the calling zone when another zone's Worker sent the request
- * (Cloudflare may give every such request one shared IP). Never the IP itself,
- * since IPs are personal data.
+ * network, plus the calling zone when another zone's Worker sent the request,
+ * since all of those share one IP. Never the IP itself, since IPs are
+ * personal data.
  */
 export async function clientSubject(
   client: { ip: string | null; worker: string | null },
@@ -59,9 +67,9 @@ export async function clientSubject(
   if (client.ip === null) return "ip:unknown";
   // a newline can't occur in an IP or a header value, so no two clients collide
   const identity =
-    client.worker === null
-      ? network(client.ip)
-      : `${network(client.ip)}\n${client.worker}`;
+    client.worker !== null && client.ip === CROSS_ZONE_WORKER_IP
+      ? `${network(client.ip)}\n${client.worker}`
+      : network(client.ip);
   const mac = await crypto.subtle.sign(
     "HMAC",
     await hmacKey(secret),

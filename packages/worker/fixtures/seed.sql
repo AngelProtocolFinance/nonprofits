@@ -1,9 +1,9 @@
 -- Hand-written fixture rows for local dev and tests. Plain INSERTs: a second
 -- run fails on the primary keys instead of overwriting real data.
 INSERT INTO import_runs (id, source, file_url, released_at, fetched_at, row_count) VALUES
-  (1, 'bmf', 'https://www.irs.gov/pub/irs-soi/eo_dc.csv', '2026-09-08T12:00:00.000Z', '2026-09-10T03:00:00.000Z', 6),
+  (1, 'bmf', 'https://www.irs.gov/pub/irs-soi/eo_dc.csv', '2026-09-08T12:00:00.000Z', '2026-09-10T03:00:00.000Z', 7),
   (2, 'pub78', 'https://apps.irs.gov/pub/epostcard/data-download-pub78.zip', '2026-09-01T12:00:00.000Z', '2026-09-10T03:05:00.000Z', 3),
-  (3, 'revocation', 'https://apps.irs.gov/pub/epostcard/data-download-revocation.zip', '2026-09-02T12:00:00.000Z', '2026-09-10T03:06:00.000Z', 2),
+  (3, 'revocation', 'https://apps.irs.gov/pub/epostcard/data-download-revocation.zip', '2026-09-02T12:00:00.000Z', '2026-09-10T03:06:00.000Z', 3),
   (4, 'epostcard', 'https://apps.irs.gov/pub/epostcard/data-download-epostcard.zip', '2026-09-03T12:00:00.000Z', '2026-09-10T03:07:00.000Z', 1),
   (5, 'efile_xml', 'https://apps.irs.gov/pub/epostcard/990/xml/2026/2026_TEOS_XML_05A.zip', '2026-09-04T12:00:00.000Z', '2026-09-10T03:10:00.000Z', 4);
 
@@ -24,6 +24,9 @@ INSERT INTO orgs (
   -- revoked, still in the BMF
   ('201234567', 'LAPSED COMMUNITY THEATER INC', 1, '9 MAIN ST', 'DAYTON', 'OH', '45402', 1,
    1, '03', 'A65', '2004-08', '1', '01', 0, '2023-05-15', NULL, 0, NULL),
+  -- revoked, then recognized again per its BMF ruling date; the revocation list shows no reinstatement
+  ('461234567', 'RESTORED NEIGHBORHOOD GARDEN CLUB', 1, '22 ORCHARD LN', 'AKRON', 'OH', '44308', 1,
+   1, '03', 'C30', '2022-03', '1', '01', 0, '2021-05-17', NULL, 0, NULL),
   -- revoked and dropped from the BMF: known only from the revocation list
   ('311234567', 'DEFUNCT ARTS COUNCIL', 3, '1 OLD RD', 'TOLEDO', 'OH', '43604', 3,
    NULL, NULL, NULL, NULL, NULL, NULL, 0, '2019-05-15', NULL, 0, NULL),

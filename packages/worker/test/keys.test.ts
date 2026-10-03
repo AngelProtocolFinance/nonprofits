@@ -272,16 +272,43 @@ describe("quota on /v1", () => {
     expect((await from("203.0.113.82")).status).toBe(200);
   }, 30_000);
 
-  test("without a key, requests from one IP sent by two other zones' Workers get a minute each", async () => {
+  test("without a key, requests from Cloudflare's cross-zone Worker address sent by two zones' Workers get a minute each", async () => {
     const via = (zone: string) =>
       server.fetch("/v1/orgs/530196605", {
-        headers: { "cf-connecting-ip": "203.0.113.83", "cf-worker": zone },
+        headers: {
+          "cf-connecting-ip": "2a06:98c0:3600::103",
+          "cf-worker": zone,
+        },
       });
     await startOfMinuteWindow();
 
     expect((await via("zone-a.example")).status).toBe(200);
     expect((await via("zone-b.example")).status).toBe(200);
     expect((await via("zone-a.example")).status).toBe(429);
+  }, 30_000);
+
+  test("without a key, a client rotating its CF-Worker header shares its IP's minute: the 2nd request is 429", async () => {
+    const claiming = (zone: string) =>
+      server.fetch("/v1/orgs/530196605", {
+        headers: { "cf-connecting-ip": "203.0.113.84", "cf-worker": zone },
+      });
+    await startOfMinuteWindow();
+
+    expect((await claiming("spoofed-a.example")).status).toBe(200);
+    expect((await claiming("spoofed-b.example")).status).toBe(429);
+  }, 30_000);
+
+  test("without a key, an invalid EIN or search isn't counted: the IP's one request a minute is still served after them", async () => {
+    const from = (path: string) =>
+      server.fetch(path, { headers: { "cf-connecting-ip": "203.0.113.86" } });
+    await startOfMinuteWindow();
+
+    expect((await from("/v1/orgs/12")).status).toBe(400);
+    expect((await from("/v1/search?q=x")).status).toBe(400);
+    expect((await from("/v1/search?q=red&limit=0")).status).toBe(400);
+
+    expect((await from("/v1/orgs/530196605")).status).toBe(200);
+    expect((await from("/v1/orgs/530196605")).status).toBe(429);
   }, 30_000);
 
   test("a key over its daily quota gets 429 problem details with Retry-After up to UTC midnight", async () => {

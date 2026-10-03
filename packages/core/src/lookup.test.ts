@@ -95,7 +95,7 @@ function redCross(): OrgRecord {
       },
       source: BMF,
     },
-    bmf: { subsection: "03", source: BMF },
+    bmf: { subsection: "03", rulingDate: "1946-05", source: BMF },
     pub78: { listed: true, source: PUB78 },
     revocation: { revokedOn: null, reinstatedOn: null, source: REVOCATION },
     epostcard: { filer: false, website: null, source: EPOSTCARD },
@@ -343,10 +343,39 @@ describe("lookupOrg", () => {
     });
   });
 
+  test("answers an org re-recognized in the BMF after its revocation as reinstated", async () => {
+    const org = await lookup({
+      ...redCross(),
+      bmf: { subsection: "03", rulingDate: "2026-07", source: BMF },
+      revocation: {
+        revokedOn: "2025-09-15",
+        reinstatedOn: null,
+        source: REVOCATION,
+      },
+    });
+    expect({
+      revoked: org.revoked,
+      revocationDate: org.revocationDate,
+      reinstatementDate: org.reinstatementDate,
+      revokedSource: org.provenance.revoked,
+      dateSource: org.provenance.revocationDate,
+      notes: org.notes,
+    }).toStrictEqual({
+      revoked: false,
+      revocationDate: "2025-09-15",
+      reinstatementDate: null,
+      revokedSource: BMF,
+      dateSource: REVOCATION,
+      notes: [
+        "reinstated per the current BMF ruling date; the revocation list shows no reinstatement yet",
+      ],
+    });
+  });
+
   test("answers is501c3 false for a subsection other than 03", async () => {
     const org = await lookup({
       ...redCross(),
-      bmf: { subsection: "04", source: BMF },
+      bmf: { subsection: "04", rulingDate: "1946-05", source: BMF },
     });
     expect(org.is501c3).toBe(false);
   });
@@ -377,6 +406,44 @@ describe("lookupOrg", () => {
       efile: { filing: { ...redCrossFiling(), mission: null } },
     });
     expect(org.notes).toStrictEqual(["latest 990 states no mission"]);
+  });
+
+  test("notes a 990-EZ has no activity summary", async () => {
+    const org = await lookup({
+      ...redCross(),
+      efile: {
+        filing: {
+          ...redCrossFiling(),
+          formType: "990-EZ",
+          activitySummary: null,
+        },
+      },
+    });
+    expect({
+      activitySummary: org.activitySummary,
+      notes: org.notes,
+    }).toStrictEqual({
+      activitySummary: null,
+      notes: ["990-EZ has no activity summary"],
+    });
+  });
+
+  test.each([
+    ["990", ["latest 990 lists no programs"]],
+    [
+      "990-EZ",
+      ["990-EZ has no activity summary", "latest 990-EZ lists no programs"],
+    ],
+  ] as const)("notes a %s that lists no programs", async (formType, notes) => {
+    const org = await lookup({
+      ...redCross(),
+      efile: { filing: { ...redCrossFiling(), formType, programs: [] } },
+    });
+    expect({
+      programs: org.programs,
+      programsSource: org.provenance.programs,
+      notes: org.notes,
+    }).toStrictEqual({ programs: [], programsSource: null, notes });
   });
 
   test("notes a mission given only on Schedule O instead of saying none", async () => {
@@ -422,7 +489,7 @@ describe("lookupOrg", () => {
     });
   });
 
-  test("answers a revoked org absent from the BMF from the revocation list", async () => {
+  test("answers a revoked org absent from the BMF from the revocation list, noting both", async () => {
     const org = await lookup({
       ein: "311234567",
       name: { value: "DEFUNCT ARTS COUNCIL", source: REVOCATION },
@@ -461,10 +528,18 @@ describe("lookupOrg", () => {
       addressSource: REVOCATION,
       is501c3Source: null,
       notes: [
-        "not in the current BMF: 501(c)(3) status unknown",
+        "revoked; not in the current BMF",
         "no e-filed 990 in the last 3 release years",
         "no website on record",
       ],
+    });
+  });
+
+  test("notes an unrevoked org absent from the BMF as 501(c)(3) status unknown", async () => {
+    const org = await lookup({ ...redCross(), bmf: null });
+    expect({ is501c3: org.is501c3, notes: org.notes }).toStrictEqual({
+      is501c3: null,
+      notes: ["not in the current BMF: 501(c)(3) status unknown"],
     });
   });
 

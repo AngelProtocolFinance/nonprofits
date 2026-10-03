@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup, search } from "../../src/handlers.ts";
 import { emptyServedData } from "./empty-data.ts";
 import { noBurstLimit } from "./limiters.ts";
+import { noCaches } from "./no-cache.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
 const ADMIN_TOKEN = "test-only-admin-token-0123456789abcdef";
@@ -21,6 +22,7 @@ const server = createTestHarness({
 let env: Env;
 
 beforeAll(async () => {
+  vi.stubGlobal("caches", noCaches);
   await server.listen();
   await server.getWorker().applyD1Migrations("APP_DB");
   env = (await server.getWorker().getEnv()) as Env;
@@ -28,6 +30,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  vi.unstubAllGlobals();
   await server.close();
 });
 

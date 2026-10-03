@@ -1,5 +1,6 @@
 import type { OrgSearchResponse } from "@nonprofits/core";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { startOfMinuteWindow } from "./clock-windows.ts";
 import {
   createWorkerHarness,
   type Fill,
@@ -58,7 +59,11 @@ afterAll(async () => {
 });
 
 /** The `org_search` metrics lines logged since the last `clearLogs`. */
-function searchLogs(): { outcome: string; rowsRead: number }[] {
+function searchLogs(): {
+  outcome: string;
+  rowsRead: number;
+  cached: boolean;
+}[] {
   return server
     .getLogs()
     .flatMap((log) =>
@@ -261,7 +266,7 @@ describe("GET /v1/search", () => {
     await serveDataSlot(
       server,
       "a",
-      "seed-a",
+      "seed-a-fillers",
       seeded(async (db) => {
         await nearMisses(db);
         await db.batch(
@@ -293,4 +298,61 @@ describe("GET /v1/search", () => {
     expect(namedSearch?.rowsRead).toBeGreaterThan(0);
     expect(namedSearch?.rowsRead).toBeLessThanOrEqual(20);
   }, 30_000);
+});
+
+describe("the search cache", () => {
+  test("answers a repeated search from the cache, reading only the build it was cached for", async () => {
+    const first = await search("q=cross%20red&limit=3");
+    server.clearLogs();
+
+    const repeated = await search("q=CROSS%20Red&limit=3");
+
+    expect(repeated.status).toBe(200);
+    const body = (await repeated.json()) as OrgSearchResponse;
+    expect(body.query).toBe("CROSS Red");
+    expect(body.results).toStrictEqual(
+      ((await first.json()) as OrgSearchResponse).results,
+    );
+    expect(searchLogs()).toStrictEqual([
+      { event: "org_search", outcome: "ok", rowsRead: 1, cached: true },
+    ]);
+  });
+
+  test("still counts a search answered from the cache: a keyless IP's 2nd inside a minute is 429", async () => {
+    await search("q=american%20cross");
+    const keyless = () =>
+      server.fetch("/v1/search?q=american%20cross", {
+        headers: { "cf-connecting-ip": "203.0.113.91" },
+      });
+    await startOfMinuteWindow();
+    server.clearLogs();
+
+    expect((await keyless()).status).toBe(200);
+    expect(searchLogs()[0]?.cached).toBe(true);
+    expect((await keyless()).status).toBe(429);
+  }, 30_000);
+
+  test("misses once a new build is served: a search reads the new build's names", async () => {
+    const chapter = "900000001";
+    await search("q=red%20cross");
+    await serveDataSlot(
+      server,
+      "a",
+      "seed-a-chapter",
+      seeded(async (db) => {
+        await nearMisses(db);
+        await db
+          .prepare(
+            "INSERT INTO orgs (ein, name, name_run_id) VALUES (?1, 'RED CROSS NEW CHAPTER', 1)",
+          )
+          .bind(chapter)
+          .all();
+      }),
+    );
+
+    const response = await search("q=red%20cross");
+
+    const body = (await response.json()) as OrgSearchResponse;
+    expect(body.results.map((r) => r.ein)).toContain(chapter);
+  });
 });

@@ -1,9 +1,10 @@
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup, search } from "../../src/handlers.ts";
 import { startOfMinuteWindow } from "../clock-windows.ts";
 import { emptyServedData } from "./empty-data.ts";
 import { noBurstLimit } from "./limiters.ts";
+import { noCaches } from "./no-cache.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
 const ADMIN_TOKEN = "test-only-admin-token-0123456789abcdef";
@@ -22,6 +23,7 @@ const server = createTestHarness({
 let env: Env;
 
 beforeAll(async () => {
+  vi.stubGlobal("caches", noCaches);
   await server.listen();
   await server.getWorker().applyD1Migrations("APP_DB");
   env = (await server.getWorker().getEnv()) as Env;
@@ -29,6 +31,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  vi.unstubAllGlobals();
   await server.close();
 });
 
@@ -397,10 +400,13 @@ test("keyless IPv6 callers are counted per /64: addresses in one /64 share a day
   ).toMatchObject({ code: "not_found" });
 });
 
-test("keyless requests from one IP sent by different calling Workers' zones are counted apart", async () => {
+/** The `CF-Connecting-IP` Cloudflare sets on a Worker's subrequest to another Cloudflare zone. */
+const CROSS_ZONE_WORKER_IP = "2a06:98c0:3600::103";
+
+test("keyless requests from Cloudflare's cross-zone Worker address are counted apart per calling zone", async () => {
   const unlimitedBursts = { ...env, KEYLESS_BURST_LIMITER: noBurstLimit };
   const now = "2026-11-13T12:00:00Z";
-  const ip = "203.0.113.70";
+  const ip = CROSS_ZONE_WORKER_IP;
   for (let i = 1; i <= 5; i++) {
     await keylessLookup(unlimitedBursts, ip, now, "zone-a.example");
   }
@@ -414,6 +420,19 @@ test("keyless requests from one IP sent by different calling Workers' zones are 
   expect(await keylessLookup(unlimitedBursts, ip, now)).toMatchObject({
     code: "not_found",
   });
+});
+
+test("from any other IP a CF-Worker header is ignored: rotating it doesn't get a client more requests", async () => {
+  const unlimitedBursts = { ...env, KEYLESS_BURST_LIMITER: noBurstLimit };
+  const now = "2026-11-13T12:00:00Z";
+  const ip = "203.0.113.71";
+  for (let i = 1; i <= 5; i++) {
+    await keylessLookup(unlimitedBursts, ip, now, `spoofed-${i}.example`);
+  }
+
+  expect(
+    await keylessLookup(unlimitedBursts, ip, now, "spoofed-6.example"),
+  ).toMatchObject({ code: "daily_quota_exceeded" });
 });
 
 test("past 600 requests a minute carrying a key from one client, the next is 429 before any key is looked up", async () => {

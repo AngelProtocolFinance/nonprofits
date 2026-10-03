@@ -41,13 +41,13 @@ export type QuotaError = {
 };
 
 /** The Rate Limiting bindings' `period` in wrangler.jsonc; they report no reset time, so a refusal waits out a whole one. */
-const BURST_PERIOD_SECONDS = 60;
+export const BURST_PERIOD_SECONDS = 60;
 
 const KEY_LIFTS_LIMIT =
   "An API key lifts this limit: ask the operator for one.";
 
 /** `KEYED_REQUEST_LIMITER`'s limit in wrangler.jsonc: requests carrying any key, per client. */
-const KEYED_REQUESTS_PER_MINUTE = 600;
+export const KEYED_REQUESTS_PER_MINUTE = 600;
 
 /** A client over `KEYED_REQUEST_LIMITER`, whatever keys it sent. */
 export function keyedRequestRefusal(): QuotaError {
@@ -59,7 +59,7 @@ export function keyedRequestRefusal(): QuotaError {
 }
 
 /** `KEYLESS_MCP_LIMITER`'s limit in wrangler.jsonc: HTTP requests to `/mcp` without a key, per client. */
-const KEYLESS_MCP_REQUESTS_PER_MINUTE = 60;
+export const KEYLESS_MCP_REQUESTS_PER_MINUTE = 60;
 
 /** A keyless client over `KEYLESS_MCP_LIMITER`, whatever messages its requests carried. */
 export function keylessMcpRefusal(): QuotaError {

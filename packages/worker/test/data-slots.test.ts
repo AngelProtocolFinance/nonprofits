@@ -4,6 +4,7 @@ import {
 } from "@modelcontextprotocol/client";
 import { claimSlotSql, flipActiveSlotSql } from "@nonprofits/db";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { startOfMinuteWindow } from "./clock-windows.ts";
 import {
   buildDataSlot,
   createWorkerHarness,
@@ -146,4 +147,40 @@ describe("with no data DB ever read", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ code: "data_unavailable" });
   });
+});
+
+describe("before the first import is served", () => {
+  const server = createWorkerHarness();
+
+  beforeAll(async () => {
+    await server.listen();
+    await server.getWorker().applyD1Migrations("APP_DB");
+  });
+
+  afterAll(async () => {
+    await server.close();
+  });
+
+  test("a keyless lookup is a 503 saying no data is loaded yet, and isn't counted: once data is served the IP's one request a minute is still there", async () => {
+    const lookup = () =>
+      server.fetch(`/v1/orgs/${RED_CROSS}`, {
+        headers: { "cf-connecting-ip": "203.0.113.140" },
+      });
+    await startOfMinuteWindow();
+
+    const unloaded = await lookup();
+
+    expect(unloaded.status).toBe(503);
+    expect(await unloaded.json()).toStrictEqual({
+      type: "about:blank",
+      title: "Service Unavailable",
+      status: 503,
+      code: "data_unavailable",
+      detail:
+        "No org data is loaded yet: the service is waiting for its first IRS import. Nothing is wrong with your request, and it wasn't counted.",
+    });
+    await serveDataSlot(server, "a", "seed-a", seeded());
+    expect((await lookup()).status).toBe(200);
+    expect((await lookup()).status).toBe(429);
+  }, 30_000);
 });

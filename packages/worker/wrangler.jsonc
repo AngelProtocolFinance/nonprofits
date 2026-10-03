@@ -5,7 +5,8 @@
   "compatibility_date": "2026-10-01",
   "observability": {
     "enabled": true,
-    "traces": { "enabled": true }
+    // stored traces count toward the account's Observability ingestion and storage
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
   },
   // service-wide requests a UTC day per tier, so neither can lock out the other; whitelisted keys are exempt
   "vars": {

@@ -5,11 +5,13 @@ import {
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup } from "../../src/handlers.ts";
+import worker from "../../src/index.ts";
 import { mcp } from "../../src/mcp.ts";
 import { clearOfUtcMidnight } from "../clock-windows.ts";
 import { emptyServedData } from "./empty-data.ts";
 import { failingD1 } from "./failing-d1.ts";
 import { noBurstLimit } from "./limiters.ts";
+import { noCaches } from "./no-cache.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
 const server = createTestHarness({
@@ -27,6 +29,7 @@ const server = createTestHarness({
 let env: Env;
 
 beforeAll(async () => {
+  vi.stubGlobal("caches", noCaches);
   await server.listen();
   await server.getWorker().applyD1Migrations("APP_DB");
   env = (await server.getWorker().getEnv()) as Env;
@@ -34,6 +37,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  vi.unstubAllGlobals();
   await server.close();
 });
 
@@ -209,3 +213,44 @@ test("a batch POST of 6 tool calls without a key is metered 6 times: the 6th is 
     "not_found",
   ]);
 }, 30_000);
+
+test("a request that throws in a handler answers a 500 problem and logs the cause, not Cloudflare's error page", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const body = new ReadableStream({
+    pull: (controller) => controller.error(new Error("client went away")),
+  });
+
+  // a request built here carries no incoming `cf` properties, which the handler never reads
+  const request = new Request("http://localhost/mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "cf-connecting-ip": "203.0.113.124",
+    },
+    body,
+    duplex: "half",
+  } as RequestInit) as Parameters<typeof worker.fetch>[0];
+
+  const response = await worker.fetch(request, env);
+  const lines = errors.mock.calls.map(([line]) => JSON.parse(String(line)));
+  errors.mockRestore();
+
+  expect(response.status).toBe(500);
+  expect(response.headers.get("content-type")).toBe("application/problem+json");
+  expect(await response.json()).toStrictEqual({
+    type: "about:blank",
+    title: "Internal Server Error",
+    status: 500,
+    code: "internal_error",
+    detail:
+      "The request failed on the server. Retry; if it keeps failing, tell the operator.",
+  });
+  expect(lines).toContainEqual(
+    expect.objectContaining({
+      event: "internal_error",
+      cause: "Error: client went away",
+      stack: expect.stringMatching(/^Error: client went away\n\s+at /),
+    }),
+  );
+});

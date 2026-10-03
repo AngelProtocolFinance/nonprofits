@@ -7,7 +7,7 @@ import type {
   OrgResponse,
   SourceFile,
 } from "./org.ts";
-import { is501c3, isDeductible, isRevoked } from "./rules.ts";
+import { is501c3, isDeductible, isRevoked, reinstatedPerBmf } from "./rules.ts";
 
 const NO_ADDRESS = { street: null, city: null, state: null, zip: null };
 
@@ -53,6 +53,8 @@ function toResponse(record: OrgRecord): OrgResponse {
   const website = pickWebsite(record, citation);
   const revocationDate = revocation?.revokedOn ?? null;
   const reinstatementDate = revocation?.reinstatedOn ?? null;
+  const revoked = isRevoked(revocation, record.bmf);
+  const bmfReinstated = reinstatedPerBmf(revocation, record.bmf);
 
   return {
     ein: record.ein,
@@ -60,7 +62,7 @@ function toResponse(record: OrgRecord): OrgResponse {
     address: record.address?.value ?? NO_ADDRESS,
     is501c3: is501c3(record.bmf),
     deductible: isDeductible(record.pub78),
-    revoked: isRevoked(revocation),
+    revoked,
     revocationDate,
     reinstatementDate,
     mission,
@@ -73,13 +75,20 @@ function toResponse(record: OrgRecord): OrgResponse {
       taxYear: filing.taxYear,
     },
     website: website?.url ?? null,
-    notes: notesFor(record, mission, website !== null),
+    notes: notesFor(record, {
+      mission,
+      hasWebsite: website !== null,
+      revoked,
+      bmfReinstated,
+    }),
     provenance: {
       name: record.name?.source ?? null,
       address: record.address?.source ?? null,
       is501c3: record.bmf?.source ?? null,
       deductible: record.pub78?.source ?? null,
-      revoked: revocation?.source ?? null,
+      revoked: bmfReinstated
+        ? (record.bmf?.source ?? null)
+        : (revocation?.source ?? null),
       revocationDate:
         revocationDate === null ? null : (revocation?.source ?? null),
       reinstatementDate:
@@ -95,14 +104,23 @@ function toResponse(record: OrgRecord): OrgResponse {
 
 function notesFor(
   record: OrgRecord,
-  mission: string | null,
-  hasWebsite: boolean,
+  facts: {
+    mission: string | null;
+    hasWebsite: boolean;
+    revoked: boolean | null;
+    bmfReinstated: boolean;
+  },
 ): string[] {
+  const { mission, hasWebsite, revoked, bmfReinstated } = facts;
   const notes: string[] = [];
   if (record.name === null) notes.push("no name on record");
   if (record.address === null) notes.push("no address on record");
   if (record.bmf === null) {
-    notes.push("not in the current BMF: 501(c)(3) status unknown");
+    notes.push(
+      revoked
+        ? "revoked; not in the current BMF"
+        : "not in the current BMF: 501(c)(3) status unknown",
+    );
   }
   if (record.pub78 === null) {
     notes.push("Pub 78 not yet imported: deductibility unknown");
@@ -110,6 +128,11 @@ function notesFor(
   if (record.revocation === null) {
     notes.push(
       "auto-revocation list not yet imported: revocation status unknown",
+    );
+  }
+  if (bmfReinstated) {
+    notes.push(
+      "reinstated per the current BMF ruling date; the revocation list shows no reinstatement yet",
     );
   }
   const filing = record.efile?.filing ?? null;
@@ -123,12 +146,20 @@ function notesFor(
     );
   } else if (filing.formType === "990-PF") {
     notes.push("990-PF: no mission or programs on the form");
-  } else if (mission === null) {
-    notes.push(
-      filing.missionOnScheduleO
-        ? "mission is on Schedule O, not extracted"
-        : `latest ${filing.formType} states no mission`,
-    );
+  } else {
+    if (mission === null) {
+      notes.push(
+        filing.missionOnScheduleO
+          ? "mission is on Schedule O, not extracted"
+          : `latest ${filing.formType} states no mission`,
+      );
+    }
+    if (filing.formType === "990-EZ") {
+      notes.push("990-EZ has no activity summary");
+    }
+    if (filing.programs.length === 0) {
+      notes.push(`latest ${filing.formType} lists no programs`);
+    }
   }
   if (!hasWebsite) notes.push("no website on record");
   return notes;
