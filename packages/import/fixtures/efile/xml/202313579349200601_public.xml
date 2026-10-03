@@ -1,0 +1,175 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Return returnVersion="2021v4.0" xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2023-12-22T22:28:58-07:00</ReturnTs>
+    <TaxPeriodEndDt>2021-12-31</TaxPeriodEndDt>
+    <ReturnTypeCd>990EZ</ReturnTypeCd>
+    <TaxPeriodBeginDt>2021-01-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>470831276</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>ABORTION ACCESS FUND INC</BusinessNameLine1Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>ABOR</BusinessNameControlTxt>
+      <PhoneNum>4022922291</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>1002 W MISSION AVENUE</AddressLine1Txt>
+        <CityNm>BELLEVUE</CityNm>
+        <StateAbbreviationCd>NE</StateAbbreviationCd>
+        <ZIPCd>68005</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>MARY CARHART</PersonNm>
+      <PersonTitleTxt>PRESIDENT</PersonTitleTxt>
+      <PhoneNum>4025104395</PhoneNum>
+      <SignatureDt>2023-01-25</SignatureDt>
+    </BusinessOfficerGrp>
+    <AdditionalFilerInformation>
+      <TrustedCustomerGrp>
+        <TrustedCustomerCd>0</TrustedCustomerCd>
+        <OOBSecurityVerificationCd>11</OOBSecurityVerificationCd>
+        <LastSubmissionRqrOOBCd>1</LastSubmissionRqrOOBCd>
+        <AuthenticationAssuranceLevelCd>AAL2</AuthenticationAssuranceLevelCd>
+        <ProfilePasswordChangeInd>X</ProfilePasswordChangeInd>
+        <ProfileEmailAddressChangeInd>X</ProfileEmailAddressChangeInd>
+      </TrustedCustomerGrp>
+    </AdditionalFilerInformation>
+    <TaxYr>2021</TaxYr>
+    <BuildTS>2023-04-26 12:10:37Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="5">
+    <IRS990EZ documentId="R000001" referenceDocumentId="R000004 R000005" softwareId="21013178" softwareVersionNum="v1.00">
+      <MethodOfAccountingCashInd>X</MethodOfAccountingCashInd>
+      <WebsiteAddressTxt>AbortionAccessFund.Org</WebsiteAddressTxt>
+      <Organization501c3Ind referenceDocumentId="R000002">X</Organization501c3Ind>
+      <TypeOfOrganizationCorpInd>X</TypeOfOrganizationCorpInd>
+      <GrossReceiptsAmt>131310</GrossReceiptsAmt>
+      <InfoInScheduleOPartIInd>X</InfoInScheduleOPartIInd>
+      <ContributionsGiftsGrantsEtcAmt>131310</ContributionsGiftsGrantsEtcAmt>
+      <ProgramServiceRevenueAmt>0</ProgramServiceRevenueAmt>
+      <MembershipDuesAmt>0</MembershipDuesAmt>
+      <InvestmentIncomeAmt>0</InvestmentIncomeAmt>
+      <SaleOfAssetsGrossAmt>0</SaleOfAssetsGrossAmt>
+      <CostOrOtherBasisExpenseSaleAmt>0</CostOrOtherBasisExpenseSaleAmt>
+      <GainOrLossFromSaleOfAssetsAmt>0</GainOrLossFromSaleOfAssetsAmt>
+      <GamingGrossIncomeAmt>0</GamingGrossIncomeAmt>
+      <FundraisingGrossIncomeAmt fndrsngEventContriPrevRptAmt="0">0</FundraisingGrossIncomeAmt>
+      <SpecialEventsDirectExpensesAmt>0</SpecialEventsDirectExpensesAmt>
+      <SpecialEventsNetIncomeLossAmt>0</SpecialEventsNetIncomeLossAmt>
+      <GrossSalesOfInventoryAmt>0</GrossSalesOfInventoryAmt>
+      <CostOfGoodsSoldAmt>0</CostOfGoodsSoldAmt>
+      <GrossProfitLossSlsOfInvntryAmt>0</GrossProfitLossSlsOfInvntryAmt>
+      <OtherRevenueTotalAmt>0</OtherRevenueTotalAmt>
+      <TotalRevenueAmt>131310</TotalRevenueAmt>
+      <GrantsAndSimilarAmountsPaidAmt>103034</GrantsAndSimilarAmountsPaidAmt>
+      <BenefitsPaidToOrForMembersAmt>0</BenefitsPaidToOrForMembersAmt>
+      <SalariesOtherCompEmplBnftAmt>0</SalariesOtherCompEmplBnftAmt>
+      <FeesAndOtherPymtToIndCntrctAmt>0</FeesAndOtherPymtToIndCntrctAmt>
+      <OccupancyRentUtltsAndMaintAmt>0</OccupancyRentUtltsAndMaintAmt>
+      <PrintingPublicationsPostageAmt>0</PrintingPublicationsPostageAmt>
+      <OtherExpensesTotalAmt>323</OtherExpensesTotalAmt>
+      <TotalExpensesAmt>103357</TotalExpensesAmt>
+      <ExcessOrDeficitForYearAmt>27953</ExcessOrDeficitForYearAmt>
+      <NetAssetsOrFundBalancesBOYAmt>26484</NetAssetsOrFundBalancesBOYAmt>
+      <OtherChangesInNetAssetsAmt>0</OtherChangesInNetAssetsAmt>
+      <NetAssetsOrFundBalancesEOYAmt>54437</NetAssetsOrFundBalancesEOYAmt>
+      <CashSavingsAndInvestmentsGrp>
+        <BOYAmt>26484</BOYAmt>
+        <EOYAmt>54437</EOYAmt>
+      </CashSavingsAndInvestmentsGrp>
+      <LandAndBuildingsGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </LandAndBuildingsGrp>
+      <OtherAssetsTotalDetail>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </OtherAssetsTotalDetail>
+      <Form990TotalAssetsGrp>
+        <BOYAmt>26484</BOYAmt>
+        <EOYAmt>54437</EOYAmt>
+      </Form990TotalAssetsGrp>
+      <SumOfTotalLiabilitiesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </SumOfTotalLiabilitiesGrp>
+      <NetAssetsOrFundBalancesGrp>
+        <BOYAmt>26484</BOYAmt>
+        <EOYAmt>54437</EOYAmt>
+      </NetAssetsOrFundBalancesGrp>
+      <PrimaryExemptPurposeTxt>Funding abortion clients and patients to keep access to abortion available</PrimaryExemptPurposeTxt>
+      <ProgramSrvcAccomplishmentGrp>
+        <DescriptionProgramSrvcAccomTxt>Grants to abortion clients paid to clinics on behalf of multiple funders.</DescriptionProgramSrvcAccomTxt>
+        <GrantsAndAllocationsAmt>103034</GrantsAndAllocationsAmt>
+        <ProgramServiceExpensesAmt>0</ProgramServiceExpensesAmt>
+      </ProgramSrvcAccomplishmentGrp>
+      <TotalProgramServiceExpensesAmt>0</TotalProgramServiceExpensesAmt>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>MARY L CARHART</PersonNm>
+        <TitleTxt>CEO AND BOARD CHAIR</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>2</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+        <EmployeeBenefitProgramAmt>0</EmployeeBenefitProgramAmt>
+        <ExpenseAccountOtherAllwncAmt>0</ExpenseAccountOtherAllwncAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>JANINE WEATHERBY</PersonNm>
+        <TitleTxt>TREASURE and VICE-CHAIR OF BOARD</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>2</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+        <EmployeeBenefitProgramAmt>0</EmployeeBenefitProgramAmt>
+        <ExpenseAccountOtherAllwncAmt>0</ExpenseAccountOtherAllwncAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>JOAN HARMON</PersonNm>
+        <TitleTxt>SECRETARY</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>3</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+        <EmployeeBenefitProgramAmt>0</EmployeeBenefitProgramAmt>
+        <ExpenseAccountOtherAllwncAmt>0</ExpenseAccountOtherAllwncAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <ActivitiesNotPreviouslyRptInd>0</ActivitiesNotPreviouslyRptInd>
+      <ChgMadeToOrgnzngDocNotRptInd>0</ChgMadeToOrgnzngDocNotRptInd>
+      <OrganizationHadUBIInd>0</OrganizationHadUBIInd>
+      <SubjectToProxyTaxInd>0</SubjectToProxyTaxInd>
+      <OrganizationDissolvedEtcInd>0</OrganizationDissolvedEtcInd>
+      <DirectIndirectPltclExpendAmt>0</DirectIndirectPltclExpendAmt>
+      <Form1120PolFiledInd>0</Form1120PolFiledInd>
+      <MadeLoansToFromOfficersInd>0</MadeLoansToFromOfficersInd>
+      <TaxImposedUnderIRC4911Amt>0</TaxImposedUnderIRC4911Amt>
+      <TaxImposedUnderIRC4912Amt>0</TaxImposedUnderIRC4912Amt>
+      <TaxImposedUnderIRC4955Amt>0</TaxImposedUnderIRC4955Amt>
+      <EngagedInExcessBenefitTransInd>0</EngagedInExcessBenefitTransInd>
+      <TaxImposedOnOrganizationMgrAmt>0</TaxImposedOnOrganizationMgrAmt>
+      <TaxReimbursedByOrganizationAmt>0</TaxReimbursedByOrganizationAmt>
+      <ProhibitedTaxShelterTransInd>0</ProhibitedTaxShelterTransInd>
+      <StatesWhereCopyOfReturnIsFldCd>MD</StatesWhereCopyOfReturnIsFldCd>
+      <StatesWhereCopyOfReturnIsFldCd>NE</StatesWhereCopyOfReturnIsFldCd>
+      <BooksInCareOfDetail>
+        <PersonNm>Janine Weatherby</PersonNm>
+        <USAddress>
+          <AddressLine1Txt>1002 W MISSION AVENUE</AddressLine1Txt>
+          <CityNm>BELLEVUE</CityNm>
+          <StateAbbreviationCd>NE</StateAbbreviationCd>
+          <ZIPCd>68005</ZIPCd>
+        </USAddress>
+        <PhoneNum>4025104402</PhoneNum>
+      </BooksInCareOfDetail>
+      <ForeignFinancialAccountInd>0</ForeignFinancialAccountInd>
+      <ForeignOfficeInd>0</ForeignOfficeInd>
+      <DonorAdvisedFndsInd>0</DonorAdvisedFndsInd>
+      <OperateHospitalInd>0</OperateHospitalInd>
+      <TanningServicesProvidedInd>0</TanningServicesProvidedInd>
+      <RelatedOrganizationCtrlEntInd>0</RelatedOrganizationCtrlEntInd>
+      <TransactionWithControlEntInd>0</TransactionWithControlEntInd>
+      <PoliticalCampaignActyInd>0</PoliticalCampaignActyInd>
+      <LobbyingActivitiesInd>0</LobbyingActivitiesInd>
+      <SchoolOperatingInd>0</SchoolOperatingInd>
+      <TrnsfrExmptNonChrtblRltdOrgInd>0</TrnsfrExmptNonChrtblRltdOrgInd>
+      <PartVIOfCompOfHghstPdEmplTxt>NONE</PartVIOfCompOfHghstPdEmplTxt>
+      <PartVIHghstPdCntrctProfSrvcTxt>NONE</PartVIHghstPdCntrctProfSrvcTxt>
+      <FiledScheduleAInd>1</FiledScheduleAInd>
+    </IRS990EZ>
+  </ReturnData>
+</Return>

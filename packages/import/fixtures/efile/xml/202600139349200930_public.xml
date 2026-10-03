@@ -1,0 +1,168 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.irs.gov/efile" returnVersion="2024v5.5">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2026-01-13T13:22:13-06:00</ReturnTs>
+    <TaxPeriodEndDt>2025-08-31</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmEIN>141555429</PreparerFirmEIN>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>UHY ADVISORS NORTHEAST INC</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>321 COMMONWEALTH ROAD SUITE 303</AddressLine1Txt>
+        <CityNm>WAYLAND</CityNm>
+        <StateAbbreviationCd>MA</StateAbbreviationCd>
+        <ZIPCd>01778</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990EZ</ReturnTypeCd>
+    <TaxPeriodBeginDt>2024-09-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>994509771</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>VALOR TOGETHER INC</BusinessNameLine1Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>VALO</BusinessNameControlTxt>
+      <PhoneNum>6179993455</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>55 MYRTLE STREET</AddressLine1Txt>
+        <CityNm>NEWTON</CityNm>
+        <StateAbbreviationCd>MA</StateAbbreviationCd>
+        <ZIPCd>02465</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>JACOB FORBES</PersonNm>
+      <PersonTitleTxt>PRESIDENT</PersonTitleTxt>
+      <PhoneNum>6179993455</PhoneNum>
+      <SignatureDt>2026-01-13</SignatureDt>
+      <DiscussWithPaidPreparerInd>1</DiscussWithPaidPreparerInd>
+    </BusinessOfficerGrp>
+    <IRSResponsiblePrtyInfoCurrInd>1</IRSResponsiblePrtyInfoCurrInd>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>MICHAEL A CLEMENTS</PreparerPersonNm>
+      <PTIN>P00108173</PTIN>
+      <PhoneNum>5086501122</PhoneNum>
+      <PreparationDt>2026-01-13</PreparationDt>
+    </PreparerPersonGrp>
+    <TaxYr>2024</TaxYr>
+    <BuildTS>2025-03-06 01:10:19Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="5">
+    <IRS990EZ documentId="RetDoc1234200001" referenceDocumentId="RetDoc1051800001 RetDoc2278000001">
+      <InitialReturnInd>X</InitialReturnInd>
+      <MethodOfAccountingCashInd>X</MethodOfAccountingCashInd>
+      <WebsiteAddressTxt>HTTPS://WWW.VALORTOGETHER.ORG/</WebsiteAddressTxt>
+      <Organization501c3Ind referenceDocumentId="RetDoc1039100001">X</Organization501c3Ind>
+      <TypeOfOrganizationCorpInd>X</TypeOfOrganizationCorpInd>
+      <GrossReceiptsAmt>33103</GrossReceiptsAmt>
+      <InfoInScheduleOPartIInd>X</InfoInScheduleOPartIInd>
+      <ContributionsGiftsGrantsEtcAmt>33103</ContributionsGiftsGrantsEtcAmt>
+      <TotalRevenueAmt>33103</TotalRevenueAmt>
+      <GrantsAndSimilarAmountsPaidAmt>6000</GrantsAndSimilarAmountsPaidAmt>
+      <FeesAndOtherPymtToIndCntrctAmt>1000</FeesAndOtherPymtToIndCntrctAmt>
+      <PrintingPublicationsPostageAmt>22</PrintingPublicationsPostageAmt>
+      <OtherExpensesTotalAmt>4220</OtherExpensesTotalAmt>
+      <TotalExpensesAmt>11242</TotalExpensesAmt>
+      <ExcessOrDeficitForYearAmt>21861</ExcessOrDeficitForYearAmt>
+      <NetAssetsOrFundBalancesBOYAmt>0</NetAssetsOrFundBalancesBOYAmt>
+      <OtherChangesInNetAssetsAmt>0</OtherChangesInNetAssetsAmt>
+      <NetAssetsOrFundBalancesEOYAmt>21861</NetAssetsOrFundBalancesEOYAmt>
+      <CashSavingsAndInvestmentsGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>21861</EOYAmt>
+      </CashSavingsAndInvestmentsGrp>
+      <Form990TotalAssetsGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>21861</EOYAmt>
+      </Form990TotalAssetsGrp>
+      <SumOfTotalLiabilitiesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </SumOfTotalLiabilitiesGrp>
+      <NetAssetsOrFundBalancesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>21861</EOYAmt>
+      </NetAssetsOrFundBalancesGrp>
+      <InfoInScheduleOPartIIIInd>X</InfoInScheduleOPartIIIInd>
+      <PrimaryExemptPurposeTxt>VALOR TOGETHER IS A NON-PROFIT ORGANIZATION DEDICATED TO IMPROVING MENTAL HEALTH OUTCOMES FOR SCHOOL-AGED CHILDREN THROUGHOUT THE COMMONWEALTH OF MASSACHUSETTS.</PrimaryExemptPurposeTxt>
+      <ProgramSrvcAccomplishmentGrp>
+        <DescriptionProgramSrvcAccomTxt>ART THERAPY PROGRAM</DescriptionProgramSrvcAccomTxt>
+        <GrantsAndAllocationsAmt>6000</GrantsAndAllocationsAmt>
+        <ProgramServiceExpensesAmt>1162</ProgramServiceExpensesAmt>
+      </ProgramSrvcAccomplishmentGrp>
+      <TotalProgramServiceExpensesAmt>1162</TotalProgramServiceExpensesAmt>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>JACOB FORBES</PersonNm>
+        <TitleTxt>PRESIDENT &amp; DIRECTOR</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>4.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+        <EmployeeBenefitProgramAmt>0</EmployeeBenefitProgramAmt>
+        <ExpenseAccountOtherAllwncAmt>0</ExpenseAccountOtherAllwncAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>ZOE FORBES</PersonNm>
+        <TitleTxt>TREASURER &amp; DIRECTOR</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>2.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+        <EmployeeBenefitProgramAmt>0</EmployeeBenefitProgramAmt>
+        <ExpenseAccountOtherAllwncAmt>0</ExpenseAccountOtherAllwncAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>SUSAN MARGOLIN</PersonNm>
+        <TitleTxt>CLERK &amp; DIRECTOR</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>2.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+        <EmployeeBenefitProgramAmt>0</EmployeeBenefitProgramAmt>
+        <ExpenseAccountOtherAllwncAmt>0</ExpenseAccountOtherAllwncAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>DEBORAH GORDON</PersonNm>
+        <TitleTxt>DIRECTOR</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>2.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+        <EmployeeBenefitProgramAmt>0</EmployeeBenefitProgramAmt>
+        <ExpenseAccountOtherAllwncAmt>0</ExpenseAccountOtherAllwncAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <InfoInScheduleOPartVInd>X</InfoInScheduleOPartVInd>
+      <ActivitiesNotPreviouslyRptInd>0</ActivitiesNotPreviouslyRptInd>
+      <ChgMadeToOrgnzngDocNotRptInd>0</ChgMadeToOrgnzngDocNotRptInd>
+      <OrganizationHadUBIInd>0</OrganizationHadUBIInd>
+      <SubjectToProxyTaxInd>0</SubjectToProxyTaxInd>
+      <OrganizationDissolvedEtcInd>0</OrganizationDissolvedEtcInd>
+      <DirectIndirectPltclExpendAmt>0</DirectIndirectPltclExpendAmt>
+      <MadeLoansToFromOfficersInd>0</MadeLoansToFromOfficersInd>
+      <TaxImposedUnderIRC4911Amt>0</TaxImposedUnderIRC4911Amt>
+      <TaxImposedUnderIRC4912Amt>0</TaxImposedUnderIRC4912Amt>
+      <TaxImposedUnderIRC4955Amt>0</TaxImposedUnderIRC4955Amt>
+      <EngagedInExcessBenefitTransInd>0</EngagedInExcessBenefitTransInd>
+      <TaxImposedOnOrganizationMgrAmt>0</TaxImposedOnOrganizationMgrAmt>
+      <TaxReimbursedByOrganizationAmt>0</TaxReimbursedByOrganizationAmt>
+      <ProhibitedTaxShelterTransInd>0</ProhibitedTaxShelterTransInd>
+      <StatesWhereCopyOfReturnIsFldCd>MA</StatesWhereCopyOfReturnIsFldCd>
+      <BooksInCareOfDetail>
+        <PersonNm>JACOB FORBES</PersonNm>
+        <USAddress>
+          <AddressLine1Txt>55 MYRTLE STREET</AddressLine1Txt>
+          <CityNm>NEWTON</CityNm>
+          <StateAbbreviationCd>MA</StateAbbreviationCd>
+          <ZIPCd>02465</ZIPCd>
+        </USAddress>
+        <PhoneNum>6179993455</PhoneNum>
+      </BooksInCareOfDetail>
+      <ForeignFinancialAccountInd>0</ForeignFinancialAccountInd>
+      <ForeignOfficeInd>0</ForeignOfficeInd>
+      <DonorAdvisedFndsInd>0</DonorAdvisedFndsInd>
+      <OperateHospitalInd>0</OperateHospitalInd>
+      <TanningServicesProvidedInd>0</TanningServicesProvidedInd>
+      <RelatedOrganizationCtrlEntInd>0</RelatedOrganizationCtrlEntInd>
+      <PoliticalCampaignActyInd>0</PoliticalCampaignActyInd>
+      <LobbyingActivitiesInd>0</LobbyingActivitiesInd>
+      <SchoolOperatingInd>0</SchoolOperatingInd>
+      <TrnsfrExmptNonChrtblRltdOrgInd>0</TrnsfrExmptNonChrtblRltdOrgInd>
+      <PartVIOfCompOfHghstPdEmplTxt>NONE</PartVIOfCompOfHghstPdEmplTxt>
+      <PartVIHghstPdCntrctProfSrvcTxt>NONE</PartVIHghstPdCntrctProfSrvcTxt>
+      <FiledScheduleAInd>1</FiledScheduleAInd>
+    </IRS990EZ>
+  </ReturnData>
+</Return>

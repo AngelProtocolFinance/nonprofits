@@ -684,32 +684,788 @@ describe("a Form 990 whose elements carry a namespace prefix (irs:Return)", () =
   });
 });
 
-describe("a 990-PF", () => {
-  test("yields only its header facts until the 990-PF parser lands", async () => {
-    expect(await parseFixture("202630729349100528")).toEqual({
-      returnVersion: "2024v5.2",
-      formType: "990-PF",
-      ein: "934054155",
+describe("a 990-EZ", () => {
+  test("yields its primary exempt purpose as mission, its website, finances and top programs by expense", async () => {
+    expect(await parseFixture("202630139349200908")).toEqual({
+      returnVersion: "2024v5.0",
+      formType: "990-EZ",
+      ein: "316050644",
       taxYear: 2024,
+      mission: "Assist statewide youth through optimism and public service",
+      activitySummary: null,
+      website: "ohiodistrictoptimist.org",
+      totalRevenue: 81_241,
+      totalExpenses: 92_012,
+      totalAssetsEoy: 39_111,
+      // the third of its four programs states the least expense
+      programs: [
+        [
+          48_765,
+          "Provide training to members including youth members on optimism and how to help youth gain confidence and experience in working to assist others",
+        ],
+        [
+          23_603,
+          "Assist Junior Optimists members (Elementary through High School Students) hold their annual statewide and international convention",
+        ],
+        [
+          15_827,
+          "Hold a statewide Optimists International Junior Golf Championship qualifying tournament and provide entry fees for qualifying golfers and chaperone travel reimbursements to the International Championship Tournament.",
+        ],
+      ].map(([expense, description]) => ({
+        description,
+        expense,
+        grants: 0,
+        revenue: null,
+      })),
+    });
+  });
+});
+
+describe("a 990-PF", () => {
+  test("yields its book-value finances and no mission, website or programs", async () => {
+    expect(await parseFixture("202630139349100013")).toEqual({
+      returnVersion: "2023v6.0",
+      formType: "990-PF",
+      ein: "920372947",
+      taxYear: 2023,
       mission: null,
       activitySummary: null,
       website: null,
-      totalRevenue: null,
-      totalExpenses: null,
-      totalAssetsEoy: null,
+      totalRevenue: 4_136,
+      totalExpenses: 7_856,
+      // Part II line 16 column (b); its fair market value, column (c), is 6,728
+      totalAssetsEoy: 7_478,
       programs: [],
     });
   });
 });
 
-/** The Red Cross 990 with `from` replaced by `to`, as one chunk. */
-async function redCrossWith(from: string, to: string): Promise<Readable> {
-  const xml = await readFile(
-    new URL("202640829349300109_public.xml", XML),
-    "utf8",
-  );
+/**
+ * One real 990-EZ per returnVersion seen in the 2024–2026 batches; expected
+ * values read off each file with ElementTree, independently of this parser.
+ */
+describe.each([
+  {
+    objectId: "202212589349200831",
+    returnVersion: "2019v5.0",
+    ein: "205633190",
+    taxYear: 2019,
+    mission:
+      "Empowering women and children in underserved communities through fundraising volunteerism and outreach",
+    website: "wgirls.org",
+    totalRevenue: 174_957,
+    totalExpenses: 164_184,
+    totalAssetsEoy: 422_272,
+    programs: [
+      { description: "0", expense: null, grants: null, revenue: null },
+    ],
+  },
+  {
+    objectId: "202222529349200147",
+    returnVersion: "2019v5.1",
+    ein: "223561331",
+    taxYear: 2019,
+    mission:
+      "As a PTO to Improve relationship between parents, teachers, and students",
+    website: "ppbhs-pointpsd.enschool.org",
+    totalRevenue: 2820,
+    totalExpenses: 5538,
+    totalAssetsEoy: 3842,
+    programs: [
+      {
+        description:
+          "Scholarships and awards for graduating high school students",
+        expense: 3350,
+        grants: null,
+        revenue: null,
+      },
+      {
+        description:
+          "Provide financial assistance and support to high school grade and class activities. The school has approximately 1000 school children in grades 9 through 12.",
+        expense: 1284,
+        grants: null,
+        revenue: null,
+      },
+      {
+        description:
+          "Provide reimbursment and appreciation for teacher projects and expenses. The school usually has approximately 50 classroom teachers and many other special programs",
+        expense: 532,
+        grants: null,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202202569349201150",
+    returnVersion: "2019v5.2",
+    ein: "824907354",
+    taxYear: 2019,
+    mission:
+      "THE FOUNDATION WAS ESTABLISHED WITH THE MISSION OF AIDING AND SUPPORTING FAMILIES FACING DIPG DIAGNOSIS BY PROVIDING RESOURCES AND FINANCIAL GRANTS TO GIVE EVERY CHILD FACING DIPG A FIGHTING CHANCE.",
+    website: "WWW.WHYNOTDEVINFOUNDATION.ORG",
+    totalRevenue: 54_572,
+    totalExpenses: 3481,
+    totalAssetsEoy: 99_301,
+    programs: [
+      {
+        description:
+          "THE ORGANIZATION PROVIDES FUND TO FAMILIES OF DIPG PATIENTS AND PATIENTS WITH OTHER FORMS OF PEDIACTRIC CANCER.",
+        expense: 0,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202202559349200225",
+    returnVersion: "2020v4.0",
+    ein: "134291032",
+    taxYear: 2020,
+    mission: "To provide community Fastpitch Softball to youth girls",
+    website: "www.edinafastpitch.org",
+    totalRevenue: 113_913,
+    totalExpenses: 103_028,
+    totalAssetsEoy: 46_487,
+    programs: [
+      {
+        description: "Paid coaches and training, umpires and facilities rental",
+        expense: 52_436,
+        grants: 0,
+        revenue: null,
+      },
+      {
+        description:
+          "equipment, summer and fall league expenses - league fees, tournament fees, uniforms, field fees",
+        expense: 38_465,
+        grants: 0,
+        revenue: null,
+      },
+      {
+        description:
+          "bank fees, liability insurance, misc board expenses and donations",
+        expense: 9678,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202343569349200609",
+    returnVersion: "2020v4.1",
+    ein: "010957670",
+    taxYear: 2020,
+    mission: "To raise money for local charities",
+    website: "http://granburywinewalk.com/",
+    totalRevenue: 27_818,
+    totalExpenses: 89_109,
+    totalAssetsEoy: 0,
+    programs: [
+      {
+        description:
+          "Held an annual event featuring local businesses. The proceeds of the event go to designated charities in Hood County.",
+        expense: 28_646,
+        grants: 54_550,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202202529349200535",
+    returnVersion: "2020v4.2",
+    ein: "710393164",
+    taxYear: 2020,
+    mission: "AGRICULTURAL PROMOTION",
+    website: "WWW.ARFB.COM/MARION",
+    totalRevenue: 100_100,
+    totalExpenses: 89_167,
+    totalAssetsEoy: 134_455,
+    programs: [
+      {
+        description:
+          "COUNTY FARM BUREAU WORK IS GENERAL IN NATURE, HELPING FARM FAMILIES ACHIEVE EDUCATIONAL IMPROVEMENTS, ECONOMIC OPPORTUNITY, AND SOCIAL ADVANCEMENT.",
+        expense: 0,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202313579349200601",
+    returnVersion: "2021v4.0",
+    ein: "470831276",
+    taxYear: 2021,
+    mission:
+      "Funding abortion clients and patients to keep access to abortion available",
+    website: "AbortionAccessFund.Org",
+    totalRevenue: 131_310,
+    totalExpenses: 103_357,
+    totalAssetsEoy: 54_437,
+    programs: [
+      {
+        description:
+          "Grants to abortion clients paid to clinics on behalf of multiple funders.",
+        expense: 0,
+        grants: 103_034,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202400169349201125",
+    returnVersion: "2021v4.1",
+    ein: "473954055",
+    taxYear: 2021,
+    mission:
+      "The 1619 Freedom School is a free community-based, after-school literacy program where students improve literacy skills and develop a love for reading through liberating instruction centered on Black American history.",
+    website: "https://www.1619freedomschool.org/",
+    totalRevenue: 18_235,
+    totalExpenses: 33_885,
+    totalAssetsEoy: 13_776,
+    programs: [
+      {
+        description:
+          "Launched free literacy program and was able to provide books to all students.",
+        expense: 24_781,
+        grants: null,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202313569349200311",
+    returnVersion: "2021v4.2",
+    ein: "611619371",
+    taxYear: 2021,
+    mission:
+      "THE PRIMARY PURPOSE OF THIS ORGANIZATION (PARENT TEACHER COMMITTEE) IS TO PROMOTE COOPERATION, APPRECIATION AND UNDERSTANDING BETWEEN PARENTS, STAFF, AND STUDENTS OF LIBERTY ELEMENTARY SCHOOL; AND TO SUPPORT THE SCHOOL PROGRAM THROUGH THE SPONSORING OF FUNDRAISERS AND EVENTS. IN ACCORDANCE WITH THIS PURPOSE, THE PARENT TEACHER COMMITTEE STRIVES TO ESTABLISH A RELATIONSHIP THAT WILL SERVE THE CHILDREN, SCHOOL, PARENTS AND COMMUNITY.",
+    website: "HTTPS://WWW.CVESD.ORG/SCHOOLS",
+    totalRevenue: 126_999,
+    totalExpenses: 116_178,
+    totalAssetsEoy: 37_938,
+    programs: [
+      {
+        description: "PLANNED EVENTS",
+        expense: 34_401,
+        grants: 0,
+        revenue: null,
+      },
+      {
+        description: "PROGRAMS & SPONSORSHIPS",
+        expense: 30_059,
+        grants: 30_059,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202303569349200015",
+    returnVersion: "2022v5.0",
+    ein: "471914654",
+    taxYear: 2022,
+    mission:
+      "The Arc Rutherford County is committed to supporting and improving the quality of life for individuals with challenges through actions and programs promoting personal empowerment, community-wide inclusion, advocacy, public education and research.",
+    website: "www.thearcrutherford.org",
+    totalRevenue: 1575,
+    totalExpenses: 1520,
+    totalAssetsEoy: 2018,
+    programs: [
+      {
+        description:
+          "Provide information and resources provided to families and agencies to serve individuals with disabilities. Provide available resources to callers in Rutherford County.",
+        expense: 0,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202400179349200500",
+    returnVersion: "2023v4.0",
+    ein: "832870471",
+    taxYear: 2023,
+    mission: "ASSIST THOSE WITH BARRIERS BIKE.",
+    website: "WWW.THEBLESSINGBIKE.COM",
+    totalRevenue: -32_330,
+    totalExpenses: 26_707,
+    totalAssetsEoy: 0,
+    programs: [
+      {
+        description:
+          "BUILT 30 BIKES FOR FAMILIES NURSING HOMES AND AGENCIES THAT WORK WITH AGE DISABILITIES OR HEALTH ISSUES",
+        expense: 0,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202400779349200160",
+    returnVersion: "2023v5.0",
+    ein: "842381233",
+    taxYear: 2023,
+    mission:
+      "Mount Liberty College is a 4-year classical liberal arts college helping students earn a great education to benefit them in all aspects of their future lives including, but not limited to, their careers.",
+    website: "https://mountlibertycollege.org/",
+    totalRevenue: 93_898,
+    totalExpenses: 80_262,
+    totalAssetsEoy: 93_416,
+    programs: [
+      {
+        description:
+          "Mount Liberty College was founded to educate our students in the classical liberal arts. We just completed our fourth year of classes and had an average of 25 students during this past year. Our students are earning a great education which will help them in any career path they choose to enter.",
+        expense: 80_262,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202401699349200605",
+    returnVersion: "2023v5.1",
+    ein: "853222603",
+    taxYear: 2023,
+    mission:
+      "TO ASSIST SENIORS IN THEIR DAY TO DAY NEEDS BY PROVIDING SERVICES, TRANSPORTATION, AND GENERAL ASSISTANCE.",
+    website: "HTTPS://WWW.SEAGLASSVILLAGE.ORG",
+    totalRevenue: 36_525,
+    totalExpenses: 36_650,
+    totalAssetsEoy: 24_811,
+    programs: [
+      {
+        description:
+          "PROVIDING SERVICES, TRANSPORTATION, AND GENERAL COMPANIONSHIP TO SENIORS TO HELP REDUCE THE RISKS THEY FACE IN DOING THESE ACTIVITIES ALONE.",
+        expense: 36_650,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202500159349200015",
+    returnVersion: "2023v6.0",
+    ein: "232368401",
+    taxYear: 2023,
+    mission:
+      "LEADERSHIP SUPPORT TO AFFILIATES WITHIN THE DISTRICT AND CARRIES COMMUNITY SERVICE PURPOSE OF ROTARY INTERNATIONAL",
+    website: "WWW.ROTARY.ORG",
+    totalRevenue: 123_259,
+    totalExpenses: 128_085,
+    totalAssetsEoy: 208_011,
+    programs: [
+      {
+        description:
+          "ROTARY INTERNATIONAL DISTRICT 7390 PROVIDES PROGRAMS TO PROMOTE COMMUNITY SERVICE IN THE COMMUNITY, WORKPLACE, AND THROUGHOUT THE WORLD.",
+        expense: 118_124,
+        grants: 4300,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202630139349200908",
+    returnVersion: "2024v5.0",
+    ein: "316050644",
+    taxYear: 2024,
+    mission: "Assist statewide youth through optimism and public service",
+    website: "ohiodistrictoptimist.org",
+    totalRevenue: 81_241,
+    totalExpenses: 92_012,
+    totalAssetsEoy: 39_111,
+    programs: [
+      {
+        description:
+          "Provide training to members including youth members on optimism and how to help youth gain confidence and experience in working to assist others",
+        expense: 48_765,
+        grants: 0,
+        revenue: null,
+      },
+      {
+        description:
+          "Assist Junior Optimists members (Elementary through High School Students) hold their annual statewide and international convention",
+        expense: 23_603,
+        grants: 0,
+        revenue: null,
+      },
+      {
+        description:
+          "Hold a statewide Optimists International Junior Golf Championship qualifying tournament and provide entry fees for qualifying golfers and chaperone travel reimbursements to the International Championship Tournament.",
+        expense: 15_827,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202500839349200420",
+    returnVersion: "2024v5.1",
+    ein: "461720789",
+    taxYear: 2024,
+    mission:
+      "AS THE PHILANTHROPIC BODY OF THE APARTMENT ASSOCIATION OF GREATER ORLANDO WE CHAMPION ENGAGEMENT, GIVING, AND SERVICE OPPORTUNITIES THAT SUPPORT OUR LOCAL CHARITY PARTNERS.",
+    website: "WWW.AAGOFOUNDATION.ORG",
+    totalRevenue: 86_650,
+    totalExpenses: 67_375,
+    totalAssetsEoy: 83_143,
+    programs: [
+      {
+        description:
+          "AS THE PHILANTHROPIC BODY OF THE APARTMENT ASSOCIATION OF GREATER ORLANDO WE CHAMPION ENGAGEMENT, GIVING, AND SERVICE OPPORTUNITIES THAT SUPPORT OUR LOCAL CHARITY PARTNERS.",
+        expense: 41_474,
+        grants: 43_425,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202501749349200125",
+    returnVersion: "2024v5.2",
+    ein: "651302496",
+    taxYear: 2024,
+    mission:
+      "TO SERVICE THE LOCAL BUSINESS COMMUNITY IN THE CENTENNIAL VILLAGE AREA",
+    website: "gotocentennialvillage.com",
+    totalRevenue: 623,
+    totalExpenses: 3679,
+    totalAssetsEoy: 6633,
+    programs: [
+      {
+        description: "LANDSCAPING FOR THE DOWNTOWN AREA",
+        expense: 2659,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202601139349201505",
+    returnVersion: "2024v5.4",
+    ein: "134225061",
+    taxYear: 2024,
+    mission: "Sharing the world's great choral music",
+    website: "www.plymouthfesticalchorus.org",
+    totalRevenue: 73_945,
+    totalExpenses: 71_246,
+    totalAssetsEoy: 59_669,
+    programs: [
+      {
+        description:
+          "Scholarships awarded: $2000. Two major concerts/year + summer sings. Total audiences approx. 2500. Live classical singing not heard elsewhere in the region.",
+        expense: null,
+        grants: null,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202600139349200930",
+    returnVersion: "2024v5.5",
+    ein: "994509771",
+    taxYear: 2024,
+    mission:
+      "VALOR TOGETHER IS A NON-PROFIT ORGANIZATION DEDICATED TO IMPROVING MENTAL HEALTH OUTCOMES FOR SCHOOL-AGED CHILDREN THROUGHOUT THE COMMONWEALTH OF MASSACHUSETTS.",
+    website: "HTTPS://WWW.VALORTOGETHER.ORG/",
+    totalRevenue: 33_103,
+    totalExpenses: 11_242,
+    totalAssetsEoy: 21_861,
+    programs: [
+      {
+        description: "ART THERAPY PROGRAM",
+        expense: 1162,
+        grants: 6000,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202600139349200100",
+    returnVersion: "2025v4.0",
+    ein: "382909148",
+    taxYear: 2025,
+    mission: "COMMUNITY FOOD PANTRY",
+    website: "www.helpinghandshc.org",
+    totalRevenue: 92_780,
+    totalExpenses: 63_660,
+    totalAssetsEoy: 277_490,
+    programs: [
+      {
+        description:
+          "PROVIDED FOOD TO APPROXIMATELY 2,000NEEDY FAMILIES IN OUR COMMUNITY EACH YEAR",
+        expense: 0,
+        grants: null,
+        revenue: null,
+      },
+    ],
+  },
+  {
+    objectId: "202600899349201445",
+    returnVersion: "2025v4.1",
+    ein: "391497262",
+    taxYear: 2025,
+    mission: "YOUTH SOCCER EDUCATION",
+    website: "WWW.DPRYS.ORG",
+    totalRevenue: 148_559,
+    totalExpenses: 128_243,
+    totalAssetsEoy: 275_363,
+    programs: [
+      {
+        description: "YOUTH SOCCER EDUCATION",
+        expense: 0,
+        grants: 0,
+        revenue: null,
+      },
+      { description: "DRUG PREVENTION", expense: 0, grants: 0, revenue: null },
+      { description: "SPORTSMANSHIP", expense: 0, grants: 0, revenue: null },
+    ],
+  },
+  {
+    objectId: "202601739349200690",
+    returnVersion: "2025v4.2",
+    ein: "800534025",
+    taxYear: 2025,
+    mission:
+      "TOP PRODUCING REAL ESTATE PROFESSIONALS, COLLECTIVELY INSPIRING AND ENHANCING THE PIKES PEAK REGION BY GIVING BACK TO THE COMMUNITY.",
+    website: "WWW.THEPEAKPRODUCERS.COM",
+    totalRevenue: 77_445,
+    totalExpenses: 92_660,
+    totalAssetsEoy: 16_233,
+    programs: [
+      {
+        description:
+          "PEAK PRODUCER HOSTS EVENTS WITH SPEAKERS TO DISCUSS INSPIRING AND ENHANCING THE PIKES PEAK REGION BY GIVING BACK TO THE COMMUNITY.",
+        expense: 20_987,
+        grants: 0,
+        revenue: null,
+      },
+    ],
+  },
+])("a $returnVersion 990-EZ ($objectId)", ({ objectId, ...expected }) => {
+  test("yields its mission, website, finances and top programs", async () => {
+    expect(await parseFixture(objectId)).toEqual({
+      formType: "990-EZ",
+      activitySummary: null,
+      ...expected,
+    });
+  });
+});
+
+/** One real 990-PF per returnVersion, read the same way. */
+describe.each([
+  {
+    objectId: "202212589349100616",
+    returnVersion: "2019v5.0",
+    ein: "473854796",
+    taxYear: 2019,
+    totalRevenue: 14_710,
+    totalExpenses: 18_386,
+    totalAssetsEoy: 496,
+  },
+  {
+    objectId: "202202569349100505",
+    returnVersion: "2019v5.1",
+    ein: "521288017",
+    taxYear: 2019,
+    totalRevenue: 22_000,
+    totalExpenses: 7500,
+    totalAssetsEoy: 0,
+  },
+  {
+    objectId: "202202589349101505",
+    returnVersion: "2019v5.2",
+    ein: "811684715",
+    taxYear: 2019,
+    totalRevenue: 1_443_972,
+    totalExpenses: 100_080,
+    totalAssetsEoy: 1_341_238,
+  },
+  {
+    objectId: "202202529349100320",
+    returnVersion: "2020v4.0",
+    ein: "814772264",
+    taxYear: 2020,
+    totalRevenue: 43_368,
+    totalExpenses: 172_262,
+    totalAssetsEoy: 2_929_559,
+  },
+  {
+    objectId: "202202559349100015",
+    returnVersion: "2020v4.1",
+    ein: "472317556",
+    taxYear: 2020,
+    totalRevenue: 8258,
+    totalExpenses: 14_106,
+    totalAssetsEoy: 513_575,
+  },
+  {
+    objectId: "202202529349100005",
+    returnVersion: "2020v4.2",
+    ein: "262665440",
+    taxYear: 2020,
+    totalRevenue: 10_001,
+    totalExpenses: 20_520,
+    totalAssetsEoy: 291_670,
+  },
+  {
+    objectId: "202400189349100205",
+    returnVersion: "2021v4.0",
+    ein: "341731179",
+    taxYear: 2021,
+    totalRevenue: 14_690,
+    totalExpenses: 24_455,
+    totalAssetsEoy: 520_542,
+  },
+  {
+    objectId: "202400169349101160",
+    returnVersion: "2021v4.1",
+    ein: "844210848",
+    taxYear: 2021,
+    totalRevenue: 373_576,
+    totalExpenses: 291_132,
+    totalAssetsEoy: 334_012,
+  },
+  {
+    objectId: "202400169349100065",
+    returnVersion: "2021v4.2",
+    ein: "843145664",
+    taxYear: 2021,
+    totalRevenue: 269_461,
+    totalExpenses: 29_054,
+    totalAssetsEoy: 993_778,
+  },
+  {
+    objectId: "202303569349100400",
+    returnVersion: "2022v5.0",
+    ein: "300094637",
+    taxYear: 2022,
+    totalRevenue: 71_285,
+    totalExpenses: 89_058,
+    totalAssetsEoy: 871_029,
+  },
+  {
+    objectId: "202400179349100300",
+    returnVersion: "2023v4.0",
+    ein: "474486721",
+    taxYear: 2023,
+    totalRevenue: 791,
+    totalExpenses: 732,
+    totalAssetsEoy: 59,
+  },
+  {
+    objectId: "202400779349100150",
+    returnVersion: "2023v5.0",
+    ein: "862915182",
+    taxYear: 2023,
+    totalRevenue: 7592,
+    totalExpenses: 5335,
+    totalAssetsEoy: 6207,
+  },
+  {
+    objectId: "202401699349100000",
+    returnVersion: "2023v5.1",
+    ein: "911459949",
+    taxYear: 2023,
+    totalRevenue: 884_711,
+    totalExpenses: 922_658,
+    totalAssetsEoy: 207_473,
+  },
+  {
+    objectId: "202630139349100013",
+    returnVersion: "2023v6.0",
+    ein: "920372947",
+    taxYear: 2023,
+    totalRevenue: 4136,
+    totalExpenses: 7856,
+    totalAssetsEoy: 7478,
+  },
+  {
+    objectId: "202500209349100110",
+    returnVersion: "2024v5.0",
+    ein: "844769920",
+    taxYear: 2024,
+    totalRevenue: 6856,
+    totalExpenses: 6787,
+    totalAssetsEoy: 0,
+  },
+  {
+    objectId: "202500829349100005",
+    returnVersion: "2024v5.1",
+    ein: "993040881",
+    taxYear: 2024,
+    totalRevenue: 52_751,
+    totalExpenses: 936,
+    totalAssetsEoy: 52_251,
+  },
+  {
+    objectId: "202630729349100528",
+    returnVersion: "2024v5.2",
+    ein: "934054155",
+    taxYear: 2024,
+    totalRevenue: 0,
+    totalExpenses: 0,
+    totalAssetsEoy: 0,
+  },
+  {
+    objectId: "202600139349100005",
+    returnVersion: "2024v5.5",
+    ein: "383354189",
+    taxYear: 2024,
+    totalRevenue: 627_179,
+    totalExpenses: 269_688,
+    totalAssetsEoy: 3_078_129,
+  },
+  {
+    objectId: "202600139349100200",
+    returnVersion: "2025v4.0",
+    ein: "873310310",
+    taxYear: 2025,
+    totalRevenue: 5794,
+    totalExpenses: 240,
+    totalAssetsEoy: 5848,
+  },
+  {
+    objectId: "202600899349100015",
+    returnVersion: "2025v4.1",
+    ein: "274826335",
+    taxYear: 2025,
+    totalRevenue: 9_885_473,
+    totalExpenses: 16_735_278,
+    totalAssetsEoy: 25_749_654,
+  },
+  {
+    objectId: "202601739349100050",
+    returnVersion: "2025v4.2",
+    ein: "364442342",
+    taxYear: 2025,
+    totalRevenue: 544_066,
+    totalExpenses: 333_753,
+    totalAssetsEoy: 5_165_072,
+  },
+])("a $returnVersion 990-PF ($objectId)", ({ objectId, ...expected }) => {
+  test("yields its finances and nothing else", async () => {
+    expect(await parseFixture(objectId)).toEqual({
+      formType: "990-PF",
+      mission: null,
+      activitySummary: null,
+      website: null,
+      programs: [],
+      ...expected,
+    });
+  });
+});
+
+/** The fixture return `objectId` with `from` replaced by `to`, as one chunk. */
+async function fixtureWith(
+  objectId: string,
+  from: string,
+  to: string,
+): Promise<Readable> {
+  const xml = await readFile(new URL(`${objectId}_public.xml`, XML), "utf8");
   if (!xml.includes(from)) throw new Error(`fixture lacks ${from}`);
   return Readable.from([Buffer.from(xml.replace(from, to))]);
+}
+
+/** The Red Cross 990 with `from` replaced by `to`, as one chunk. */
+function redCrossWith(from: string, to: string): Promise<Readable> {
+  return fixtureWith("202640829349300109", from, to);
 }
 
 describe("a return rejected on its own, leaving the run going", () => {
@@ -774,6 +1530,17 @@ describe("a mission that only points to Schedule O", () => {
       ),
     );
     expect(parsed.mission).toBeNull();
+  });
+
+  test("is stored as null when a 990-EZ's primary exempt purpose", async () => {
+    const parsed = await parseReturn(
+      await fixtureWith(
+        "202630139349200908",
+        "<PrimaryExemptPurposeTxt>Assist statewide youth through optimism and public service<",
+        "<PrimaryExemptPurposeTxt>SEE SCHEDULE O<",
+      ),
+    );
+    expect(parsed).toMatchObject({ formType: "990-EZ", mission: null });
   });
 
   test.each([

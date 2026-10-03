@@ -48,7 +48,7 @@ async function importSource(
         (i) => `${i.url}  released ${i.releasedAt}  ${i.rows} rows`,
       ),
       ...Object.entries(summary.skipped).map(
-        ([type, rows]) => `skipped ${rows} ${type} index rows`,
+        ([type, rows]) => `not stored: ${rows} ${type} index rows`,
       ),
       ...summary.zips.map(
         (z) => `${z.url}  released ${z.releasedAt}  ${z.filings} filings`,
@@ -57,7 +57,15 @@ async function importSource(
         ([reason, ids]) =>
           `rejected ${ids.length} (${reason}): ${ids.slice(0, 10).join(", ")}${ids.length > 10 ? ", …" : ""}`,
       ),
-      `efile: ${summary.filings} filings, ${summary.forms990} Form 990s: ${percent(summary.yield.mission)} with a mission, ${percent(summary.yield.revenue)} with total revenue`,
+      `efile: ${summary.filings} filings`,
+      ...Object.entries(summary.yields).map(
+        ([form, shares]) =>
+          `${form}: ${summary.returns[form as keyof typeof summary.returns]} selected, ${Object.entries(
+            shares,
+          )
+            .map(([name, share]) => `${percent(share)} with ${name}`)
+            .join(", ")}`,
+      ),
     ];
   }
   if (source === "bmf") {

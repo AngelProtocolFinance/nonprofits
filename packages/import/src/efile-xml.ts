@@ -2,7 +2,7 @@ import { SaxesParser } from "saxes";
 import { type FormType, formTypeOf } from "./efile-index.ts";
 import { text, webAddress } from "./load.ts";
 
-/** One Part III program service accomplishment. */
+/** One program service accomplishment: Part III of a 990 or 990-EZ. */
 export interface Program {
   description: string | null;
   expense: number | null;
@@ -10,7 +10,7 @@ export interface Program {
   revenue: number | null;
 }
 
-/** What the import keeps of one e-filed return; a 990-EZ or 990-PF carries only its header facts. */
+/** What the import keeps of one e-filed return; a form leaves null, or no programs, what it doesn't carry. */
 export interface ParsedReturn {
   returnVersion: string | null;
   formType: FormType;
@@ -49,22 +49,45 @@ export interface ParsedReturn {
  *   2025v4.1 202631339349308133, 202601499349300130 (irs: prefixed)  2025v4.2 202611759349301206
  */
 
+/*
+ * 990-EZ and 990-PF element maps, verified 2026-10-03 on every 990-EZ (567,510
+ * returns, 22 returnVersions) and 990-PF (337,015, 21) in the 2024–2026 batch
+ * zips; none moved between versions.
+ * Under /Return/ReturnData/IRS990EZ:
+ *   mission           PrimaryExemptPurposeTxt (Part III), in every return
+ *   website           WebsiteAddressTxt (header I)
+ *   finances          TotalRevenueAmt, TotalExpensesAmt (Part I lines 9, 17), Form990TotalAssetsGrp/EOYAmt
+ *                     (Part II line 25 column B); 2.0% of returns leave out revenue, 3.0% expenses
+ *   programs          ProgramSrvcAccomplishmentGrp (lines 28–31, repeats): DescriptionProgramSrvcAccomTxt,
+ *                     ProgramServiceExpensesAmt, GrantsAndAllocationsAmt; the EZ has no program revenue
+ *                     and no activity summary
+ * Under /Return/ReturnData/IRS990PF, each in every return:
+ *   finances          AnalysisOfRevenueAndExpenses/TotalRevAndExpnssAmt (Part I line 12 column a),
+ *                     AnalysisOfRevenueAndExpenses/TotalExpensesRevAndExpnssAmt (line 26 column a),
+ *                     Form990PFBalanceSheetsGrp/TotalAssetsEOYAmt (Part II line 16 column b, book value;
+ *                     TotalAssetsEOYFMVAmt beside it and the header's FMVAssetsEOYAmt are fair market value)
+ *   The PF states no mission; its website (StatementsRegardingActyGrp/WebsiteAddressTxt) isn't read.
+ * Object ids checked, one per returnVersion (fixtures/efile/xml/), 990-EZ:
+ *   2019v5.0 202212589349200831  2019v5.1 202222529349200147  2019v5.2 202202569349201150
+ *   2020v4.0 202202559349200225  2020v4.1 202343569349200609  2020v4.2 202202529349200535
+ *   2021v4.0 202313579349200601  2021v4.1 202400169349201125  2021v4.2 202313569349200311
+ *   2022v5.0 202303569349200015  2023v4.0 202400179349200500  2023v5.0 202400779349200160
+ *   2023v5.1 202401699349200605  2023v6.0 202500159349200015  2024v5.0 202630139349200908
+ *   2024v5.1 202500839349200420  2024v5.2 202501749349200125  2024v5.4 202601139349201505
+ *   2024v5.5 202600139349200930  2025v4.0 202600139349200100  2025v4.1 202600899349201445
+ *   2025v4.2 202601739349200690
+ * 990-PF:
+ *   2019v5.0 202212589349100616  2019v5.1 202202569349100505  2019v5.2 202202589349101505
+ *   2020v4.0 202202529349100320  2020v4.1 202202559349100015  2020v4.2 202202529349100005
+ *   2021v4.0 202400189349100205  2021v4.1 202400169349101160  2021v4.2 202400169349100065
+ *   2022v5.0 202303569349100400  2023v4.0 202400179349100300  2023v5.0 202400779349100150
+ *   2023v5.1 202401699349100000  2023v6.0 202630139349100013  2024v5.0 202500209349100110
+ *   2024v5.1 202500829349100005  2024v5.2 202630729349100528  2024v5.5 202600139349100005
+ *   2025v4.0 202600139349100200  2025v4.1 202600899349100015  2025v4.2 202601739349100050
+ */
+
 /** Programs kept per return. */
 const TOP_PROGRAMS = 3;
-
-const PROGRAM_FIELDS = {
-  Desc: "description",
-  ExpenseAmt: "expense",
-  GrantAmt: "grants",
-  RevenueAmt: "revenue",
-} as const satisfies Record<string, keyof Program>;
-
-/** Part III lines 4b, 4c and each 4d; line 4a's fields sit directly under IRS990. */
-const PROGRAM_GROUPS = new Set([
-  "ProgSrvcAccomActy2Grp",
-  "ProgSrvcAccomActy3Grp",
-  "ProgSrvcAccomActyOtherGrp",
-]);
 
 type FormField =
   | "mission"
@@ -74,14 +97,72 @@ type FormField =
   | "totalExpenses"
   | "totalAssetsEoy";
 
-/** Children of /Return/ReturnData/IRS990 read into the return. */
-const FORM_FIELDS: Record<string, FormField> = {
-  MissionDesc: "mission",
-  ActivityOrMissionDesc: "activitySummary",
-  WebsiteAddressTxt: "website",
-  CYTotalRevenueAmt: "totalRevenue",
-  CYTotalExpensesAmt: "totalExpenses",
-  TotalAssetsEOYAmt: "totalAssetsEoy",
+/** Where one form keeps what the import reads; paths are relative to the form's element. */
+interface FormLayout {
+  /** The form's element under /Return/ReturnData. */
+  element: string;
+  fields: Record<string, FormField>;
+  /** Elements each holding one program. */
+  programGroups: ReadonlySet<string>;
+  /** A program's children, also read directly under the form when `topProgram` is set. */
+  programFields: Record<string, keyof Program>;
+  /** Whether fields directly under the form make a program of their own (the 990's line 4a). */
+  topProgram: boolean;
+}
+
+const LAYOUTS: Record<FormType, FormLayout> = {
+  "990": {
+    element: "IRS990",
+    fields: {
+      MissionDesc: "mission",
+      ActivityOrMissionDesc: "activitySummary",
+      WebsiteAddressTxt: "website",
+      CYTotalRevenueAmt: "totalRevenue",
+      CYTotalExpensesAmt: "totalExpenses",
+      TotalAssetsEOYAmt: "totalAssetsEoy",
+    },
+    programGroups: new Set([
+      "ProgSrvcAccomActy2Grp",
+      "ProgSrvcAccomActy3Grp",
+      "ProgSrvcAccomActyOtherGrp",
+    ]),
+    programFields: {
+      Desc: "description",
+      ExpenseAmt: "expense",
+      GrantAmt: "grants",
+      RevenueAmt: "revenue",
+    },
+    topProgram: true,
+  },
+  "990-EZ": {
+    element: "IRS990EZ",
+    fields: {
+      PrimaryExemptPurposeTxt: "mission",
+      WebsiteAddressTxt: "website",
+      TotalRevenueAmt: "totalRevenue",
+      TotalExpensesAmt: "totalExpenses",
+      "Form990TotalAssetsGrp/EOYAmt": "totalAssetsEoy",
+    },
+    programGroups: new Set(["ProgramSrvcAccomplishmentGrp"]),
+    programFields: {
+      DescriptionProgramSrvcAccomTxt: "description",
+      ProgramServiceExpensesAmt: "expense",
+      GrantsAndAllocationsAmt: "grants",
+    },
+    topProgram: false,
+  },
+  "990-PF": {
+    element: "IRS990PF",
+    fields: {
+      "AnalysisOfRevenueAndExpenses/TotalRevAndExpnssAmt": "totalRevenue",
+      "AnalysisOfRevenueAndExpenses/TotalExpensesRevAndExpnssAmt":
+        "totalExpenses",
+      "Form990PFBalanceSheetsGrp/TotalAssetsEOYAmt": "totalAssetsEoy",
+    },
+    programGroups: new Set(),
+    programFields: {},
+    topProgram: false,
+  },
 };
 
 /** Why a return is skipped on its own rather than aborting the run. */
@@ -116,9 +197,10 @@ const SCHEDULE_O_POINTER =
 
 /**
  * Parses one e-filed return as its bytes stream in, and stops reading once it
- * has what it keeps: the end of the IRS990 form for a 990, the end of the
- * ReturnHeader for a 990-EZ or 990-PF. A header or amount that can't be read
- * throws a `RejectedReturn`; malformed or cut-off XML throws a plain Error.
+ * has what it keeps: the end of its form (IRS990, IRS990EZ or IRS990PF), or
+ * of the ReturnHeader for a return type not stored. A header or amount that
+ * can't be read throws a `RejectedReturn`; malformed or cut-off XML throws a
+ * plain Error.
  */
 export async function parseReturn(
   xml: AsyncIterable<Uint8Array>,
@@ -139,8 +221,9 @@ export async function parseReturn(
     totalExpenses: null,
     totalAssetsEoy: null,
   };
+  let layout: FormLayout | undefined;
   const programs: Program[] = [];
-  const line4a = emptyProgram();
+  const topProgram = emptyProgram();
   let group = emptyProgram();
   let done = false;
 
@@ -161,7 +244,11 @@ export async function parseReturn(
     const [, section, owner, child] = path;
     const name = tag.local;
     if (section === "ReturnHeader" && path.length === 3) {
-      if (name === "ReturnTypeCd") returnType = content.trim();
+      if (name === "ReturnTypeCd") {
+        returnType = content.trim();
+        const formType = formTypeOf(returnType);
+        layout = formType === undefined ? undefined : LAYOUTS[formType];
+      }
       if (name === "TaxYr") taxYear = content.trim();
     } else if (
       section === "ReturnHeader" &&
@@ -169,25 +256,37 @@ export async function parseReturn(
       name === "EIN"
     ) {
       ein = content.trim();
-    } else if (section === "ReturnData" && owner === "IRS990") {
+    } else if (
+      section === "ReturnData" &&
+      layout !== undefined &&
+      owner === layout.element &&
+      path.length > 3
+    ) {
+      const fieldPath = path.slice(3).join("/");
+      if (Object.hasOwn(layout.fields, fieldPath)) {
+        const field = layout.fields[fieldPath] as FormField;
+        form[field] = formValue(field, name, content, returnVersion);
+      }
       if (path.length === 4) {
-        const field = FORM_FIELDS[name];
-        if (field !== undefined) {
-          form[field] = formValue(field, name, content, returnVersion);
+        if (layout.topProgram) {
+          setProgramField(layout, topProgram, name, content, returnVersion);
         }
-        setProgramField(line4a, name, content, returnVersion);
-        if (PROGRAM_GROUPS.has(name)) {
+        if (layout.programGroups.has(name)) {
           programs.push(group);
           group = emptyProgram();
         }
-      } else if (path.length === 5 && child && PROGRAM_GROUPS.has(child)) {
-        setProgramField(group, name, content, returnVersion);
+      } else if (
+        path.length === 5 &&
+        child !== undefined &&
+        layout.programGroups.has(child)
+      ) {
+        setProgramField(layout, group, name, content, returnVersion);
       }
     }
     path.pop();
     if (
-      (path.length === 1 && name === "ReturnHeader" && returnType !== "990") ||
-      (path.length === 2 && name === "IRS990")
+      (path.length === 1 && name === "ReturnHeader" && layout === undefined) ||
+      (path.length === 2 && name === layout?.element)
     ) {
       done = true;
     }
@@ -201,9 +300,9 @@ export async function parseReturn(
   }
   if (!done) {
     throw new Error(
-      returnType === "990"
-        ? "the return ends without an IRS990 form"
-        : "the return ends without a ReturnHeader",
+      layout === undefined
+        ? "the return ends without a ReturnHeader"
+        : `the return ends without an ${layout.element} form`,
     );
   }
 
@@ -235,7 +334,7 @@ export async function parseReturn(
     ein,
     taxYear: Number(taxYear),
     ...(form as Pick<ParsedReturn, FormField>),
-    programs: topPrograms([line4a, ...programs]),
+    programs: topPrograms([topProgram, ...programs]),
   };
 }
 
@@ -244,13 +343,14 @@ function emptyProgram(): Program {
 }
 
 function setProgramField(
+  layout: FormLayout,
   program: Program,
   name: string,
   raw: string,
   returnVersion: string | null,
 ): void {
-  if (!Object.hasOwn(PROGRAM_FIELDS, name)) return;
-  const field = PROGRAM_FIELDS[name as keyof typeof PROGRAM_FIELDS];
+  if (!Object.hasOwn(layout.programFields, name)) return;
+  const field = layout.programFields[name] as keyof Program;
   if (field === "description") program.description = text(raw);
   else program[field] = amount(name, raw, returnVersion);
 }

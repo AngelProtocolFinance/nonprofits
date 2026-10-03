@@ -12,7 +12,7 @@ export {
   type EfileFloors,
   type EfileImportOptions,
   type EfileImportSummary,
-  type EfileYield,
+  type FormYields,
   importEfile,
 } from "./efile.ts";
 export {

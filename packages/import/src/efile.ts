@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { COLUMNS, type SwappedTable } from "@nonprofits/db";
 import {
+  type FormType,
   type IndexedFiling,
   type IndexTally,
   indexedFilings,
@@ -39,15 +40,41 @@ export const EFILE_BASE_URL = "https://apps.irs.gov/pub/epostcard/990/xml/";
 /** Release years read: the latest whose index is published, and the two before it. */
 const RELEASE_YEARS = 3;
 
-/** Shares of a run's Form 990s, rejected ones included, that state a mission, and a total revenue. */
-export interface EfileYield {
-  mission: number;
-  revenue: number;
-}
+/** What a return states to count toward each yield a run measures. */
+const YIELDS = {
+  mission: {
+    states: "a mission",
+    in: (p: ParsedReturn) => p.mission !== null,
+  },
+  revenue: {
+    states: "a total revenue",
+    in: (p: ParsedReturn) => p.totalRevenue !== null,
+  },
+  finances: {
+    states: "total revenue, expenses and assets",
+    in: (p: ParsedReturn) =>
+      p.totalRevenue !== null &&
+      p.totalExpenses !== null &&
+      p.totalAssetsEoy !== null,
+  },
+};
+type YieldName = keyof typeof YIELDS;
+
+/** The yields each form is held to, in the order a run reports them. */
+const FORM_YIELDS = {
+  "990": ["mission", "revenue"],
+  "990-EZ": ["mission", "finances"],
+  "990-PF": ["finances"],
+} as const satisfies Record<FormType, readonly YieldName[]>;
+
+/** Shares of a run's returns of each form, rejected ones included, that state each yield the form is held to. */
+export type FormYields = {
+  [F in FormType]: Record<(typeof FORM_YIELDS)[F][number], number>;
+};
 
 /** What a run must meet to load; any miss aborts it before anything is applied. */
-export interface EfileFloors extends EfileYield {
-  /** A returnVersion with at least this many Form 990s in the run is held to the same yields. */
+export interface EfileFloors extends FormYields {
+  /** A returnVersion with at least this many returns of a form in the run is held to that form's floors. */
   versionFrom: number;
   /** The largest share of the run's selected filings that may be rejected. */
   rejects: number;
@@ -55,8 +82,12 @@ export interface EfileFloors extends EfileYield {
 
 export const EFILE_FLOORS: EfileFloors = {
   // 90% of the yields of the 21,404 Form 990s in 2026_TEOS_XML_03A: 98.0% and 100.0%
-  mission: 0.88,
-  revenue: 0.9,
+  "990": { mission: 0.88, revenue: 0.9 },
+  // 90% of the lowest yield among the latest 990-EZs of 2024–2026 (245,988), run-wide or in a returnVersion
+  // with 200+ of them: mission 95.9% (2025v4.2; 97.8% run-wide), finances 81.9% (2021v4.2; 95.6% run-wide)
+  "990-EZ": { mission: 0.86, finances: 0.73 },
+  // 90% of the latest 990-PFs' (134,441) finances: 100.0% run-wide and in every returnVersion
+  "990-PF": { finances: 0.9 },
   versionFrom: 200,
   rejects: 0.01,
 };
@@ -94,9 +125,9 @@ export interface EfileImportSummary {
   filings: number;
   /** Object ids of the selected returns skipped, by why. */
   rejects: Partial<Record<RejectReason, string[]>>;
-  /** Form 990s selected, rejected ones included, over which `yield` is measured. */
-  forms990: number;
-  yield: EfileYield;
+  /** Returns selected of each form, rejected ones included, over which `yields` are measured. */
+  returns: Record<FormType, number>;
+  yields: FormYields;
 }
 
 type FilingColumn = (typeof COLUMNS.filings)[number];
@@ -234,9 +265,7 @@ async function* efileSql(
           (reject) => {
             (rejects[reject.reason] ??= []).push(reject.filing.objectId);
             rejectedEins.push(reject.filing.ein);
-            if (reject.filing.formType === "990") {
-              yields.add(reject.returnVersion, null);
-            }
+            yields.add(reject.filing.formType, reject.returnVersion, null);
           },
         );
         for await (const batch of batches(
@@ -248,9 +277,7 @@ async function* efileSql(
           yield* filingsSql(batch);
           for (const { parsed } of batch) {
             filings++;
-            if (parsed.formType === "990") {
-              yields.add(parsed.returnVersion, parsed);
-            }
+            yields.add(parsed.formType, parsed.returnVersion, parsed);
           }
         }
         yield setRowCount("efile_xml", filings);
@@ -289,58 +316,122 @@ async function* efileSql(
     zips,
     filings: filingsLoaded,
     rejects,
-    forms990: yields.total.forms990,
-    yield: yields.total.shares(),
+    returns: yields.returns(),
+    yields: yields.shares(),
   };
 }
 
-/** Form 990 yields, for the run and per returnVersion. */
-class YieldCounts {
-  readonly total = new Yields();
-  readonly byVersion = new Map<string, Yields>();
+const FORM_TYPES = Object.keys(FORM_YIELDS) as FormType[];
 
-  /** Counts one Form 990: `parsed` null for a rejected one, which yields nothing. */
-  add(returnVersion: string | null, parsed: ParsedReturn | null): void {
+/** What a run's error messages call a form, before its plural s. */
+const FORM_NAMES: Record<FormType, string> = {
+  "990": "Form 990",
+  "990-EZ": "990-EZ",
+  "990-PF": "990-PF",
+};
+
+function perForm<T>(make: (form: FormType) => T): Record<FormType, T> {
+  return Object.fromEntries(
+    FORM_TYPES.map((form) => [form, make(form)]),
+  ) as Record<FormType, T>;
+}
+
+/** Yields of each form, for the run and per returnVersion. */
+class YieldCounts {
+  readonly total = perForm((form) => new Yields(form));
+  readonly byVersion = perForm(() => new Map<string, Yields>());
+
+  /** Counts one return: `parsed` null for a rejected one, which yields nothing. */
+  add(
+    form: FormType,
+    returnVersion: string | null,
+    parsed: ParsedReturn | null,
+  ): void {
+    const versions = this.byVersion[form];
     const version = returnVersion ?? "unknown";
-    let counts = this.byVersion.get(version);
+    let counts = versions.get(version);
     if (counts === undefined) {
-      counts = new Yields();
-      this.byVersion.set(version, counts);
+      counts = new Yields(form);
+      versions.set(version, counts);
     }
-    for (const yields of [this.total, counts]) {
-      yields.forms990++;
-      if (parsed?.mission != null) yields.missions++;
-      if (parsed?.totalRevenue != null) yields.revenues++;
-    }
+    this.total[form].add(parsed);
+    counts.add(parsed);
   }
 
-  /** Throws when the run, or a returnVersion with `floors.versionFrom` 990s or more, falls below the floors. */
+  returns(): Record<FormType, number> {
+    return perForm((form) => this.total[form].returns);
+  }
+
+  shares(): FormYields {
+    return perForm((form) => this.total[form].shares()) as FormYields;
+  }
+
+  /**
+   * Throws when a form with returns in the run, or a returnVersion with
+   * `floors.versionFrom` returns of it or more, falls below its floors.
+   */
   check(floors: EfileFloors): void {
-    this.total.check(floors, "");
-    const versions = [...this.byVersion].sort(([a], [b]) => (a < b ? -1 : 1));
-    for (const [version, yields] of versions) {
-      if (yields.forms990 >= floors.versionFrom) {
-        yields.check(floors, `returnVersion ${version}: `);
+    for (const form of FORM_TYPES) {
+      if (this.total[form].returns > 0) this.total[form].check(floors, "");
+      const versions = [...this.byVersion[form]].sort(([a], [b]) =>
+        a < b ? -1 : 1,
+      );
+      for (const [version, yields] of versions) {
+        if (yields.returns >= floors.versionFrom) {
+          yields.check(floors, `returnVersion ${version}: `);
+        }
       }
     }
   }
 }
 
 class Yields {
-  forms990 = 0;
-  missions = 0;
-  revenues = 0;
+  returns = 0;
+  readonly form: FormType;
+  readonly #stated = new Map<YieldName, number>();
+  readonly #held: readonly YieldName[];
 
-  shares(): EfileYield {
-    const share = (n: number) => (this.forms990 === 0 ? 0 : n / this.forms990);
-    return { mission: share(this.missions), revenue: share(this.revenues) };
+  constructor(form: FormType) {
+    this.form = form;
+    this.#held = FORM_YIELDS[form];
+  }
+
+  add(parsed: ParsedReturn | null): void {
+    this.returns++;
+    for (const name of this.#held) {
+      if (parsed !== null && YIELDS[name].in(parsed)) {
+        this.#stated.set(name, (this.#stated.get(name) ?? 0) + 1);
+      }
+    }
+  }
+
+  shares(): Partial<Record<YieldName, number>> {
+    return Object.fromEntries(
+      this.#held.map((name) => [
+        name,
+        this.returns === 0 ? 0 : (this.#stated.get(name) ?? 0) / this.returns,
+      ]),
+    );
   }
 
   check(floors: EfileFloors, which: string): void {
-    const { mission, revenue } = this.shares();
-    if (mission >= floors.mission && revenue >= floors.revenue) return;
+    const shares = this.shares();
+    const floor: Partial<Record<YieldName, number>> = floors[this.form];
+    const below = this.#held.some(
+      (name) => (shares[name] ?? 0) < (floor[name] ?? 0),
+    );
+    if (!below) return;
+    const stated = this.#held
+      .map(
+        (name, i) =>
+          `${percent(shares[name] ?? 0)} ${i === 0 ? "state " : ""}${YIELDS[name].states}`,
+      )
+      .join(" and ");
+    const floored = this.#held
+      .map((name) => percent(floor[name] ?? 0))
+      .join(" and ");
     throw new Error(
-      `990 import aborted: ${which}of ${this.forms990} Form 990s, ${percent(mission)} state a mission and ${percent(revenue)} a total revenue, below the floor of ${percent(floors.mission)} and ${percent(floors.revenue)}; nothing was loaded`,
+      `990 import aborted: ${which}of ${this.returns} ${FORM_NAMES[this.form]}s, ${stated}, below the floor of ${floored}; nothing was loaded`,
     );
   }
 }

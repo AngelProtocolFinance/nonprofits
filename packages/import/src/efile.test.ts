@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
-import { type EfileImportOptions, importEfile } from "./efile.ts";
+import {
+  type EfileFloors,
+  type EfileImportOptions,
+  importEfile,
+} from "./efile.ts";
 import { migrate, query, type Route, serve } from "./test-support.ts";
 
 const BMF_FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
@@ -30,12 +34,15 @@ const PREFIXED = "202601499349300130";
 /** Listed in index batch `2024_TEOS_XML_05a`; the IRS serves it as `…05A.zip`. */
 const LOWERCASE_BATCH = "202431369349308428";
 
-/** The only 2024v5.0 return in the fixture indexes. */
+/** The only 2024v5.0 Form 990 in the fixture indexes. */
 const V2024_5_0 = "202630139349301998";
+/** A 990-EZ and a 990-PF, both in batch 01A. */
+const EZ = "202630139349200908";
+const PF_01A = "202630139349100013";
 
 /** Which fixture returns each batch zip holds, as served for both index variants. */
 const ZIPS: Record<string, string[]> = {
-  "2026_TEOS_XML_01A": [V2024_5_0, "202620149349301082"],
+  "2026_TEOS_XML_01A": [V2024_5_0, "202620149349301082", EZ, PF_01A],
   "2026_TEOS_XML_02A": [DELTA_TRITON_OLD, DELTA_TRITON_NEW, DROPPED],
   "2026_TEOS_XML_03A": [RED_CROSS_990, PF],
   // the IRS's 05A zip holds none of the fixture filings its index rows name
@@ -63,6 +70,22 @@ async function batchZip(objectIds: readonly string[]): Promise<Uint8Array> {
   const files: Record<string, Uint8Array> = {};
   for (const id of objectIds) {
     files[`${id}_public.xml`] = await fixture(`xml/${id}_public.xml`);
+  }
+  return zip(files);
+}
+
+/** A batch zip of fixture returns `objectIds`, those in `replaced` as given there. */
+async function batchZipWith(
+  objectIds: readonly string[],
+  replaced: Record<string, string>,
+): Promise<Uint8Array> {
+  const files: Record<string, Uint8Array> = {};
+  for (const id of objectIds) {
+    const xml = replaced[id];
+    files[`${id}_public.xml`] =
+      xml === undefined
+        ? await fixture(`xml/${id}_public.xml`)
+        : Buffer.from(xml);
   }
   return zip(files);
 }
@@ -100,7 +123,7 @@ beforeAll(async () => {
     if (batch !== "2026_TEOS_XML_06A") routes.set(`/missing/${path}`, zipped);
   }
   routes.set("/missing/2026/2026_TEOS_XML_06A.zip", await batchZip([PF]));
-  // a run with two returns rejected: one listed under the wrong EIN, one with a cents amount
+  // a run with three returns rejected: one listed under the wrong EIN, a 990 and a 990-EZ with a cents amount
   for (const year of YEARS) {
     const index = (await fixture(`index_${year}.csv`)).toString("utf8");
     routes.set(
@@ -108,34 +131,68 @@ beforeAll(async () => {
       index.replace(",203349625,", ",203349626,"),
     );
     routes.set(`/version-drift/${year}/index_${year}.csv`, index);
+    // a return type the IRS might add to the index
+    routes.set(
+      `/new-type/${year}/index_${year}.csv`,
+      year === 2026
+        ? `${index}24999999,EFILE,123456789,202512,2026,A NEW FILER,990X,93499999999999,202699999349999999,2026_TEOS_XML_03A\r\n`
+        : index,
+    );
   }
   const cents = (await fixture(`xml/${DELTA_TRITON_NEW}_public.xml`))
     .toString("utf8")
     .replace("<CYTotalRevenueAmt>42888<", "<CYTotalRevenueAmt>42888.50<");
+  const ezCents = (await fixture(`xml/${EZ}_public.xml`))
+    .toString("utf8")
+    .replace("<TotalRevenueAmt>81241<", "<TotalRevenueAmt>81241.50<");
   for (const [batch, objectIds] of Object.entries(ZIPS)) {
     const path = `${batch.slice(0, 4)}/${batch}.zip`;
     const zipped = await batchZip(objectIds);
     routes.set(`/version-drift/${path}`, zipped);
+    routes.set(`/new-type/${path}`, zipped);
     routes.set(
       `/rejecting/${path}`,
       batch === "2026_TEOS_XML_02A"
         ? zip({ [`${DELTA_TRITON_NEW}_public.xml`]: Buffer.from(cents) })
-        : zipped,
+        : batch === "2026_TEOS_XML_01A"
+          ? await batchZipWith(objectIds, { [EZ]: ezCents })
+          : zipped,
     );
   }
   // the one 2024v5.0 return, its mission and revenue elements renamed
   routes.set(
     "/version-drift/2026/2026_TEOS_XML_01A.zip",
-    zip({
-      [`${V2024_5_0}_public.xml`]: Buffer.from(
-        (await fixture(`xml/${V2024_5_0}_public.xml`))
-          .toString("utf8")
-          .replaceAll("MissionDesc>", "MissionStatementTxt>")
-          .replaceAll("CYTotalRevenueAmt>", "CurrentYearTotalRevenueAmt>"),
-      ),
-      "202620149349301082_public.xml": await fixture(
-        "xml/202620149349301082_public.xml",
-      ),
+    await batchZipWith(ZIPS["2026_TEOS_XML_01A"] ?? [], {
+      [V2024_5_0]: (await fixture(`xml/${V2024_5_0}_public.xml`))
+        .toString("utf8")
+        .replaceAll("MissionDesc>", "MissionStatementTxt>")
+        .replaceAll("CYTotalRevenueAmt>", "CurrentYearTotalRevenueAmt>"),
+    }),
+  );
+  // the 990-EZ with its mission and revenue elements renamed, and the 2023v6.0 990-PF with its revenue's
+  for (const year of YEARS) {
+    routes.set(
+      `/form-drift/${year}/index_${year}.csv`,
+      await fixture(`index_${year}.csv`),
+    );
+  }
+  for (const [batch, objectIds] of Object.entries(ZIPS)) {
+    routes.set(
+      `/form-drift/${batch.slice(0, 4)}/${batch}.zip`,
+      await batchZip(objectIds),
+    );
+  }
+  routes.set(
+    "/form-drift/2026/2026_TEOS_XML_01A.zip",
+    await batchZipWith(ZIPS["2026_TEOS_XML_01A"] ?? [], {
+      [EZ]: (await fixture(`xml/${EZ}_public.xml`))
+        .toString("utf8")
+        .replaceAll("PrimaryExemptPurposeTxt>", "PrimaryPurposeTxt>")
+        .replaceAll("<TotalRevenueAmt>", "<RevenueTotalAmt>")
+        .replaceAll("</TotalRevenueAmt>", "</RevenueTotalAmt>"),
+      [PF_01A]: (await fixture(`xml/${PF_01A}_public.xml`))
+        .toString("utf8")
+        .replaceAll("TotalRevAndExpnssAmt>", "TotalRevenueAmt>"),
     }),
   );
   // the 990 as it would read had the IRS renamed both elements the floor watches
@@ -169,6 +226,19 @@ async function d1WithBmf(name: string): Promise<string> {
   return persistTo;
 }
 
+/** Every form's yield floors at `share`. */
+function floorsAt(
+  share: number,
+  rest: Pick<EfileFloors, "versionFrom" | "rejects">,
+): EfileFloors {
+  return {
+    "990": { mission: share, revenue: share },
+    "990-EZ": { mission: share, finances: share },
+    "990-PF": { finances: share },
+    ...rest,
+  };
+}
+
 function loadEfile(
   persistTo: string,
   options: Partial<EfileImportOptions> = {},
@@ -176,7 +246,7 @@ function loadEfile(
   return importEfile({
     baseUrl: `${base}/xml/`,
     latestYear: 2026,
-    floors: { mission: 0.9, revenue: 0.9, versionFrom: 200, rejects: 0.01 },
+    floors: floorsAt(0.9, { versionFrom: 200, rejects: 0.01 }),
     workDir: join(work, "batches"),
     out: join(work, "efile.load.sql"),
     target: { remote: false, persistTo },
@@ -294,7 +364,7 @@ describe("importing the batch that holds the Red Cross's latest 990", {
         tax_period: "2024-12",
         tax_year: 2024,
         mission: null,
-        total_revenue: null,
+        total_revenue: 0,
         programs: 0,
       },
     ]);
@@ -313,7 +383,7 @@ describe("importing the batch that holds the Red Cross's latest 990", {
       "SELECT file_url, row_count FROM import_runs WHERE source = 'efile_index' ORDER BY id",
     );
     expect(rows).toStrictEqual([
-      { file_url: `${base}/xml/2026/index_2026.csv`, row_count: 9 },
+      { file_url: `${base}/xml/2026/index_2026.csv`, row_count: 11 },
       { file_url: `${base}/xml/2025/index_2025.csv`, row_count: 3 },
       { file_url: `${base}/xml/2024/index_2024.csv`, row_count: 6 },
     ]);
@@ -321,6 +391,65 @@ describe("importing the batch that holds the Red Cross's latest 990", {
 
   test("leaves no batch zip on disk", async () => {
     expect(await readdir(join(work, "batches"))).toEqual([]);
+  });
+});
+
+describe("importing a batch holding a 990-EZ and a 990-PF", {
+  timeout: 60_000,
+}, () => {
+  let d1: string;
+
+  beforeAll(async () => {
+    d1 = await d1WithBmf("ez-pf");
+    await loadEfile(d1, { batches: ["2026_TEOS_XML_01A"] });
+  }, 120_000);
+
+  async function storedFiling(ein: string) {
+    return query(
+      d1,
+      `SELECT f.object_id, f.form_type, f.tax_period, f.tax_year, f.mission, f.activity_summary, f.website,
+        f.total_revenue, f.total_expenses, f.total_assets_eoy, r.file_url,
+        (SELECT count(*) FROM programs p WHERE p.ein = f.ein) AS programs
+      FROM filings f JOIN import_runs r ON r.id = f.run_id WHERE f.ein = '${ein}'`,
+    );
+  }
+
+  test("stores the 990-EZ's primary exempt purpose as its mission, with its website, finances and top 3 programs", async () => {
+    expect(await storedFiling("316050644")).toStrictEqual([
+      {
+        object_id: EZ,
+        form_type: "990-EZ",
+        tax_period: "2025-09",
+        tax_year: 2024,
+        mission: "Assist statewide youth through optimism and public service",
+        activity_summary: null,
+        website: "ohiodistrictoptimist.org",
+        total_revenue: 81_241,
+        total_expenses: 92_012,
+        total_assets_eoy: 39_111,
+        file_url: `${base}/xml/2026/2026_TEOS_XML_01A.zip`,
+        programs: 3,
+      },
+    ]);
+  });
+
+  test("stores the 990-PF's filing facts and finances, with no mission", async () => {
+    expect(await storedFiling("920372947")).toStrictEqual([
+      {
+        object_id: PF_01A,
+        form_type: "990-PF",
+        tax_period: "2024-08",
+        tax_year: 2023,
+        mission: null,
+        activity_summary: null,
+        website: null,
+        total_revenue: 4_136,
+        total_expenses: 7_856,
+        total_assets_eoy: 7_478,
+        file_url: `${base}/xml/2026/2026_TEOS_XML_01A.zip`,
+        programs: 0,
+      },
+    ]);
   });
 });
 
@@ -350,9 +479,11 @@ describe("a full run after an earlier one", { timeout: 60_000 }, () => {
     expect(await storedFilings(d1)).toStrictEqual({
       "131520977": ["202630139349301998", "2026_TEOS_XML_01A.zip"],
       "203349625": ["202620149349301082", "2026_TEOS_XML_01A.zip"],
+      "316050644": [EZ, "2026_TEOS_XML_01A.zip"],
       "394993812": [IN_SECOND_ZIP, "2026_TEOS_XML_05B.zip"],
       "470269340": [LOWERCASE_BATCH, "2024_TEOS_XML_05A.zip"],
       "530196605": [RED_CROSS_990, "2026_TEOS_XML_03A.zip"],
+      "920372947": [PF_01A, "2026_TEOS_XML_01A.zip"],
       "920724925": [DELTA_TRITON_NEW, "2026_TEOS_XML_02A.zip"],
       "934054155": [PF, "2026_TEOS_XML_03A.zip"],
       "992834231": [PREFIXED, "2026_TEOS_XML_06A.zip"],
@@ -435,10 +566,10 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
       loadEfile(d1, {
         baseUrl: `${base}/rejecting/`,
         out,
-        floors: { mission: 0.5, revenue: 0.5, versionFrom: 200, rejects: 0.01 },
+        floors: floorsAt(0.5, { versionFrom: 200, rejects: 0.01 }),
       }),
     ).rejects.toThrow(
-      "990 import aborted: 2 of 8 latest filings rejected (25.0%), above the 1.0% allowed (EIN mismatch: 1, bad amount: 1); nothing was loaded",
+      "990 import aborted: 3 of 10 latest filings rejected (30.0%), above the 1.0% allowed (EIN mismatch: 1, bad amount: 2); nothing was loaded",
     );
     await expectNothingLoaded(out);
   });
@@ -449,10 +580,37 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
       loadEfile(d1, {
         baseUrl: `${base}/version-drift/`,
         out,
-        floors: { mission: 0.5, revenue: 0.5, versionFrom: 1, rejects: 0.01 },
+        floors: floorsAt(0.5, { versionFrom: 1, rejects: 0.01 }),
       }),
     ).rejects.toThrow(
       "990 import aborted: returnVersion 2024v5.0: of 1 Form 990s, 0.0% state a mission and 0.0% a total revenue, below the floor of 50.0% and 50.0%; nothing was loaded",
+    );
+    await expectNothingLoaded(out);
+  });
+
+  test("falls below a 990-EZ yield floor, naming the yields", async () => {
+    const out = join(work, "ez-drift.load.sql");
+    await expect(
+      loadEfile(d1, { baseUrl: `${base}/form-drift/`, out }),
+    ).rejects.toThrow(
+      "990 import aborted: of 1 990-EZs, 0.0% state a mission and 0.0% total revenue, expenses and assets, below the floor of 90.0% and 90.0%; nothing was loaded",
+    );
+    await expectNothingLoaded(out);
+  });
+
+  test("holds a returnVersion with enough 990-PFs to the floor, naming it", async () => {
+    const out = join(work, "pf-drift.load.sql");
+    await expect(
+      loadEfile(d1, {
+        baseUrl: `${base}/form-drift/`,
+        out,
+        floors: {
+          ...floorsAt(0.5, { versionFrom: 1, rejects: 0.01 }),
+          "990-EZ": { mission: 0, finances: 0 },
+        },
+      }),
+    ).rejects.toThrow(
+      "990 import aborted: returnVersion 2023v6.0: of 1 990-PFs, 0.0% state total revenue, expenses and assets, below the floor of 50.0%; nothing was loaded",
     );
     await expectNothingLoaded(out);
   });
@@ -499,14 +657,17 @@ describe("a full run with rejected returns", { timeout: 60_000 }, () => {
     await loadEfile(d1, { baseUrl: `${base}/older/` });
     summary = await loadEfile(d1, {
       baseUrl: `${base}/rejecting/`,
-      floors: { mission: 0.5, revenue: 0.5, versionFrom: 200, rejects: 0.5 },
+      floors: {
+        ...floorsAt(0.5, { versionFrom: 200, rejects: 0.5 }),
+        "990-EZ": { mission: 0, finances: 0 },
+      },
     });
   }, 120_000);
 
   test("reports each rejected return by reason", () => {
     expect(summary.rejects).toStrictEqual({
       "EIN mismatch": ["202620149349301082"],
-      "bad amount": [DELTA_TRITON_NEW],
+      "bad amount": [EZ, DELTA_TRITON_NEW],
     });
   });
 
@@ -519,8 +680,13 @@ describe("a full run with rejected returns", { timeout: 60_000 }, () => {
 
   test("counts rejected 990s against the yield floors", () => {
     // 7 Form 990s selected, the 2 rejected among them; the 5 loaded all state a mission
-    expect(summary.forms990).toBe(7);
-    expect(summary.yield.mission).toBeCloseTo(5 / 7);
+    expect(summary.returns["990"]).toBe(7);
+    expect(summary.yields["990"].mission).toBeCloseTo(5 / 7);
+  });
+
+  test("counts a rejected 990-EZ against its form's floors", () => {
+    expect(summary.returns["990-EZ"]).toBe(1);
+    expect(summary.yields["990-EZ"]).toStrictEqual({ mission: 0, finances: 0 });
   });
 });
 
@@ -531,9 +697,22 @@ describe("a returnVersion whose 990s fall below the floor", {
     const d1 = await d1WithBmf("version-few");
     const summary = await loadEfile(d1, {
       baseUrl: `${base}/version-drift/`,
-      floors: { mission: 0.5, revenue: 0.5, versionFrom: 2, rejects: 0.01 },
+      floors: floorsAt(0.5, { versionFrom: 2, rejects: 0.01 }),
     });
-    expect(summary.filings).toBe(8);
+    expect(summary.filings).toBe(10);
+  });
+});
+
+describe("an index listing a return type the import doesn't store", {
+  timeout: 60_000,
+}, () => {
+  test("counts its rows in the run summary by type, beside the 990-Ts", async () => {
+    const d1 = await d1WithBmf("new-type");
+    const summary = await loadEfile(d1, {
+      baseUrl: `${base}/new-type/`,
+      batches: ["2026_TEOS_XML_03A"],
+    });
+    expect(summary.skipped).toStrictEqual({ "990T": 3, "990X": 1 });
   });
 });
 
