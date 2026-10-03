@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   claimSlotSql,
+  DATA_DB_BINDING,
+  FLIP_SETTLE_MS,
   flipActiveSlotSql,
   READ_DATA_META_SQL,
   releaseClaimSql,
@@ -13,15 +15,15 @@ import { type Zippable, zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { EFILE_FLOORS } from "./efile.ts";
 import {
-  FLIP_SETTLE_MS,
   refresh,
+  releaseAfterStop,
   releaseClaim,
   rollback,
   type TableFloors,
 } from "./generation.ts";
 import type { SourceConfig } from "./sources.ts";
 import { migrateAppDb, type Route, serve } from "./test-support.ts";
-import { type D1Ops, localD1 } from "./wrangler.ts";
+import { type D1Ops, localD1, remoteD1, wrangler } from "./wrangler.ts";
 
 const FIXTURES = new URL("../fixtures/", import.meta.url);
 const BMF_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
@@ -60,6 +62,7 @@ let server: Server;
 let base: string;
 let work: string;
 let ops: D1Ops;
+let persistTo: string;
 
 /** The fixture sources: `bmf` region files only, and the cut route of each list in `cut`. */
 function sources(
@@ -103,13 +106,40 @@ function run(
     cut?: readonly List[];
     floors?: TableFloors;
     via?: D1Ops;
+    log?: (line: string) => void;
   } = {},
 ) {
   return refresh(options.via ?? ops, {
     sources: sources(options.bmf, options.cut),
     floors: options.floors ?? FIXTURE_FLOORS,
     loadDir: join(work, "load"),
-    log: () => {},
+    log: options.log ?? (() => {}),
+  });
+}
+
+/** Resets the slot not served to a generation of its own, so a refresh gets as far as applying files to it. */
+async function resetInactiveSlot(): Promise<void> {
+  const [{ active } = { active: "a" }] = await pointer();
+  const inactive = active === "a" ? "b" : "a";
+  const file = join(work, `reset-${inactive}.sql`);
+  await writeFile(file, resetGenerationSql(inactive, "earlier"));
+  await ops.applyFile(DATA_DB_BINDING[inactive], file);
+}
+
+/** `remoteD1`, each command run on the local state instead, but each `--file`, which fails with `failure`. */
+function remoteFailingApply(failure: string): D1Ops {
+  return remoteD1({
+    run(args, timeoutMs) {
+      if (args.includes("--file")) return Promise.reject(new Error(failure));
+      const local = args.flatMap((arg) =>
+        arg === "--remote"
+          ? ["--local", "--persist-to", persistTo]
+          : arg === "--yes"
+            ? []
+            : [arg],
+      );
+      return wrangler(local, timeoutMs);
+    },
   });
 }
 
@@ -208,7 +238,7 @@ beforeAll(async () => {
   }
   ({ server, base } = await serve(routes, RELEASED));
   work = await mkdtemp(join(tmpdir(), "generation-"));
-  const persistTo = join(work, "d1");
+  persistTo = join(work, "d1");
   await migrateAppDb(persistTo);
   ops = localD1(persistTo);
 }, 60_000);
@@ -283,7 +313,7 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
 
   test("a refresh rebuilds the search index once, over every source's names", async () => {
     const rebuilds = firstBuild.flatMap(
-      (sql) => sql.match(/VALUES \('delete-all'\)/g) ?? [],
+      (sql) => sql.match(/'delete-all'/g) ?? [],
     );
     expect(rebuilds).toHaveLength(1);
     for (const [words, rowid] of [
@@ -368,10 +398,7 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
   });
 
   test("a refresh refuses to start while another build holds the claim", async () => {
-    await ops.query(
-      "APP_DB",
-      claimSlotSql("a", "elsewhere", new Date().toISOString()),
-    );
+    await ops.query("APP_DB", claimSlotSql("a", "elsewhere"));
 
     await expect(run()).rejects.toThrow("another build holds its claim");
     expect(await meta("DATA_DB_A")).toStrictEqual([
@@ -389,6 +416,49 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
     });
 
     await expect(run({ via: lost })).rejects.toThrow("connection reset");
+    expect(await claimHolder()).toBeNull();
+  });
+
+  test.each([
+    ["timed out", "wrangler d1 execute timed out after 7200000 ms"],
+    ["was stopped", "wrangler d1 execute stopped"],
+    [
+      "lost its polling",
+      "wrangler d1 execute failed:\n✘ [ERROR] A request to the Cloudflare API (/accounts/x/d1/database/y/import) failed.",
+    ],
+  ])(
+    "a remote refresh whose apply %s keeps its claim, naming the release for once the import stops",
+    async (_, failure) => {
+      await settleLastFlip();
+      await resetInactiveSlot();
+      const lines: string[] = [];
+      try {
+        await expect(
+          run({ via: remoteFailingApply(failure), log: (l) => lines.push(l) }),
+        ).rejects.toThrow(failure.split("\n")[0]);
+        const held = await claimHolder();
+
+        expect(held).not.toBeNull();
+        expect(lines.at(-1)).toMatch(
+          new RegExp(
+            `^build ${held} keeps its claim: DATA_DB_[AB]'s import may still be running in D1, which serves that database no queries until it ends; once it has, irs release --remote --build ${held} clears the claim$`,
+          ),
+        );
+      } finally {
+        await releaseClaim(ops);
+      }
+    },
+  );
+
+  test("a remote refresh whose import reported its own failure releases its claim", async () => {
+    await settleLastFlip();
+    await resetInactiveSlot();
+    const failure =
+      "wrangler d1 execute failed:\n✘ [ERROR] UNIQUE constraint failed: orgs.ein: SQLITE_CONSTRAINT";
+
+    await expect(run({ via: remoteFailingApply(failure) })).rejects.toThrow(
+      "UNIQUE constraint failed",
+    );
     expect(await claimHolder()).toBeNull();
   });
 
@@ -506,10 +576,7 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
 
   test("release clears a stuck claim, only the named build's when one is named", async () => {
     await settleLastFlip();
-    await ops.query(
-      "APP_DB",
-      claimSlotSql("a", "stuck", new Date().toISOString()),
-    );
+    await ops.query("APP_DB", claimSlotSql("a", "stuck"));
 
     expect(await releaseClaim(ops, "other")).toBeNull();
     expect(await claimHolder()).toBe("stuck");
@@ -519,6 +586,57 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
     });
     expect(await claimHolder()).toBeNull();
     expect(await releaseClaim(ops)).toBeNull();
+  });
+
+  test.each([
+    [
+      "keeps a claim when the stop killed a remote import, naming the release for once it ends",
+      true,
+      [
+        "build stopped keeps its claim: DATA_DB_B's import may still be running in D1, which serves that database no queries until it ends; once it has, irs release --remote --build stopped clears the claim",
+      ],
+      "stopped",
+    ],
+    [
+      "releases a claim when the stop killed no import",
+      false,
+      ["released build stopped's claim"],
+      null,
+    ],
+  ])("after a stop, %s", async (_, importKilled, reported, held) => {
+    await settleLastFlip();
+    const [{ active } = { active: "a" }] = await pointer();
+    const inactive = active === "a" ? "b" : "a";
+    await ops.query("APP_DB", claimSlotSql(inactive, "stopped"));
+    const killed = importKilled
+      ? [["d1", "execute", "DATA_DB_B", "--remote", "--yes", "--file", "x.sql"]]
+      : [
+          [
+            "d1",
+            "execute",
+            "APP_DB",
+            "--remote",
+            "--yes",
+            "--json",
+            "--command",
+            "SELECT 1",
+          ],
+        ];
+    const lines: string[] = [];
+    try {
+      await releaseAfterStop(
+        remoteFailingApply("no file is applied"),
+        ["stopped"],
+        killed,
+        (line) => lines.push(line),
+      );
+
+      expect(lines.slice(0, -1)).toStrictEqual(reported);
+      expect(lines.at(-1)).toMatch(/^serving slot [ab] \(build \S+\)$/);
+      expect(await claimHolder()).toBe(held);
+    } finally {
+      await releaseClaim(ops);
+    }
   });
 
   test("a remote refresh refuses an e-file batch run before touching D1", async () => {

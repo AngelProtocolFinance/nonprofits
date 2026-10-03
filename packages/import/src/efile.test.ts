@@ -13,6 +13,7 @@ import {
 import {
   loadTarget,
   query,
+  quickRetry,
   type Route,
   resetDataDb,
   serve,
@@ -131,6 +132,70 @@ beforeAll(async () => {
         .split("\r\n")
         .filter((line, n) => n === 0 || line.includes(",530196605,"))
         .join("\r\n"),
+    );
+  }
+  // the newest index under half the prior year's rows (thin), or exactly half
+  const header = (await fixture("index_2026.csv"))
+    .toString("utf8")
+    .split("\r\n")[0];
+  routes.set("/thin/2027/index_2027.csv", `${header}\r\n`);
+  routes.set("/half/2023/index_2023.csv", `${header}\r\n`);
+  for (const year of YEARS) {
+    const index = (await fixture(`index_${year}.csv`)).toString("utf8");
+    routes.set(`/thin/${year}/index_${year}.csv`, index);
+    // Delta Triton's 2024 filing, its latest without the 2026 index, moved out of 05A
+    routes.set(
+      `/half/${year}/index_${year}.csv`,
+      index.replace(
+        ",202441319349301889,2024_TEOS_XML_05a",
+        ",202441319349301889,2024_TEOS_XML_06A",
+      ),
+    );
+  }
+  // apps.irs.gov answers an unpublished year with a 302 to its not-found page
+  routes.set("/redirected/2027/index_2027.csv", (res) => {
+    res.writeHead(302, { location: "/404" }).end();
+  });
+  routes.set("/404", "<html><body>Page not found</body></html>");
+  for (const year of YEARS) {
+    routes.set(
+      `/redirected/${year}/index_${year}.csv`,
+      await fixture(`index_${year}.csv`),
+    );
+  }
+  routes.set(
+    "/redirected/2026/2026_TEOS_XML_03A.zip",
+    await batchZip(ZIPS["2026_TEOS_XML_03A"] ?? []),
+  );
+  // the 2026 index answered 503 once, the 03A zip cut off mid-body once
+  const flaky = { index: 0, zip: 0 };
+  const index2026 = await fixture("index_2026.csv");
+  routes.set("/flaky/2026/index_2026.csv", (res) => {
+    if (flaky.index++ === 0) res.writeHead(503).end();
+    else res.writeHead(200, { "last-modified": RELEASED }).end(index2026);
+  });
+  for (const year of [2025, 2024]) {
+    routes.set(
+      `/flaky/${year}/index_${year}.csv`,
+      await fixture(`index_${year}.csv`),
+    );
+  }
+  const zip03A = await batchZip(ZIPS["2026_TEOS_XML_03A"] ?? []);
+  routes.set("/flaky/2026/2026_TEOS_XML_03A.zip", (res) => {
+    res.writeHead(200, {
+      "last-modified": RELEASED,
+      "content-length": zip03A.length,
+    });
+    if (flaky.zip++ === 0) {
+      res.write(zip03A.subarray(0, zip03A.length / 2), () =>
+        res.socket?.destroy(),
+      );
+    } else res.end(zip03A);
+  });
+  for (const route of ["thin", "half"]) {
+    routes.set(
+      `/${route}/2024/2024_TEOS_XML_05A.zip`,
+      await batchZip([LOWERCASE_BATCH]),
     );
   }
   for (const [batch, objectIds] of Object.entries(ZIPS)) {
@@ -324,6 +389,7 @@ function loadEfile(
     workDir: join(work, "batches"),
     out: join(work, "efile.load.sql"),
     target: loadTarget(persistTo),
+    retry: quickRetry(),
     ...options,
   });
 }
@@ -851,6 +917,77 @@ describe("a run in January, before the year's index is out", {
     );
     expect(summary.unpublished).toBe(2027);
     expect(Object.keys(await storedFilings(d1))).toContain("530196605");
+  });
+
+  test("takes a redirect to the not-found page as the year's index unpublished", async () => {
+    const d1 = await d1WithBmf("redirected");
+    const summary = await loadEfile(d1, {
+      baseUrl: `${base}/redirected/`,
+      latestYear: 2027,
+      batches: ["2026_TEOS_XML_03A"],
+    });
+
+    expect(summary.unpublished).toBe(2027);
+    expect(summary.indexes.map((i) => i.year)).toEqual(YEARS);
+  });
+});
+
+describe("a run whose downloads fail once", { timeout: 60_000 }, () => {
+  test("reads the indexes again after a 503, and the zip again after a reset, saying so", async () => {
+    const d1 = await d1WithBmf("flaky");
+    const retry = quickRetry();
+
+    const summary = await loadEfile(d1, {
+      baseUrl: `${base}/flaky/`,
+      batches: ["2026_TEOS_XML_03A"],
+      retry,
+    });
+
+    expect(summary.indexes.map((i) => i.year)).toEqual([2026, 2025, 2024]);
+    expect(Object.keys(await storedFilings(d1))).toContain("530196605");
+    expect(retry.lines).toHaveLength(2);
+    expect(retry.lines[0]).toBe(
+      `990 index read failed (990 index download failed: ${base}/flaky/2026/index_2026.csv: HTTP 503); try 2 of 3 in 0.0 s`,
+    );
+    expect(retry.lines[1]).toMatch(
+      new RegExp(
+        `^990 batch 2026_TEOS_XML_03A\\.zip failed \\(990 batch download failed: ${base}/flaky/2026/2026_TEOS_XML_03A\\.zip: .+\\); try 2 of 3 in 0\\.0 s$`,
+      ),
+    );
+  });
+});
+
+describe("a run while the newest index is filling", { timeout: 60_000 }, () => {
+  const years = (summary: Awaited<ReturnType<typeof importEfile>>) =>
+    summary.indexes.map((i) => i.year);
+
+  test("reads a fourth release year while the newest lists under half the prior year's rows, saying why", async () => {
+    const d1 = await d1WithBmf("thin");
+    const summary = await loadEfile(d1, {
+      baseUrl: `${base}/thin/`,
+      latestYear: 2027,
+      batches: ["2024_TEOS_XML_05A"],
+    });
+
+    expect(years(summary)).toEqual([2027, 2026, 2025, 2024]);
+    expect(summary.windowReason).toBe(
+      "index_2027.csv lists 0 rows, under half of index_2026.csv's 11: 4 release years read",
+    );
+    expect(Object.keys(await storedFilings(d1))).toContain("470269340");
+  });
+
+  test("reads three once the newest lists half the prior year's rows", async () => {
+    const d1 = await d1WithBmf("half");
+    const summary = await loadEfile(d1, {
+      baseUrl: `${base}/half/`,
+      latestYear: 2025,
+      batches: ["2024_TEOS_XML_05A"],
+    });
+
+    expect(years(summary)).toEqual([2025, 2024, 2023]);
+    expect(summary.windowReason).toBe(
+      "index_2025.csv lists 3 rows, at least half of index_2024.csv's 6: 3 release years read",
+    );
   });
 });
 

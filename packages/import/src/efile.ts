@@ -19,7 +19,10 @@ import {
 } from "./efile-xml.ts";
 import {
   batches,
+  DOWNLOAD_RETRY,
+  type DownloadRetry,
   download,
+  downloadFailed,
   downloadIfPresent,
   type ImportFile,
   insertRun,
@@ -32,6 +35,7 @@ import {
   tuple,
   writeLoad,
 } from "./load.ts";
+import { retrying } from "./retry.ts";
 import type { D1Target } from "./wrangler.ts";
 import { zipEntries } from "./zip.ts";
 
@@ -39,6 +43,12 @@ export const EFILE_BASE_URL = "https://apps.irs.gov/pub/epostcard/990/xml/";
 
 /** Release years read: the latest whose index is published, and the two before it. */
 const RELEASE_YEARS = 3;
+/**
+ * A newest index listing under this share of the prior year's rows is still
+ * filling (January to spring it holds a few weeks of filings), so the run
+ * reads one release year more: three would drop a year the floors count on.
+ */
+const FILLING_SHARE = 0.5;
 
 /** What a return states to count toward each yield a run measures. */
 const YIELDS = {
@@ -113,13 +123,17 @@ export interface EfileImportOptions {
   target: D1Target;
   /** Largest statement written, in bytes; defaults under D1's 100 KB limit. A filing too large for one aborts the run. */
   maxStatementBytes?: number;
+  /** A failed index download reads the indexes over, a failed zip download fetches that zip over; defaults to `DOWNLOAD_RETRY`. */
+  retry?: DownloadRetry;
 }
 
 export interface EfileImportSummary {
   /** One per release year read, latest first. */
   indexes: { year: number; url: string; releasedAt: string; rows: number }[];
-  /** The current year, when its index wasn't published and the run read the three before it. */
+  /** The current year, when its index wasn't published and the run started a year earlier. */
   unpublished: number | null;
+  /** Why the run read as many release years as it did: the newest index's rows against the prior year's. */
+  windowReason: string;
   /** Index rows of return types not stored (990-T), by type. */
   skipped: Record<string, number>;
   zips: { url: string; releasedAt: string; filings: number }[];
@@ -187,6 +201,7 @@ export async function importEfile(
   let summary: EfileImportSummary | undefined;
   await writeLoad(
     options.out,
+    options.target.buildId,
     (async function* () {
       summary = yield* efileSql(options);
     })(),
@@ -206,36 +221,14 @@ interface BatchGroup {
 async function* efileSql(
   options: EfileImportOptions,
 ): AsyncGenerator<string, EfileImportSummary> {
-  const { baseUrl, latestYear, floors } = options;
-  const tally: IndexTally = { rows: 0, skipped: {} };
-  const indexes: EfileImportSummary["indexes"] = [];
+  const { baseUrl, floors } = options;
+  const retry = options.retry ?? DOWNLOAD_RETRY;
   const fetchedAt = new Date().toISOString();
-  const indexFile = (year: number): ImportFile => ({
-    source: "efile_index",
-    label: "990 index",
-    url: `${baseUrl}${year}/index_${year}.csv`,
-  });
-
-  const current = await downloadIfPresent(indexFile(latestYear));
-  const firstYear = current === null ? latestYear - 1 : latestYear;
-  async function* listed(): AsyncGenerator<IndexedFiling> {
-    for (let year = firstYear; year > firstYear - RELEASE_YEARS; year--) {
-      const file = indexFile(year);
-      const { body, releasedAt } =
-        year === latestYear && current !== null
-          ? current
-          : await download(file);
-      const before = tally.rows;
-      yield* indexedFilings(file, year, Readable.fromWeb(body), tally);
-      indexes.push({
-        year,
-        url: file.url,
-        releasedAt,
-        rows: tally.rows - before,
-      });
-    }
-  }
-  const ranked = await latestPerEin(listed());
+  const { ranked, tally, indexes, unpublished, windowReason } = await retrying(
+    "990 index read",
+    retry,
+    () => readIndexes(options, retry.stallMs),
+  );
   for (const index of indexes) {
     yield insertRun(
       { source: "efile_index", label: "990 index", url: index.url },
@@ -249,6 +242,7 @@ async function* efileSql(
     baseUrl,
     workDir: options.workDir,
     fetchedAt,
+    retry,
     budget: options.maxStatementBytes ?? MAX_STATEMENT_BYTES,
     zips: [],
   };
@@ -300,7 +294,8 @@ async function* efileSql(
   }
   return {
     indexes,
-    unpublished: current === null ? latestYear : null,
+    unpublished,
+    windowReason,
     skipped: tally.skipped,
     zips: read.zips,
     filings: filingsLoaded,
@@ -311,11 +306,74 @@ async function* efileSql(
   };
 }
 
+/** What reading the release years' indexes found. */
+interface IndexRead {
+  ranked: Awaited<ReturnType<typeof latestPerEin>>;
+  tally: IndexTally;
+  indexes: EfileImportSummary["indexes"];
+  unpublished: number | null;
+  windowReason: string;
+}
+
+/**
+ * Reads the index of each release year, newest first, ranking each EIN's
+ * filings: the latest year whose index is published and the two before it,
+ * and a third before those while that newest index is still filling.
+ */
+async function readIndexes(
+  { baseUrl, latestYear }: EfileImportOptions,
+  stallMs: number,
+): Promise<IndexRead> {
+  const tally: IndexTally = { rows: 0, skipped: {} };
+  const indexes: EfileImportSummary["indexes"] = [];
+  const indexFile = (year: number): ImportFile => ({
+    source: "efile_index",
+    label: "990 index",
+    url: `${baseUrl}${year}/index_${year}.csv`,
+  });
+  const current = await downloadIfPresent(indexFile(latestYear), stallMs);
+  const firstYear = current === null ? latestYear - 1 : latestYear;
+  let windowReason = "";
+  async function* listed(): AsyncGenerator<IndexedFiling> {
+    let releaseYears = RELEASE_YEARS;
+    for (let year = firstYear; year > firstYear - releaseYears; year--) {
+      const file = indexFile(year);
+      const { body, releasedAt } =
+        year === latestYear && current !== null
+          ? current
+          : await download(file, stallMs);
+      const before = tally.rows;
+      yield* indexedFilings(file, year, Readable.fromWeb(body), tally);
+      indexes.push({
+        year,
+        url: file.url,
+        releasedAt,
+        rows: tally.rows - before,
+      });
+      const [newest, prior] = indexes;
+      if (indexes.length === 2 && newest !== undefined && prior !== undefined) {
+        const filling = newest.rows < FILLING_SHARE * prior.rows;
+        if (filling) releaseYears++;
+        windowReason = `index_${newest.year}.csv lists ${newest.rows} rows, ${filling ? "under" : "at least"} half of index_${prior.year}.csv's ${prior.rows}: ${releaseYears} release years read`;
+      }
+    }
+  }
+  const ranked = await latestPerEin(listed());
+  return {
+    ranked,
+    tally,
+    indexes,
+    unpublished: current === null ? latestYear : null,
+    windowReason,
+  };
+}
+
 /** What reading batch zips shares across a run. */
 interface BatchRead {
   baseUrl: string;
   workDir: string;
   fetchedAt: string;
+  retry: DownloadRetry;
   /** Largest statement written, in bytes. */
   budget: number;
   /** Each zip read, appended to as it is. */
@@ -342,8 +400,11 @@ async function* groupsSql(
         label: "990 batch",
         url: `${read.baseUrl}${group.year}/${group.prefix}${letter}.zip`,
       };
-      const path = join(read.workDir, `${group.prefix}${letter}.zip`);
-      const releasedAt = await downloadTo(file, path);
+      const name = `${group.prefix}${letter}.zip`;
+      const path = join(read.workDir, name);
+      const releasedAt = await retrying(`990 batch ${name}`, read.retry, () =>
+        downloadTo(file, path, read.retry.stallMs),
+      );
       if (releasedAt === null) break;
       try {
         yield insertRun(file, releasedAt, read.fetchedAt);
@@ -589,17 +650,16 @@ function batchGroups(
 async function downloadTo(
   file: ImportFile,
   path: string,
+  stallMs: number,
 ): Promise<string | null> {
-  const downloaded = await downloadIfPresent(file);
+  const downloaded = await downloadIfPresent(file, stallMs);
   if (downloaded === null) return null;
   await mkdir(dirname(path), { recursive: true });
   try {
     await pipeline(Readable.fromWeb(downloaded.body), createWriteStream(path));
   } catch (error) {
     await rm(path, { force: true });
-    throw new Error(`${file.label} download failed: ${file.url}: ${error}`, {
-      cause: error,
-    });
+    throw downloadFailed(file, error);
   }
   return downloaded.releasedAt;
 }

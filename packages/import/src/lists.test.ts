@@ -7,9 +7,11 @@ import { zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
 import { importList, type ListName } from "./lists.ts";
+import type { DownloadRetry } from "./load.ts";
 import {
   loadTarget,
   query,
+  quickRetry,
   type Route,
   resetDataDb,
   serve,
@@ -73,6 +75,13 @@ beforeAll(async () => {
     routes.set(`/dropped/${list}.zip`, zipped(list, lastColumnDropped));
   }
   const pub78 = zipped("pub78", await fixtureText("pub78"));
+  let stallOnce = true;
+  routes.set("/stall-once/pub78.zip", (res) => {
+    res.writeHead(200, { "last-modified": RELEASED });
+    if (stallOnce) res.write(pub78.subarray(0, pub78.length / 2));
+    else res.end(pub78);
+    stallOnce = false;
+  });
   routes.set("/cut/pub78.zip", (res) => {
     res.writeHead(200, { "last-modified": RELEASED });
     res.end(pub78.subarray(0, pub78.length / 2));
@@ -154,13 +163,19 @@ function loadBmf(persistTo: string) {
 function loadList(
   persistTo: string,
   list: ListName,
-  options: { path?: string; minRows?: number; maxStatementBytes?: number } = {},
+  options: {
+    path?: string;
+    minRows?: number;
+    maxStatementBytes?: number;
+    retry?: DownloadRetry;
+  } = {},
 ) {
   return importList(list, {
     url: `${base}${options.path ?? `/${list}.zip`}`,
     minRows: options.minRows ?? 1,
     out: join(work, `${list}.load.sql`),
     target: loadTarget(persistTo),
+    retry: options.retry ?? quickRetry(),
     ...(options.maxStatementBytes === undefined
       ? {}
       : { maxStatementBytes: options.maxStatementBytes }),
@@ -548,6 +563,40 @@ test("an EIN listed twice keeps its latest revocation whichever row comes first"
   expect(rows).toStrictEqual([
     { revocation_date: "2019-03-15", reinstatement_date: "2020-05-15" },
   ]);
+});
+
+test("a download that stalls is cut off and the load restarted, saying so", {
+  timeout: 60_000,
+}, async () => {
+  const d1 = await freshD1("stall-once");
+  const retry = quickRetry();
+
+  const summary = await loadList(d1, "pub78", {
+    path: "/stall-once/pub78.zip",
+    retry,
+  });
+
+  expect(summary.rows).toBe(FIXTURE_ROWS.pub78);
+  expect(retry.lines).toStrictEqual([
+    `Pub 78 load failed (Pub 78 download failed: ${base}/stall-once/pub78.zip: no data for 0.5 s); try 2 of 3 in 0.0 s`,
+  ]);
+});
+
+test("a load fenced for another build than the slot is building aborts, writing nothing", {
+  timeout: 60_000,
+}, async () => {
+  const d1 = await freshD1("fenced");
+  const before = await counts(d1);
+
+  await expect(
+    importList("pub78", {
+      url: `${base}/pub78.zip`,
+      minRows: 1,
+      out: join(work, "fenced.load.sql"),
+      target: { ...loadTarget(d1), buildId: "a-later-build" },
+    }),
+  ).rejects.toThrow("load refused: this slot is not building the load's build");
+  expect(await counts(d1)).toStrictEqual(before);
 });
 
 function counts(persistTo: string) {

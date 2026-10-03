@@ -3,12 +3,26 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { DATA_DB_BINDING, resetGenerationSql } from "@nonprofits/db";
+import type { DownloadRetry } from "./load.ts";
 import {
   type D1Target,
   localD1,
   QUERY_TIMEOUT_MS,
   wrangler,
 } from "./wrangler.ts";
+
+/** Retries at once, at most twice more, giving up on a body silent for 500 ms; records each retry's line. */
+export function quickRetry(): DownloadRetry & { lines: string[] } {
+  const lines: string[] = [];
+  return {
+    attempts: 3,
+    firstDelayMs: 1,
+    maxDelayMs: 1,
+    stallMs: 500,
+    log: (line) => lines.push(line),
+    lines,
+  };
+}
 
 /** A body served whole, or a handler that writes the response itself. */
 export type Route = string | Uint8Array | ((res: ServerResponse) => void);
@@ -33,16 +47,23 @@ export async function serve(
   return { server, base: `http://127.0.0.1:${port}` };
 }
 
+/** The build `resetDataDb` leaves building. */
+const TEST_BUILD = "test";
+
 /** The local data DB under `persistTo` that the load tests apply to. */
 export function loadTarget(persistTo: string): D1Target {
-  return { ops: localD1(persistTo), binding: DATA_DB_BINDING.a };
+  return {
+    ops: localD1(persistTo),
+    binding: DATA_DB_BINDING.a,
+    buildId: TEST_BUILD,
+  };
 }
 
 /** Builds an empty data generation in the local load DB under `persistTo`. */
 export async function resetDataDb(persistTo: string): Promise<void> {
   await mkdir(persistTo, { recursive: true });
   const file = join(persistTo, "reset-generation.sql");
-  await writeFile(file, resetGenerationSql("a", "test"));
+  await writeFile(file, resetGenerationSql("a", TEST_BUILD));
   const { ops, binding } = loadTarget(persistTo);
   await ops.applyFile(binding, file);
 }

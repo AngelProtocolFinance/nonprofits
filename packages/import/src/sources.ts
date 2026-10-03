@@ -63,7 +63,7 @@ export async function loadSource(
       ...(summary.unpublished === null
         ? []
         : [`index_${summary.unpublished}.csv is not published yet`]),
-      `release years read: ${summary.indexes.map((i) => i.year).join(", ")}`,
+      `release years read: ${summary.indexes.map((i) => i.year).join(", ")} (${summary.windowReason})`,
       ...summary.indexes.map(
         (i) => `${i.url}  released ${i.releasedAt}  ${i.rows} rows`,
       ),

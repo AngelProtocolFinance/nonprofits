@@ -1,6 +1,8 @@
 import { Readable } from "node:stream";
 import {
   batches,
+  DOWNLOAD_RETRY,
+  type DownloadRetry,
   download,
   type ImportFile,
   insertRun,
@@ -16,6 +18,7 @@ import {
   webAddress,
   writeLoad,
 } from "./load.ts";
+import { retrying } from "./retry.ts";
 import type { D1Target } from "./wrangler.ts";
 import { firstZipEntry } from "./zip.ts";
 
@@ -175,6 +178,8 @@ export interface ListImportOptions {
   target: D1Target;
   /** Largest upsert statement written, in bytes; defaults under D1's 100 KB limit. */
   maxStatementBytes?: number;
+  /** A download that failed transiently restarts the load; defaults to `DOWNLOAD_RETRY`. */
+  retry?: DownloadRetry;
 }
 
 export interface ListImportSummary {
@@ -201,12 +206,16 @@ export async function importList(
     label: layout.label,
     url: options.url,
   };
+  const retry = options.retry ?? DOWNLOAD_RETRY;
   let summary: ListImportSummary | undefined;
-  await writeLoad(
-    options.out,
-    (async function* () {
-      summary = yield* listSql(layout, file, options);
-    })(),
+  await retrying(`${layout.label} load`, retry, () =>
+    writeLoad(
+      options.out,
+      options.target.buildId,
+      (async function* () {
+        summary = yield* listSql(layout, file, options, retry.stallMs);
+      })(),
+    ),
   );
   await options.target.ops.applyFile(options.target.binding, options.out);
   return summary as ListImportSummary;
@@ -216,8 +225,9 @@ async function* listSql(
   layout: Layout,
   file: ImportFile,
   { minRows, maxStatementBytes = MAX_STATEMENT_BYTES }: ListImportOptions,
+  stallMs: number,
 ): AsyncGenerator<string, ListImportSummary> {
-  const { body, releasedAt } = await download(file);
+  const { body, releasedAt } = await download(file, stallMs);
   yield insertRun(file, releasedAt, new Date().toISOString());
   let rows = 0;
   async function* listed(): AsyncGenerator<Listed> {

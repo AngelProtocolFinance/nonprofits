@@ -3,8 +3,14 @@ import { mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { COLUMNS, type DataTable, type ImportSource } from "@nonprofits/db";
+import {
+  COLUMNS,
+  type DataTable,
+  fenceSql,
+  type ImportSource,
+} from "@nonprofits/db";
 import { CsvError, type Options as CsvOptions, parse } from "csv-parse";
+import { RETRY, type RetryPolicy, TransientError } from "./retry.ts";
 
 export type OrgColumn = (typeof COLUMNS.orgs)[number];
 type RunColumn = (typeof COLUMNS.import_runs)[number];
@@ -25,16 +31,24 @@ export interface ImportFile {
 }
 
 /**
- * Writes `sql` to `out` statement by statement. Anything `sql` throws removes
- * the partial file and rethrows, so a failed import leaves nothing to apply.
+ * Writes `sql` to `out` statement by statement, behind the fence for
+ * `buildId`. Anything `sql` throws removes the partial file and rethrows, so
+ * a failed import leaves nothing to apply.
  */
 export async function writeLoad(
   out: string,
+  buildId: string,
   sql: AsyncIterable<string>,
 ): Promise<void> {
   await mkdir(dirname(out), { recursive: true });
   try {
-    await pipeline(sql, createWriteStream(out));
+    await pipeline(
+      (async function* () {
+        yield fenceSql(buildId);
+        yield* sql;
+      })(),
+      createWriteStream(out),
+    );
   } catch (error) {
     await rm(out, { force: true });
     throw error;
@@ -47,9 +61,20 @@ export interface Downloaded {
   releasedAt: string;
 }
 
+/** How IRS downloads are retried, and how long a body may go silent before it counts as dropped. */
+export interface DownloadRetry extends RetryPolicy {
+  stallMs: number;
+}
+
+/** `RETRY`, a body silent for a minute counting as dropped. */
+export const DOWNLOAD_RETRY: DownloadRetry = { ...RETRY, stallMs: 60_000 };
+
 /** Fetches `file`; a 404 like any other failed response throws. */
-export async function download(file: ImportFile): Promise<Downloaded> {
-  const downloaded = await downloadIfPresent(file);
+export async function download(
+  file: ImportFile,
+  stallMs: number,
+): Promise<Downloaded> {
+  const downloaded = await downloadIfPresent(file, stallMs);
   if (downloaded === null) {
     throw new Error(`${file.label} download failed: ${file.url}: HTTP 404`);
   }
@@ -57,26 +82,39 @@ export async function download(file: ImportFile): Promise<Downloaded> {
 }
 
 /**
- * Fetches `file`, resolving null when the server answers 404; any other
- * failed response or network error throws, as `download` does.
+ * Fetches `file`, resolving null when it isn't there: a 404, or a redirect to
+ * a `/404` page, which is how apps.irs.gov answers for a file it hasn't
+ * published. Any other failed response or network error throws, as
+ * `download` does: a `TransientError` for a dropped connection, a 5xx or a
+ * 429, and from the body once read, for a dropped connection or `stallMs`
+ * without data.
  */
 export async function downloadIfPresent(
   file: ImportFile,
+  stallMs: number,
 ): Promise<Downloaded | null> {
   let response: Response;
   try {
     response = await fetch(file.url);
   } catch (error) {
-    throw downloadFailed(file, error);
+    throw downloadFailed(
+      file,
+      new TransientError(detailOf(error), { cause: error }),
+    );
   }
-  if (response.status === 404) {
+  if (
+    response.status === 404 ||
+    (response.redirected && new URL(response.url).pathname === "/404")
+  ) {
     await response.body?.cancel();
     return null;
   }
   if (!response.ok || response.body === null) {
-    throw new Error(
-      `${file.label} download failed: ${file.url}: HTTP ${response.status}`,
-    );
+    await response.body?.cancel();
+    const failed = `${file.label} download failed: ${file.url}: HTTP ${response.status}`;
+    throw response.status >= 500 || response.status === 429
+      ? new TransientError(failed)
+      : new Error(failed);
   }
   const lastModified = response.headers.get("last-modified");
   if (lastModified === null) {
@@ -85,21 +123,59 @@ export async function downloadIfPresent(
     );
   }
   return {
-    body: response.body,
+    body: watched(response.body, stallMs),
     releasedAt: new Date(lastModified).toISOString(),
   };
 }
 
-function downloadFailed(file: ImportFile, error: unknown): Error {
-  const detail =
-    error instanceof Error
-      ? [error.message, error.cause instanceof Error && error.cause.message]
-          .filter(Boolean)
-          .join(": ")
-      : String(error);
-  return new Error(`${file.label} download failed: ${file.url}: ${detail}`, {
-    cause: error,
+/** `body`, its read failures as `TransientError`s, and one more once `stallMs` pass without data. */
+function watched(
+  body: ReadableStream<Uint8Array>,
+  stallMs: number,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  return new ReadableStream({
+    async pull(controller) {
+      let timer: NodeJS.Timeout | undefined;
+      const stalled = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new TransientError(`no data for ${stallMs / 1000} s`)),
+          stallMs,
+        );
+      });
+      try {
+        const read = await Promise.race([reader.read(), stalled]);
+        if (read.done) controller.close();
+        else controller.enqueue(read.value);
+      } catch (error) {
+        reader.cancel().catch(() => {});
+        controller.error(
+          error instanceof TransientError
+            ? error
+            : new TransientError(detailOf(error), { cause: error }),
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    cancel: (reason) => reader.cancel(reason),
   });
+}
+
+/** An error's message, and its cause's, which is where fetch says what failed. */
+function detailOf(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error instanceof TransientError || !(error.cause instanceof Error)
+    ? error.message
+    : `${error.message}: ${error.cause.message}`;
+}
+
+/** A failure reading `file`, as transient as `error`. */
+export function downloadFailed(file: ImportFile, error: unknown): Error {
+  const failed = `${file.label} download failed: ${file.url}: ${detailOf(error)}`;
+  return error instanceof TransientError
+    ? new TransientError(failed, { cause: error })
+    : new Error(failed, { cause: error });
 }
 
 /**

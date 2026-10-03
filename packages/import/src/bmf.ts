@@ -2,6 +2,8 @@ import { Readable } from "node:stream";
 import type { ImportSource } from "@nonprofits/db";
 import {
   batches,
+  DOWNLOAD_RETRY,
+  type DownloadRetry,
   download,
   IMPORT_RUNS,
   type ImportFile,
@@ -20,6 +22,7 @@ import {
   upsertOrgs,
   writeLoad,
 } from "./load.ts";
+import { retrying } from "./retry.ts";
 import type { D1Target } from "./wrangler.ts";
 
 /** The EO BMF, split by IRS region. */
@@ -99,6 +102,8 @@ export interface BmfImportOptions {
   target: D1Target;
   /** Largest upsert statement written, in bytes; defaults under D1's 100 KB limit. */
   maxStatementBytes?: number;
+  /** A file that failed transiently restarts the load from the first file; defaults to `DOWNLOAD_RETRY`. */
+  retry?: DownloadRetry;
 }
 
 export interface BmfFileSummary {
@@ -131,10 +136,20 @@ async function writeBmfLoad({
   urls,
   minOrgs,
   out,
+  target,
   maxStatementBytes = MAX_STATEMENT_BYTES,
+  retry = DOWNLOAD_RETRY,
 }: BmfImportOptions): Promise<BmfImportSummary> {
   const files: BmfFileSummary[] = [];
-  await writeLoad(out, loadSql(urls, minOrgs, maxStatementBytes, files));
+  // each file streams into the load as it arrives, so a retry starts the load over
+  await retrying("BMF load", retry, () => {
+    files.length = 0;
+    return writeLoad(
+      out,
+      target.buildId,
+      loadSql(urls, minOrgs, maxStatementBytes, retry.stallMs, files),
+    );
+  });
   return { orgs: totalOrgs(files), files };
 }
 
@@ -146,6 +161,7 @@ async function* loadSql(
   urls: readonly string[],
   minOrgs: number,
   maxStatementBytes: number,
+  stallMs: number,
   files: BmfFileSummary[],
 ): AsyncGenerator<string> {
   for (const url of urls) {
@@ -153,6 +169,7 @@ async function* loadSql(
       yield* bmfFileSql(
         { source: SOURCE, label: "BMF", url },
         maxStatementBytes,
+        stallMs,
       ),
     );
   }
@@ -168,8 +185,9 @@ async function* loadSql(
 async function* bmfFileSql(
   file: ImportFile,
   maxStatementBytes: number,
+  stallMs: number,
 ): AsyncGenerator<string, BmfFileSummary> {
-  const { body, releasedAt } = await download(file);
+  const { body, releasedAt } = await download(file, stallMs);
   yield insertRun(file, releasedAt, new Date().toISOString());
   let orgs = 0;
   async function* tuples(): AsyncGenerator<string> {

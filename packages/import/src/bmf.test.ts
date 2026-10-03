@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
+import type { DownloadRetry } from "./load.ts";
 import {
   loadTarget,
   query as queryD1,
+  quickRetry,
   type Route,
   resetDataDb,
   serve,
@@ -38,6 +40,7 @@ let server: Server;
 let base: string;
 let work: string;
 let persistTo: string;
+const requests = { flaky: 0, forbidden: 0 };
 
 function urls(names: readonly string[]): string[] {
   return names.map((name) => `${base}/${name}`);
@@ -46,13 +49,18 @@ function urls(names: readonly string[]): string[] {
 function importFixture(
   names: readonly string[],
   out: string,
-  options: { minOrgs?: number; maxStatementBytes?: number } = {},
+  options: {
+    minOrgs?: number;
+    maxStatementBytes?: number;
+    retry?: DownloadRetry;
+  } = {},
 ) {
   return importBmf({
     urls: urls(names),
     minOrgs: options.minOrgs ?? 1,
     out: join(work, out),
     target: loadTarget(persistTo),
+    retry: options.retry ?? quickRetry(),
     ...(options.maxStatementBytes === undefined
       ? {}
       : { maxStatementBytes: options.maxStatementBytes }),
@@ -94,6 +102,15 @@ beforeAll(async () => {
     f[11] = "20109";
   });
   routes.set("/odd/eo4.csv", odd);
+  routes.set("/flaky/eo4.csv", (res) => {
+    requests.flaky++;
+    if (requests.flaky === 1) res.writeHead(503).end();
+    else res.writeHead(200, { "last-modified": RELEASED }).end(eo4);
+  });
+  routes.set("/forbidden/eo4.csv", (res) => {
+    requests.forbidden++;
+    res.writeHead(403).end();
+  });
 
   ({ server, base } = await serve(routes, RELEASED));
   work = await mkdtemp(join(tmpdir(), "bmf-import-"));
@@ -188,6 +205,37 @@ describe("importBmf", { timeout: 60_000 }, () => {
     await expect(access(join(work, "reset.load.sql"))).rejects.toThrow(
       "ENOENT",
     );
+    expect(await counts()).toStrictEqual(before);
+  });
+
+  test("restarts the load when a file is answered 503, saying so", async () => {
+    const retry = quickRetry();
+
+    const summary = await importFixture(
+      ["eo1.csv", "eo2.csv", "eo3.csv", "flaky/eo4.csv"],
+      "flaky.load.sql",
+      { retry },
+    );
+
+    expect(summary.orgs).toBe(FIXTURE_ORGS);
+    expect(requests.flaky).toBe(2);
+    expect(retry.lines).toStrictEqual([
+      `BMF load failed (BMF download failed: ${base}/flaky/eo4.csv: HTTP 503); try 2 of 3 in 0.0 s`,
+    ]);
+  });
+
+  test("fails at once on a file answered 403, loading nothing", async () => {
+    const before = await counts();
+
+    await expect(
+      importFixture(
+        ["eo1.csv", "eo2.csv", "eo3.csv", "forbidden/eo4.csv"],
+        "forbidden.load.sql",
+      ),
+    ).rejects.toThrow(
+      `BMF download failed: ${base}/forbidden/eo4.csv: HTTP 403`,
+    );
+    expect(requests.forbidden).toBe(1);
     expect(await counts()).toStrictEqual(before);
   });
 

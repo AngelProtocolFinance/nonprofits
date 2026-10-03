@@ -1,16 +1,13 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { DATA_DB_BINDING, type DataSlot, otherSlot } from "@nonprofits/db";
 import {
-  DATA_DB_BINDING,
-  type DataSlot,
-  otherSlot,
-  releaseClaimSql,
-} from "@nonprofits/db";
-import {
+  readMeta,
   readPointer,
   rebuildSearchIndex,
   refresh,
+  releaseAfterStop,
   releaseClaim,
   rollback,
   TABLE_FLOORS,
@@ -36,8 +33,9 @@ const USAGE = `usage: node src/cli.ts <command>
   release [--remote] [--build <BUILD_ID>]
       clear the claim a stopped build left on the slot not served (only that build's, with --build)
   <bmf|pub78|revocation|epostcard|efile|all> [--slot a|b] [--batch <XML_BATCH_ID>]...
-      dev, local only: load into a slot reset for it (default: the one not served),
-      then rebuild its search index; all = ${ALL.join(", ")}
+      dev, local only: load into a slot (default: the one not served) that
+      pnpm --filter @nonprofits/worker db:reset:local <slot> left building, then
+      rebuild its search index; all = ${ALL.join(", ")}
       --batch  efile only: load just the filings in this batch
   --persist-to <dir>  local D1 state under <dir> instead of wrangler's default`;
 
@@ -173,11 +171,7 @@ async function main(): Promise<void> {
       "a single-source load is local only: remote data changes go through irs refresh",
     );
   }
-  await loadSources(ops, sources, slot, values.batch);
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  await loadSources(ops, sources, slot, values.batch, values["persist-to"]);
 }
 
 /** The run's own lines; quiet once a signal is stopping it, as its failures are the stop's. */
@@ -190,53 +184,62 @@ function isSlot(name: string): name is DataSlot {
 }
 
 /**
+ * How long a stop may take before the CLI exits anyway: GitHub Actions
+ * follows a cancel's SIGINT with SIGTERM 7.5 s later and SIGKILL at 10 s.
+ */
+const STOP_BUDGET_MS = 7_000;
+
+/**
  * On SIGINT or SIGTERM: stops wrangler (the running command and every later
  * one the run starts), releases every claim the run asked for (a claim it
- * never got releases nothing), reports what the pointer serves, and exits 130
- * or 143. Returns the list the run adds each build id to as it claims.
+ * never got releases nothing; one whose remote import it killed is kept),
+ * reports what the pointer serves, and exits 130 or 143, within
+ * `STOP_BUDGET_MS`. A signal while stopping waits for that stop. Returns the
+ * list the run adds each build id to as it claims.
  */
 function releaseOnSignal(ops: D1Ops): string[] {
   const claims: string[] = [];
+  let stopping = false;
   const stop = async (signal: NodeJS.Signals, code: number) => {
+    if (stopping) {
+      console.error(`${signal}: already stopping`);
+      return;
+    }
+    stopping = true;
     interrupted = true;
     console.error(`${signal}: stopping`);
-    await stopWrangler(async () => {
-      for (const buildId of claims) {
-        try {
-          const released = await ops.query("APP_DB", releaseClaimSql(buildId));
-          console.error(
-            released.length === 1
-              ? `released build ${buildId}'s claim`
-              : `build ${buildId} holds no claim`,
-          );
-        } catch (error) {
-          console.error(
-            `could not release build ${buildId}'s claim (${message(error)}); irs release --build ${buildId} clears it`,
-          );
-        }
-      }
-      try {
-        const pointer = await readPointer(ops);
+    const stopped = stopWrangler((killed) =>
+      releaseAfterStop(ops, claims, killed, (line) => console.error(line)),
+    ).then(() => true);
+    const budget = new Promise<false>((resolve) =>
+      setTimeout(() => resolve(false), STOP_BUDGET_MS),
+    );
+    if (!(await Promise.race([stopped, budget]))) {
+      console.error(`stop cut off after ${STOP_BUDGET_MS / 1000} s`);
+      for (const id of claims) {
         console.error(
-          `serving slot ${pointer.active} (build ${pointer.build_id})`,
+          `irs release${ops.remote ? " --remote" : ""} --build ${id} clears build ${id}'s claim if it is left`,
         );
-      } catch (error) {
-        console.error(`could not read the pointer back (${message(error)})`);
       }
-    });
+    }
     process.exit(code);
   };
-  process.once("SIGINT", (signal) => void stop(signal, 130));
-  process.once("SIGTERM", (signal) => void stop(signal, 143));
+  // `on`, not `once`: a second signal left to node's default would kill the stop's cleanup
+  process.on("SIGINT", (signal) => void stop(signal, 130));
+  process.on("SIGTERM", (signal) => void stop(signal, 143));
   return claims;
 }
 
-/** Each source commits on its own, so one failing in `all` still lets the rest load. */
+/**
+ * Loads into a slot `db:reset:local` left building, under its build's fence.
+ * Each source commits on its own, so one failing in `all` still lets the rest load.
+ */
 async function loadSources(
   ops: D1Ops,
   sources: readonly Source[],
   named: DataSlot | undefined,
   batches: readonly string[] | undefined,
+  persistTo: string | undefined,
 ): Promise<void> {
   const { active } = await readPointer(ops);
   const slot = named ?? otherSlot(active);
@@ -244,6 +247,14 @@ async function loadSources(
     throw new UsageError(`slot ${slot} is the one served`);
   }
   const binding = DATA_DB_BINDING[slot];
+  const meta = await readMeta(ops, binding);
+  if (meta?.state !== "building") {
+    const reset = `pnpm --filter @nonprofits/worker db:reset:local ${slot}${persistTo === undefined ? "" : ` --persist-to ${persistTo}`}`;
+    throw new Error(
+      `slot ${slot} (${binding}) ${meta === null ? "holds no generation" : `is sealed (build ${meta.build_id})`}: ${reset} resets it for a load`,
+    );
+  }
+  const target = { ops, binding, buildId: meta.build_id };
   const config = irsSources({
     workDir: EFILE_WORK_DIR,
     ...(batches === undefined ? {} : { batches }),
@@ -253,12 +264,7 @@ async function loadSources(
     const out = join(LOAD_DIR, `${source}.load.sql`);
     console.error(`importing ${source} into local ${binding} via ${out}`);
     try {
-      for (const line of await loadSource(
-        source,
-        config,
-        { ops, binding },
-        out,
-      )) {
+      for (const line of await loadSource(source, config, target, out)) {
         console.log(line);
       }
     } catch (error) {
@@ -267,7 +273,7 @@ async function loadSources(
     }
   }
   if (failed.length < sources.length) {
-    await rebuildSearchIndex(ops, binding, LOAD_DIR);
+    await rebuildSearchIndex(target, LOAD_DIR);
     console.log(`rebuilt ${binding}'s search index`);
   }
   if (failed.length > 0) {

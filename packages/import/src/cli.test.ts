@@ -20,8 +20,15 @@ interface Exit {
   stderr: string;
 }
 
-/** Runs the CLI on the local state under `persistTo`; sends SIGINT once a stdout line starts with `interruptOn`. */
-function irs(args: string[], interruptOn?: string): Promise<Exit> {
+/**
+ * Runs the CLI on the local state under `persistTo`; sends SIGINT once a
+ * stdout line starts with `interruptOn`, and SIGTERM `termAfterMs` after that.
+ */
+function irs(
+  args: string[],
+  interruptOn?: string,
+  termAfterMs?: number,
+): Promise<Exit> {
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
@@ -37,6 +44,9 @@ function irs(args: string[], interruptOn?: string): Promise<Exit> {
         chunk.split("\n").some((line) => line.startsWith(interruptOn))
       ) {
         child.kill("SIGINT");
+        if (termAfterMs !== undefined) {
+          setTimeout(() => child.kill("SIGTERM"), termAfterMs);
+        }
       }
     });
     child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
@@ -85,12 +95,39 @@ describe("irs", { timeout: 90_000 }, () => {
     expect(exit.stderr).toContain("refresh takes no --build");
   });
 
+  test("a single-source load into a sealed slot fails, naming the reset that readies it", async () => {
+    const exit = await irs(["bmf", "--slot", "b"]);
+
+    expect(exit.code).toBe(1);
+    expect(exit.stderr).toContain(
+      `slot b (DATA_DB_B) is sealed (build old): pnpm --filter @nonprofits/worker db:reset:local b --persist-to ${persistTo} resets it for a load`,
+    );
+  });
+
   test("SIGINT after the claim stops the run, releases the claim and exits 130", async () => {
     const exit = await irs(["rollback"], "claimed slot");
 
     expect(exit.code).toBe(130);
     expect(exit.stderr).toContain("SIGINT: stopping");
-    expect(exit.stderr).toMatch(/serving slot [ab] \(build/);
+    // the pointer read comes last, and a loaded machine can push it past the stop's 7 s
+    expect(exit.stderr).toMatch(
+      /serving slot [ab] \(build|stop cut off after 7 s/,
+    );
+    expect(await claimHolder()).toBeNull();
+  });
+
+  test("a SIGTERM a second into the SIGINT's cleanup waits for it: the claim is released, exit 130", async () => {
+    // serving slot a again, whether or not the interrupted rollback flipped
+    await ops.query(
+      "APP_DB",
+      "UPDATE data_generation SET active = 'a', build_id = 'empty', flipped_at = '2000-01-03T00:00:00Z' WHERE id = 1",
+    );
+
+    const exit = await irs(["rollback"], "claimed slot", 1_000);
+
+    expect(exit.code).toBe(130);
+    expect(exit.stderr).toContain("released build old's claim");
+    expect(exit.stderr).not.toContain("could not release");
     expect(await claimHolder()).toBeNull();
   });
 
@@ -105,10 +142,7 @@ describe("irs", { timeout: 90_000 }, () => {
       "SELECT active FROM data_generation WHERE id = 1",
     );
     const inactive = active === "a" ? "b" : "a";
-    await ops.query(
-      "APP_DB",
-      claimSlotSql(inactive, "stuck", new Date().toISOString()),
-    );
+    await ops.query("APP_DB", claimSlotSql(inactive, "stuck"));
 
     const exit = await irs(["release"]);
 
