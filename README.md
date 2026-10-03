@@ -20,3 +20,15 @@ pnpm check
 ```
 
 Runs Biome, `tsc --noEmit` per package, and Vitest, sequentially. CI runs the same command. `pnpm format <paths>` formats only the paths given.
+
+## Worker, locally
+
+From `packages/worker`, against a local D1 seeded with fixture rows:
+
+```sh
+pnpm db:migrate:local
+pnpm db:seed:local
+pnpm dev            # GET http://localhost:8787/v1/orgs/530196605
+```
+
+Rerun `pnpm types` after editing `wrangler.jsonc`.
