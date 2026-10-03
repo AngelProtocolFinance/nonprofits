@@ -20,7 +20,8 @@ Node 24 (`.nvmrc`), pnpm pinned via `packageManager`. Dependency versions live i
 pnpm check
 ```
 
-Runs Biome, `tsc --noEmit` per package, and Vitest, sequentially. CI runs the same command. `pnpm format <paths>` formats only the paths given.
+Runs Biome, `tsc --noEmit` per package, and Vitest, sequentially. CI runs the same command.
+See [TESTING.md](TESTING.md) for how the suite is laid out. `pnpm format <paths>` formats only the paths given.
 
 ## Worker, locally
 
