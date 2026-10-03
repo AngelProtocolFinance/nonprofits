@@ -184,22 +184,63 @@ describe("admin key endpoints", () => {
     ["no admin token", {}],
     ["a wrong admin token", { authorization: "Bearer wrong-token" }],
   ])("refuse %s with 401 admin_unauthorized", async (_, headers) => {
-    for (const [path, body] of [
-      ["/admin/keys", { email: "owner@example.org" }],
-      ["/admin/keys/some-id/revoke", {}],
+    for (const [method, path, body] of [
+      ["POST", "/admin/keys", { email: "owner@example.org" }],
+      ["GET", "/admin/keys", undefined],
+      ["POST", "/admin/keys/some-id/revoke", {}],
+      ["PUT", "/admin/keys/some-id/limits", { daily: 500, perMinute: 60 }],
+      ["DELETE", "/admin/keys/some-id/limits", undefined],
     ] as const) {
       const response = await server.fetch(path, {
-        method: "POST",
+        method,
         headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify(body),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      expect(response.status).toBe(401);
+      expect(response.status, `${method} ${path}`).toBe(401);
       expect(await response.json()).toMatchObject({
         code: "admin_unauthorized",
         detail: "Admin endpoints need `Authorization: Bearer <ADMIN_TOKEN>`.",
       });
     }
   });
+
+  test.each([
+    ["a zero daily limit", { daily: 0, perMinute: 60 }],
+    ["a negative per-minute limit", { daily: 500, perMinute: -1 }],
+    ["a fractional limit", { daily: 1.5, perMinute: 60 }],
+    ["a limit sent as a string", { daily: "10", perMinute: 60 }],
+    ["a limit past 2^53", { daily: 2 ** 53, perMinute: 60 }],
+    ["a missing per-minute limit", { daily: 500 }],
+  ])(
+    "setting limits with %s is 400 invalid_request, and the key stays default",
+    async (_, body) => {
+      const issued = await issueKey(server);
+
+      const response = await server.fetch(`/admin/keys/${issued.id}/limits`, {
+        method: "PUT",
+        headers: {
+          authorization: ADMIN_AUTHORIZATION,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        code: "invalid_request",
+        detail:
+          "Send JSON with `daily` and `perMinute`, each a positive integer.",
+      });
+      const listed = (await (
+        await server.fetch("/admin/keys", {
+          headers: { authorization: ADMIN_AUTHORIZATION },
+        })
+      ).json()) as { keys: { id: string; tier: string }[] };
+      expect(listed.keys.find((key) => key.id === issued.id)?.tier).toBe(
+        "default",
+      );
+    },
+  );
 });
 
 describe("quota on /v1", () => {

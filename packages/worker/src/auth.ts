@@ -43,7 +43,9 @@ export const authOptions = {
  * A better-auth instance for one request; never cache it across requests. The
  * key plugin leaves its expired-key sweep running after `updateApiKey` returns,
  * and a query still in flight when its request ends wedges every later query
- * through the same instance.
+ * through the same instance. The cost: each new instance introspects every D1
+ * table (pragma_table_info) before its first call, paid per admin request,
+ * which is fine for operator-only traffic.
  */
 export function createAuth(env: Env) {
   return betterAuth({
