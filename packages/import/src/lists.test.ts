@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -96,6 +97,29 @@ beforeAll(async () => {
       ),
     ),
   );
+  routes.set(
+    "/older/revocation.zip",
+    zipped("revocation", revocation.replace(`\r\n${newer}`, "")),
+  );
+  routes.set(
+    "/short-ein/pub78.zip",
+    zipped(
+      "pub78",
+      (await fixtureText("pub78")).replace("\r\n000635913|", "\r\n00635913|"),
+    ),
+  );
+  const trailing = zipSync({
+    "data-download-pub78.txt": [
+      new TextEncoder().encode(await fixtureText("pub78")),
+      { level: 6 },
+    ],
+    "trailing.bin": [randomBytes(64 * 1024), { level: 0 }],
+  });
+  routes.set("/trailing/pub78.zip", (res) => {
+    res.writeHead(200, { "last-modified": RELEASED });
+    // stalls inside the second entry and never ends
+    res.write(trailing.subarray(0, trailing.length - 32 * 1024));
+  });
   ({ server, base } = await serve(routes, RELEASED));
   work = await mkdtemp(join(tmpdir(), "list-import-"));
 }, 60_000);
@@ -210,6 +234,18 @@ describe("after the BMF and all three lists are imported", {
         revocation_file: `${base}/revocation.zip`,
       },
     ]);
+  });
+
+  test.each([
+    ["Pub 78", "fundraising professionals", 999999010],
+    ["the revocation list", "green valley", 10281533],
+  ])("indexes a name only %s gives for search", async (_, words, rowid) => {
+    expect(
+      await query(
+        d1,
+        `SELECT rowid FROM orgs_fts WHERE orgs_fts MATCH '${words}'`,
+      ),
+    ).toStrictEqual([{ rowid }]);
   });
 
   test("an EIN listed twice keeps its latest revocation and that one's reinstatement", async () => {
@@ -329,6 +365,16 @@ describe("after the BMF and all three lists are imported", {
       expect(await counts(d1)).toStrictEqual(before);
     },
   );
+
+  test("a row whose EIN isn't 9 digits aborts, loading nothing", async () => {
+    const before = await counts(d1);
+    await expect(
+      loadList(d1, "pub78", { path: "/short-ein/pub78.zip" }),
+    ).rejects.toThrow(
+      `Pub 78 layout changed in ${base}/short-ein/pub78.zip: row 2: field 1 is "00635913", expected a 9-digit EIN`,
+    );
+    expect(await counts(d1)).toStrictEqual(before);
+  });
 
   test("a list out of EIN order aborts, loading nothing", async () => {
     const before = await counts(d1);
@@ -516,6 +562,29 @@ function counts(persistTo: string) {
     "SELECT (SELECT count(*) FROM orgs) AS orgs, (SELECT count(*) FROM import_runs) AS runs",
   );
 }
+
+test("a later release keeping only an EIN's older revocation takes that one and its reinstatement", {
+  timeout: 60_000,
+}, async () => {
+  const d1 = await freshD1("older");
+  await loadList(d1, "revocation");
+  await loadList(d1, "revocation", { path: "/older/revocation.zip" });
+  const rows = await query(
+    d1,
+    "SELECT revocation_date, reinstatement_date FROM orgs WHERE ein = '010043788'",
+  );
+  expect(rows).toStrictEqual([
+    { revocation_date: "2016-03-15", reinstatement_date: "2016-08-15" },
+  ]);
+});
+
+test("a zip's first file loads without waiting on the rest of the archive", {
+  timeout: 30_000,
+}, async () => {
+  const d1 = await freshD1("trailing");
+  const summary = await loadList(d1, "pub78", { path: "/trailing/pub78.zip" });
+  expect(summary.rows).toBe(FIXTURE_ROWS.pub78);
+});
 
 /** An org's name and address with the source of each. */
 function orgWithSources(ein: string): string {

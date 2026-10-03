@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
-import type { ImportSource } from "@nonprofits/db";
+import { rebuildSearchIndexSql } from "@nonprofits/db";
 import {
-  batched,
+  batches,
   download,
   type ImportFile,
   insertRun,
@@ -39,7 +39,6 @@ export const LISTS = {
 export type ListName = keyof typeof LISTS;
 
 interface Layout {
-  source: ImportSource & ListName;
   label: string;
   /** Fields per row. */
   fields: number;
@@ -50,6 +49,8 @@ interface Layout {
   unlisted: { listed: string; clear: readonly string[] };
   /** One row's values, in `upsert.columns` order; a `FieldError` for a field that can't be read. */
   values(row: readonly string[]): (string | null)[];
+  /** Ranks the rows of an EIN listed more than once: the highest is kept, a tie going to the later row. */
+  rank?(row: readonly string[]): string;
 }
 
 /** A field whose content says the layout has moved. */
@@ -96,7 +97,6 @@ function webAddress(raw: string): string | null {
 
 const LAYOUTS: Record<ListName, Layout> = {
   pub78: {
-    source: "pub78",
     label: "Pub 78",
     // EIN|NAME|CITY|STATE|COUNTRY|DEDUCTIBILITY STATUS
     fields: 6,
@@ -115,7 +115,6 @@ const LAYOUTS: Record<ListName, Layout> = {
     ],
   },
   revocation: {
-    source: "revocation",
     label: "Revocation list",
     // EIN|LEGAL NAME|DBA|STREET|CITY|STATE|ZIP|COUNTRY|EXEMPTION TYPE|
     // REVOCATION DATE|REVOCATION POSTING DATE|REINSTATEMENT DATE
@@ -132,11 +131,10 @@ const LAYOUTS: Record<ListName, Layout> = {
         "revocation_date",
         "reinstatement_date",
       ],
-      // an EIN listed twice keeps its latest revocation, with that one's reinstatement
-      facts: ["revocation_date", "reinstatement_date"].map(
-        (column) =>
-          `${column} = iif(${ORGS}.revocation_date > excluded.revocation_date, ${ORGS}.${column}, excluded.${column})`,
-      ),
+      facts: [
+        "revocation_date = excluded.revocation_date",
+        "reinstatement_date = excluded.reinstatement_date",
+      ],
     },
     unlisted: {
       listed: "revocation_date IS NOT NULL",
@@ -148,9 +146,11 @@ const LAYOUTS: Record<ListName, Layout> = {
       date(row[9] ?? "", 10, true),
       date(row[11] ?? "", 12, false),
     ],
+    // an EIN listed twice keeps its latest revocation (posting date breaking a tie), with that one's reinstatement
+    rank: (row) =>
+      `${date(row[9] ?? "", 10, true)} ${date(row[10] ?? "", 11, true)}`,
   },
   epostcard: {
-    source: "epostcard",
     label: "e-Postcard",
     // EIN|TAX YEAR|NAME|GROSS RECEIPTS UNDER 50K|TERMINATED|TAX PERIOD BEGIN|
     // TAX PERIOD END|WEBSITE|then officer address, mailing address, 3 DBA names
@@ -196,8 +196,9 @@ export interface ListImportSummary {
 
 /**
  * Streams one list's zip into a SQL load file, then applies it to D1 in a
- * single `wrangler d1 execute --file`, so its rows and its `import_runs` row
- * commit together. A failed download, any layout drift or a short count throws
+ * single `wrangler d1 execute --file`, so its rows, its `import_runs` row and,
+ * for a list that writes names, the rebuilt search index commit together. A
+ * failed download, any layout drift or a short count throws
  * before the apply, leaving D1 untouched and no load file behind.
  */
 export async function importList(
@@ -206,7 +207,7 @@ export async function importList(
 ): Promise<ListImportSummary> {
   const layout = LAYOUTS[list];
   const file: ImportFile = {
-    source: layout.source,
+    source: layout.upsert.source,
     label: layout.label,
     url: options.url,
   };
@@ -231,7 +232,7 @@ async function* listSql(
   let rows = 0;
   async function* listed(): AsyncGenerator<Listed> {
     const entry = Readable.from(firstZipEntry(Readable.fromWeb(body)));
-    let previous = "";
+    let pending: Listed | undefined;
     for await (const row of records(file, entry, {
       delimiter: "|",
       quote: false,
@@ -239,54 +240,59 @@ async function* listSql(
       skip_empty_lines: true,
     })) {
       rows++;
-      const values = rowValues(layout, file, row, rows);
-      const ein = values[0] ?? "";
-      if (ein < previous) {
+      const next = rankedRow(layout, file, row, rows);
+      if (pending?.ein === next.ein) {
+        if (next.rank >= pending.rank) pending = next;
+        continue;
+      }
+      if (pending !== undefined && next.ein < pending.ein) {
         throw new Error(
-          `${file.label} layout changed in ${file.url}: row ${rows}: EIN ${ein} follows ${previous}, expected EIN order`,
+          `${file.label} layout changed in ${file.url}: row ${rows}: EIN ${next.ein} follows ${pending.ein}, expected EIN order`,
         );
       }
-      previous = ein;
-      yield { ein, tuple: tuple(values) };
+      if (pending !== undefined) yield pending;
+      pending = next;
     }
+    if (pending !== undefined) yield pending;
   }
   // each batch also unflags the orgs between the last batch's final EIN and its own that it doesn't list
   let after = "";
-  yield* batched(
+  for await (const batch of batches(
     listed(),
     (row) => row.tuple,
-    (batch) => {
-      const last = batch.at(-1)?.ein;
-      const sql =
-        upsertOrgs(
-          layout.upsert,
-          batch.map((row) => row.tuple),
-        ) +
-        clearUnlisted(
-          layout,
-          after,
-          last,
-          batch.map((row) => row.ein),
-        );
-      if (last !== undefined) after = last;
-      return sql;
-    },
+    upsertOrgs(layout.upsert, []),
     maxStatementBytes,
-  );
+  )) {
+    yield upsertOrgs(
+      layout.upsert,
+      batch.map((row) => row.tuple),
+    );
+    const through = batch.at(-1)?.ein ?? after;
+    // names only EINs, each shorter than its tuple, so it fits the upsert's budget
+    yield clearUnlisted(
+      layout,
+      after,
+      through,
+      batch.map((row) => row.ein),
+    );
+    after = through;
+  }
   yield clearUnlisted(layout, after);
   if (rows < minRows) {
     throw new Error(
       `${file.label} import aborted: ${rows} rows is below the floor of ${minRows}; nothing was loaded`,
     );
   }
-  yield setRowCount(layout.source, rows);
+  yield setRowCount(layout.upsert.source, rows);
+  if (layout.upsert.columns.includes("name")) yield rebuildSearchIndexSql("");
   return { url: file.url, releasedAt, rows };
 }
 
-/** A row's upsert tuple, with its EIN. */
+/** A row's upsert tuple, with its EIN and its `Layout.rank`. */
 interface Listed {
   ein: string;
   tuple: string;
+  rank: string;
 }
 
 /**
@@ -311,12 +317,12 @@ function clearUnlisted(
   return `UPDATE ${ORGS} SET ${layout.unlisted.clear.join(", ")} WHERE ${where.join(" AND ")};\n`;
 }
 
-function rowValues(
+function rankedRow(
   layout: Layout,
   file: ImportFile,
   row: readonly string[],
   n: number,
-): (string | null)[] {
+): Listed {
   const { fields, freeText } = layout;
   const overflow = row.length - fields;
   // row 1 is held to the exact width, so a column added to every row can't pass as overflow
@@ -330,7 +336,16 @@ function rowValues(
       ? [...row.slice(0, freeText), "", ...row.slice(freeText + overflow + 1)]
       : row;
   try {
-    return layout.values(fitted);
+    const values = layout.values(fitted);
+    const ein = values[0] ?? "";
+    if (!/^\d{9}$/.test(ein)) {
+      throw new FieldError(`field 1 is "${ein}", expected a 9-digit EIN`);
+    }
+    return {
+      ein,
+      tuple: tuple(values),
+      rank: layout.rank?.(fitted) ?? "",
+    };
   } catch (error) {
     if (!(error instanceof FieldError)) throw error;
     throw new Error(

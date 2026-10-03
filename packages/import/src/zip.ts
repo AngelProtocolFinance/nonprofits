@@ -3,8 +3,9 @@ import { Unzip, UnzipInflate } from "fflate";
 /**
  * The first file in a zip archive, inflated as the archive streams in: each
  * chunk read is decompressed and handed on before the next is read, so memory
- * stays at one chunk's worth whatever the archive's size. A body that isn't a
- * zip, or ends before that file does, throws.
+ * stays at one chunk's worth whatever the archive's size. Reading stops once
+ * that file ends, which also ends the download of the rest. A body that isn't
+ * a zip, or ends before that file does, throws.
  */
 export async function* firstZipEntry(
   archive: AsyncIterable<Uint8Array>,
@@ -32,6 +33,8 @@ export async function* firstZipEntry(
   for await (const chunk of archive) {
     unzip.push(chunk);
     yield* drain();
+    // returning closes `archive`, which cancels the rest of the download
+    if (ended) return;
   }
   unzip.push(new Uint8Array(0), true);
   yield* drain();

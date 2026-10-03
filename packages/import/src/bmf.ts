@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
-import type { ImportSource } from "@nonprofits/db";
+import { type ImportSource, rebuildSearchIndexSql } from "@nonprofits/db";
 import {
-  batched,
+  batches,
   download,
   IMPORT_RUNS,
   type ImportFile,
@@ -115,8 +115,8 @@ export interface BmfImportSummary {
 
 /**
  * Streams each BMF file into one SQL load file, then applies it to D1 in a
- * single `wrangler d1 execute --file`, so the orgs and their `import_runs`
- * rows commit together. A failed download, any layout drift or a short count
+ * single `wrangler d1 execute --file`, so the orgs, their `import_runs` rows
+ * and the rebuilt search index commit together. A failed download, any layout drift or a short count
  * throws before the apply, leaving D1 untouched and no load file behind.
  */
 export async function importBmf(
@@ -163,6 +163,7 @@ async function* loadSql(
     );
   }
   yield clearDroppedOrgs(urls.length);
+  yield rebuildSearchIndexSql("");
 }
 
 async function* bmfFileSql(
@@ -187,12 +188,14 @@ async function* bmfFileSql(
     }
     if (header === undefined) throw new Error(`BMF file is empty: ${file.url}`);
   }
-  yield* batched(
+  for await (const batch of batches(
     tuples(),
     (tuple) => tuple,
-    (batch) => upsertOrgs(UPSERT, batch),
+    upsertOrgs(UPSERT, []),
     maxStatementBytes,
-  );
+  )) {
+    yield upsertOrgs(UPSERT, batch);
+  }
   yield setRowCount(SOURCE, orgs);
   return { url: file.url, releasedAt, orgs };
 }

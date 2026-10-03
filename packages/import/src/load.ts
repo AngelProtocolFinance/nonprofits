@@ -112,16 +112,16 @@ export async function* records(
 }
 
 /**
- * Statements for `items`, each batch as large as fits `maxStatementBytes`;
- * `tupleOf` is the part of the statement an item adds.
+ * Groups `items` so that one statement made of `emptyStatement` plus a group's
+ * tuples (`tupleOf` each item) stays within `maxStatementBytes`.
  */
-export async function* batched<T>(
+export async function* batches<T>(
   items: AsyncIterable<T>,
   tupleOf: (item: T) => string,
-  statement: (batch: readonly T[]) => string,
+  emptyStatement: string,
   maxStatementBytes: number,
-): AsyncGenerator<string> {
-  const fixedBytes = Buffer.byteLength(statement([]));
+): AsyncGenerator<T[]> {
+  const fixedBytes = Buffer.byteLength(emptyStatement);
   let batch: T[] = [];
   let batchBytes = 0;
   for await (const item of items) {
@@ -131,14 +131,14 @@ export async function* batched<T>(
       batch.length > 0 &&
       fixedBytes + batchBytes + 2 + tupleBytes > maxStatementBytes
     ) {
-      yield statement(batch);
+      yield batch;
       batch = [];
       batchBytes = 0;
     }
     batchBytes += (batch.length > 0 ? 2 : 0) + tupleBytes;
     batch.push(item);
   }
-  if (batch.length > 0) yield statement(batch);
+  if (batch.length > 0) yield batch;
 }
 
 const PLACEHOLDERS = new Set(["", "N/A", "NONE"]);

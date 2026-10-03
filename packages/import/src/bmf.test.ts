@@ -125,6 +125,13 @@ describe("importBmf", { timeout: 60_000 }, () => {
     ]);
   });
 
+  test("indexes the loaded names for search", async () => {
+    const rows = await query(
+      "SELECT rowid FROM orgs_fts WHERE orgs_fts MATCH 'red cross'",
+    );
+    expect(rows).toStrictEqual([{ rowid: 530196605 }]);
+  });
+
   test("stores IRS placeholder text as null", async () => {
     const rows = await query(
       "SELECT street, city, state, zip FROM orgs WHERE ein = '010384135'",
