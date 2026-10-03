@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup, search } from "../../src/handlers.ts";
+import { emptyServedData } from "./empty-data.ts";
 import { noBurstLimit } from "./limiters.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
@@ -21,8 +22,9 @@ let env: Env;
 
 beforeAll(async () => {
   await server.listen();
-  await server.getWorker().applyD1Migrations("DB");
+  await server.getWorker().applyD1Migrations("APP_DB");
   env = (await server.getWorker().getEnv()) as Env;
+  await emptyServedData(env);
 });
 
 afterAll(async () => {
@@ -71,9 +73,9 @@ function measuredD1() {
       inner: statement,
     }) as unknown as D1PreparedStatement;
   const db = {
-    prepare: (sql: string) => wrap(env.DB.prepare(sql), sql),
+    prepare: (sql: string) => wrap(env.APP_DB.prepare(sql), sql),
     batch: async (statements: D1PreparedStatement[]) => {
-      const results = await env.DB.batch(
+      const results = await env.APP_DB.batch(
         statements.map(
           (s) => (s as unknown as { inner: D1PreparedStatement }).inner,
         ),
@@ -82,18 +84,18 @@ function measuredD1() {
     },
     exec: (sql: string) => {
       tally.unmeasured.push(sql);
-      return env.DB.exec(sql);
+      return env.APP_DB.exec(sql);
     },
   } as unknown as D1Database;
   return { db, tally };
 }
 
-/** The outcome code of a lookup at `now`; this D1 holds no orgs, so an admitted one is `not_found`. */
-async function lookupAt(key: string, now: string, db = env.DB) {
+/** The outcome code of a lookup at `now`; the served data DB holds no orgs, so an admitted one is `not_found`. */
+async function lookupAt(key: string, now: string, db = env.APP_DB) {
   const result = await lookup("530196605", {
     env: {
       ...env,
-      DB: db,
+      APP_DB: db,
       KEY_BURST_LIMITER: noBurstLimit,
       KEYED_REQUEST_LIMITER: noBurstLimit,
     },
@@ -301,7 +303,7 @@ test("a keyless request writes at most two D1 rows, its IP's counter and the ser
   const now = new Date("2026-10-11T09:00:00Z");
   const keyless = async (db: D1Database) => {
     const result = await lookup("530196605", {
-      env: { ...env, DB: db, KEYLESS_BURST_LIMITER: noBurstLimit },
+      env: { ...env, APP_DB: db, KEYLESS_BURST_LIMITER: noBurstLimit },
       credential: null,
       clientIp: "192.0.2.60",
       cfWorker: null,
@@ -314,7 +316,7 @@ test("a keyless request writes at most two D1 rows, its IP's counter and the ser
   const refused = measuredD1();
 
   expect(await keyless(first.db)).toBe("not_found");
-  for (let i = 2; i <= 4; i++) await keyless(env.DB);
+  for (let i = 2; i <= 4; i++) await keyless(env.APP_DB);
   expect(await keyless(last.db)).toBe("not_found");
   expect(await keyless(refused.db)).toBe("daily_quota_exceeded");
 

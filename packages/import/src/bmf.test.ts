@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
 import {
-  migrate,
   query as queryD1,
   type Route,
+  resetDataDb,
   serve,
 } from "./test-support.ts";
 
@@ -97,7 +97,7 @@ beforeAll(async () => {
   ({ server, base } = await serve(routes, RELEASED));
   work = await mkdtemp(join(tmpdir(), "bmf-import-"));
   persistTo = join(work, "d1");
-  await migrate(persistTo);
+  await resetDataDb(persistTo);
   await importFixture(FIXTURE_FILES, "bmf.load.sql");
 }, 60_000);
 

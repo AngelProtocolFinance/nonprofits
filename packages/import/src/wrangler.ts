@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { DATA_DB_BINDING, type DataDbBinding } from "@nonprofits/db";
 
 // wrangler's exports map hides bin/, so resolve the manifest beside it
 const WRANGLER_BIN = fileURLToPath(
@@ -11,10 +12,13 @@ const WRANGLER_BIN = fileURLToPath(
     ),
   ),
 );
-/** The worker's config owns the `DB` binding and the migrations dir. */
+/** The worker's config owns the D1 bindings. */
 const WORKER_CONFIG = fileURLToPath(
   new URL("../../worker/wrangler.jsonc", import.meta.url),
 );
+
+/** The data DB every load is applied to. */
+export const LOAD_BINDING: DataDbBinding = DATA_DB_BINDING.a;
 
 /** Where a load is applied: local D1 state (wrangler's default dir unless `persistTo`), or the remote database. */
 export type D1Target = { remote: true } | { remote: false; persistTo?: string };
@@ -53,5 +57,5 @@ export async function applyLoad(file: string, target: D1Target): Promise<void> {
         "--local",
         ...(target.persistTo ? ["--persist-to", target.persistTo] : []),
       ];
-  await wrangler(["d1", "execute", "DB", ...where, "--file", file]);
+  await wrangler(["d1", "execute", LOAD_BINDING, ...where, "--file", file]);
 }

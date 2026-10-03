@@ -7,7 +7,7 @@ Look up IRS exempt organizations by EIN, over REST and MCP.
 pnpm workspace, one package per deliverable plus shared code:
 
 - `packages/core` — response types and handlers shared by REST and MCP
-- `packages/db` — D1 migrations, table/column constants and staging-table DDL shared by worker and import
+- `packages/db` — app DB migrations, the data DBs' schema and generation SQL (reset, seal, flip), and table/column constants shared by worker and import
 - `packages/worker` — Cloudflare Worker serving REST + MCP
 - `packages/import` — Node job that ingests IRS data
 - `packages/cli` — API key admin
@@ -24,17 +24,20 @@ Runs Biome, `tsc --noEmit` per package, and Vitest, sequentially. CI runs the sa
 
 ## Worker, locally
 
-From `packages/worker`, against a local D1 seeded with fixture rows:
+From `packages/worker`, against local D1 seeded with fixture rows:
 
 ```sh
 cp .dev.vars.example .dev.vars   # then fill each secret: openssl rand -base64 32
-pnpm db:migrate:local
-pnpm db:seed:local
-pnpm db:search-index:local
+pnpm db:migrate:local            # APP_DB: auth, key limits and usage, the data pointer
+pnpm db:reset:local a            # DATA_DB_A: drop and rebuild the data tables, empty
+pnpm db:seed:local a
+pnpm db:search-index:local a
 pnpm dev
 ```
 
-`/v1/search` reads a full-text index that migrations create empty and every load rebuilds. After migrating or seeding a local D1 that already holds orgs, rebuild it with `pnpm db:search-index:local`.
+The Worker reads IRS data from one of two data databases, `DATA_DB_A` or `DATA_DB_B` (slots `a` and `b`), whichever the one-row `data_generation` table in `APP_DB` names; it starts on `a`. Keys and usage live in `APP_DB`, so resetting a data slot never touches them. A data DB has no migrations: `db:reset:local <slot>` drops its tables and rebuilds the current schema empty. To serve the other slot, fill it the same way, then `pnpm db:flip:local <slot>`. Each Worker isolate rereads the pointer at most every 30 s, so a flip reaches every request within 30 s, and each lookup or search is answered whole from one slot or the other.
+
+`/v1/search` reads a full-text index that a reset creates empty and every load rebuilds. After seeding a slot that holds orgs, rebuild its index with `pnpm db:search-index:local <slot>`.
 
 A request with no `Authorization` header is served keyless: 5 requests per UTC day and 1 per minute per client. A client is its IP from `CF-Connecting-IP` (an IPv6 address counts as its /64), plus the `CF-Worker` zone when another zone's Worker sent the request. It is stored only as an HMAC keyed by the `IP_HASH_SECRET` secret, never the raw IP. Worker-hosted integrators should use a key: requests from other zones' Workers may all reach us from one Cloudflare IP. A key lifts the keyless limits, sent as `Authorization: Bearer <key>`; a malformed, unknown or revoked key is a 401, never served keyless. Keys are issued and revoked through the Worker's admin endpoints, with `ADMIN_TOKEN` read from `.dev.vars`:
 
@@ -85,10 +88,10 @@ npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp --method too
 
 ## Import
 
-Loads the IRS EO BMF (`eo1.csv` … `eo4.csv`) into the worker's D1, local by default:
+Loads the IRS EO BMF (`eo1.csv` … `eo4.csv`) into the worker's `DATA_DB_A`, local by default:
 
 ```sh
-pnpm --filter @nonprofits/worker db:migrate:local   # once, on a fresh local D1
+pnpm --filter @nonprofits/worker db:reset:local a   # once, on a fresh local data DB
 pnpm --filter @nonprofits/import bmf                # or: bmf --remote
 ```
 

@@ -12,10 +12,10 @@ import {
   type Caller,
   type HandlerError,
   limitKeylessMcpRequests,
-  logFailure,
   lookupAs,
   searchAs,
 } from "./handlers.ts";
+import { logFailure } from "./log.ts";
 import { problem } from "./problem.ts";
 import { refusalBody, refusalResponse } from "./refusal.ts";
 

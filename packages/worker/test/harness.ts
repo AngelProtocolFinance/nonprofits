@@ -1,16 +1,25 @@
 import { readFile } from "node:fs/promises";
-import { rebuildSearchIndexSql } from "@nonprofits/db";
+import {
+  DATA_DB_BINDING,
+  type DataSlot,
+  rebuildSearchIndexSql,
+  resetGenerationSql,
+} from "@nonprofits/db";
 import { createTestHarness } from "wrangler";
+import { runSql } from "./d1-sql.ts";
 
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   all<T>(): Promise<{ results: T[] }>;
 }
+interface TestD1 {
+  prepare(sql: string): D1Statement;
+  batch(statements: D1Statement[]): Promise<unknown>;
+}
 export interface TestEnv {
-  DB: {
-    prepare(sql: string): D1Statement;
-    batch(statements: D1Statement[]): Promise<unknown>;
-  };
+  APP_DB: TestD1;
+  DATA_DB_A: TestD1;
+  DATA_DB_B: TestD1;
 }
 
 export const TEST_SECRETS = {
@@ -38,41 +47,50 @@ export function createWorkerHarness(
   });
 }
 
-/** Splits a SQL file into statements; full-line `--` comments are dropped. */
-function statements(sql: string): string[] {
-  return sql
-    .split("\n")
-    .filter((line) => !line.trimStart().startsWith("--"))
-    .join("\n")
-    .split(/;\s*(?:\n|$)/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
 export async function testEnv(server: Harness): Promise<TestEnv> {
   return (await server.getWorker().getEnv()) as unknown as TestEnv;
 }
 
-/** The search index rebuild an import runs after each load. */
-export async function rebuildSearchIndex(server: Harness): Promise<void> {
-  const { DB } = await testEnv(server);
-  await DB.batch(
-    statements(rebuildSearchIndexSql("")).map((s) => DB.prepare(s)),
-  );
+/** The search index rebuild an import runs after each load, on `slot`'s data DB. */
+export async function rebuildSearchIndex(
+  server: Harness,
+  slot: DataSlot = "a",
+): Promise<void> {
+  const env = await testEnv(server);
+  await runSql(env[DATA_DB_BINDING[slot]], rebuildSearchIndexSql(""));
 }
 
-/** Starts the Worker on a migrated D1 holding `fixtures/seed.sql`, indexed for search. */
-export async function listenSeeded(server: Harness): Promise<void> {
-  await server.listen();
-  const worker = server.getWorker();
-  await worker.applyD1Migrations("DB");
-  const { DB } = await testEnv(server);
+/** Resets `slot`'s data DB to an empty generation. */
+export async function resetDataSlot(
+  server: Harness,
+  slot: DataSlot,
+): Promise<void> {
+  const db = (await testEnv(server))[DATA_DB_BINDING[slot]];
+  await runSql(db, resetGenerationSql(slot, `test-${slot}`));
+}
+
+/** Resets `slot`'s data DB and fills it with `fixtures/seed.sql`, indexed for search. */
+export async function seedDataSlot(
+  server: Harness,
+  slot: DataSlot,
+): Promise<void> {
+  await resetDataSlot(server, slot);
   const seed = await readFile(
     new URL("../fixtures/seed.sql", import.meta.url),
     "utf8",
   );
-  await DB.batch(statements(seed).map((s) => DB.prepare(s)));
-  await rebuildSearchIndex(server);
+  await runSql((await testEnv(server))[DATA_DB_BINDING[slot]], seed);
+  await rebuildSearchIndex(server, slot);
+}
+
+/**
+ * Starts the Worker on a migrated app DB, with data slot a (the one the
+ * pointer starts on) holding `fixtures/seed.sql`.
+ */
+export async function listenSeeded(server: Harness): Promise<void> {
+  await server.listen();
+  await server.getWorker().applyD1Migrations("APP_DB");
+  await seedDataSlot(server, "a");
 }
 
 export interface IssuedKey {

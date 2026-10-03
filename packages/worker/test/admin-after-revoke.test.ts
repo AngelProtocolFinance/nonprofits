@@ -8,7 +8,7 @@ const server = createWorkerHarness();
 
 beforeAll(async () => {
   await server.listen();
-  await server.getWorker().applyD1Migrations("DB");
+  await server.getWorker().applyD1Migrations("APP_DB");
 });
 
 afterAll(async () => {
@@ -16,13 +16,13 @@ afterAll(async () => {
 });
 
 test("admin calls after a revoke still answer", async () => {
-  const { DB } = await testEnv(server);
+  const { APP_DB } = await testEnv(server);
   const now = new Date().toISOString();
-  await DB.batch([
-    DB.prepare(
+  await APP_DB.batch([
+    APP_DB.prepare(
       `INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('owner', 'o@example.org', 'o@example.org', 0, ?1, ?1)`,
     ).bind(now),
-    DB.prepare(
+    APP_DB.prepare(
       `INSERT INTO apikey (id, configId, referenceId, key, enabled, createdAt, updatedAt) VALUES ('seeded', 'default', 'owner', 'not-a-real-hash', 1, ?1, ?1)`,
     ).bind(now),
   ]);

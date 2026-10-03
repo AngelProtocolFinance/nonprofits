@@ -9,14 +9,20 @@ export const IMPORT_SOURCES = [
 ] as const;
 export type ImportSource = (typeof IMPORT_SOURCES)[number];
 
-/** Tables an import rebuilds under a suffix and swaps in. Auth and usage tables never belong here. */
-export const SWAPPED_TABLES = [
-  "import_runs",
-  "orgs",
-  "filings",
+/**
+ * Every table in a data database, in the order a reset drops them: the search
+ * index first, then each child before its parent. Auth and usage tables live
+ * in the app database and never belong here.
+ */
+export const DATA_TABLES = [
+  "orgs_fts",
   "programs",
+  "filings",
+  "orgs",
+  "import_runs",
+  "data_meta",
 ] as const;
-export type SwappedTable = (typeof SWAPPED_TABLES)[number];
+export type DataTable = (typeof DATA_TABLES)[number];
 
 export const COLUMNS = {
   import_runs: [
@@ -73,15 +79,18 @@ export const COLUMNS = {
     "grants",
     "revenue",
   ],
-} as const satisfies Record<SwappedTable, readonly string[]>;
+} as const satisfies Record<
+  Exclude<DataTable, "orgs_fts" | "data_meta">,
+  readonly string[]
+>;
 
 /**
- * CREATE statements for the swapped tables, each name (and every foreign key
- * between them) carrying `suffix`. `dataTablesDdl("")` is what the migrations
- * build; a test fails when the two drift.
+ * CREATE statements for the loaded data tables, each name (and every foreign
+ * key between them) carrying `suffix`. `dataTablesDdl("")` is part of what
+ * `resetGenerationSql` builds.
  */
 export function dataTablesDdl(suffix: string): string {
-  const t = (table: SwappedTable) => `${table}${suffix}`;
+  const t = (table: DataTable) => `${table}${suffix}`;
   const sources = IMPORT_SOURCES.map((s) => `'${s}'`).join(", ");
   return `-- One row per IRS bulk file fetched, written when its import commits.
 -- The latest run per source is that file's current state.

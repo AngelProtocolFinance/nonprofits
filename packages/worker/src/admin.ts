@@ -126,7 +126,7 @@ ORDER BY k.createdAt, k.id`;
 /** Every key with its limits and its usage so far in the current UTC day. */
 async function listKeys(env: Env): Promise<Response> {
   const day = utcDay(new Date());
-  const { results } = await env.DB.prepare(LIST_SQL).bind(day).all<{
+  const { results } = await env.APP_DB.prepare(LIST_SQL).bind(day).all<{
     id: string;
     name: string | null;
     ownerEmail: string;
@@ -179,7 +179,7 @@ async function setLimits(
       "Send JSON with `daily` and `perMinute`, each a positive integer.",
     );
   }
-  const { results } = await env.DB.prepare(SET_LIMITS_SQL)
+  const { results } = await env.APP_DB.prepare(SET_LIMITS_SQL)
     .bind(keyId, daily, perMinute)
     .all();
   if (results.length === 0) {
@@ -196,9 +196,9 @@ async function setLimits(
 
 /** Returns a key to the default tier. */
 async function clearLimits(keyId: string, env: Env): Promise<Response> {
-  const [, key] = await env.DB.batch([
-    env.DB.prepare("DELETE FROM key_limits WHERE key_id = ?1").bind(keyId),
-    env.DB.prepare("SELECT id FROM apikey WHERE id = ?1").bind(keyId),
+  const [, key] = await env.APP_DB.batch([
+    env.APP_DB.prepare("DELETE FROM key_limits WHERE key_id = ?1").bind(keyId),
+    env.APP_DB.prepare("SELECT id FROM apikey WHERE id = ?1").bind(keyId),
   ]);
   if (key === undefined || key.results.length === 0) {
     return problem(404, "key_not_found", `No key with id ${keyId}.`);

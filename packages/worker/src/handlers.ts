@@ -12,6 +12,8 @@ import { API_KEY_LETTERS, API_KEY_PREFIX } from "./auth.ts";
 import { clientSubject } from "./client.ts";
 import { D1OrgReader } from "./d1-org-reader.ts";
 import { D1OrgSearcher } from "./d1-org-searcher.ts";
+import { activeDataDb } from "./data-db.ts";
+import { logFailure } from "./log.ts";
 import {
   burstRefusal,
   countMeteredRequest,
@@ -124,16 +126,6 @@ function refuse(
   };
 }
 
-/** An Error is logged as text: `wrangler dev` stalls when handed the object. */
-export function logFailure(event: string, cause: unknown) {
-  console.error(
-    JSON.stringify({
-      event,
-      cause: cause instanceof Error ? `${cause.name}: ${cause.message}` : cause,
-    }),
-  );
-}
-
 const KEY_CHECK_UNAVAILABLE =
   "The key check is unavailable right now; nothing is wrong with your key. Retry shortly.";
 const KEYLESS_UNAVAILABLE =
@@ -230,7 +222,7 @@ export async function authorize(
   }
   let stored: StoredKey | undefined;
   try {
-    const { results } = await env.DB.prepare(KEY_SQL)
+    const { results } = await env.APP_DB.prepare(KEY_SQL)
       .bind(await defaultKeyHasher(credential))
       .all<StoredKey>();
     stored = results[0];
@@ -311,7 +303,7 @@ async function meter(caller: Caller): Promise<Result<void, HandlerError>> {
   let counted: Result<void, QuotaError>;
   try {
     if (tier === "whitelisted") {
-      counted = await countRequest(env.DB, subject, limits, now);
+      counted = await countRequest(env.APP_DB, subject, limits, now);
     } else {
       const serviceDaily = countOf(
         tier === "anonymous"
@@ -333,7 +325,7 @@ async function meter(caller: Caller): Promise<Result<void, HandlerError>> {
         return { ok: false, error: burstRefusal(tier, limits.perMinute) };
       }
       counted = await countMeteredRequest(
-        env.DB,
+        env.APP_DB,
         { subject, tier, daily: limits.daily },
         serviceDaily,
         now,
@@ -364,12 +356,16 @@ function emit(metrics: { event: string; outcome: string; rowsRead: number }) {
   console.log(JSON.stringify(metrics));
 }
 
-/** Runs a core op over D1, turning a thrown D1 error into `data_unavailable`. */
+/**
+ * Runs a core op over the data DB the pointer names, turning a thrown D1
+ * error, or no data DB to read, into `data_unavailable`.
+ */
 async function readData<T, E extends HandlerError>(
-  op: () => Promise<Result<T, E>>,
+  caller: Caller,
+  op: (db: D1Database) => Promise<Result<T, E>>,
 ): Promise<Result<T, E | DataUnavailable>> {
   try {
-    return await op();
+    return await op(await activeDataDb(caller.env, caller.now.getTime()));
   } catch (error) {
     logFailure("data_unavailable", error);
     return {
@@ -400,10 +396,14 @@ export async function lookupAs(
   if (!metered.ok) return metered;
 
   let rowsRead = 0;
-  const reader = new D1OrgReader(caller.env.DB, (rows) => {
-    rowsRead += rows;
-  });
-  const result = await readData(() => lookupOrg(ein, reader));
+  const result = await readData(caller, (db) =>
+    lookupOrg(
+      ein,
+      new D1OrgReader(db, (rows) => {
+        rowsRead += rows;
+      }),
+    ),
+  );
   emit({
     event: "org_lookup",
     outcome: result.ok ? "ok" : result.error.code,
@@ -431,10 +431,14 @@ export async function searchAs(
   if (!metered.ok) return metered;
 
   let rowsRead = 0;
-  const searcher = new D1OrgSearcher(caller.env.DB, (rows) => {
-    rowsRead += rows;
-  });
-  const result = await readData(() => searchOrgs(input, searcher));
+  const result = await readData(caller, (db) =>
+    searchOrgs(
+      input,
+      new D1OrgSearcher(db, (rows) => {
+        rowsRead += rows;
+      }),
+    ),
+  );
   emit({
     event: "org_search",
     outcome: result.ok ? "ok" : result.error.code,

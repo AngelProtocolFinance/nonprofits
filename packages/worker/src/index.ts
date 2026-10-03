@@ -59,6 +59,6 @@ export default {
   },
 
   async scheduled(controller, env): Promise<void> {
-    await pruneUsage(env.DB, new Date(controller.scheduledTime));
+    await pruneUsage(env.APP_DB, new Date(controller.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;

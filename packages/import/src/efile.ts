@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { COLUMNS, type SwappedTable } from "@nonprofits/db";
+import { COLUMNS, type DataTable } from "@nonprofits/db";
 import {
   type FormType,
   type IndexedFiling,
@@ -133,8 +133,8 @@ export interface EfileImportSummary {
 
 type FilingColumn = (typeof COLUMNS.filings)[number];
 type ProgramColumn = (typeof COLUMNS.programs)[number];
-const FILINGS: SwappedTable = "filings";
-const PROGRAMS: SwappedTable = "programs";
+const FILINGS: DataTable = "filings";
+const PROGRAMS: DataTable = "programs";
 
 /** The `filings` columns a tuple holds, in order; `run_id` is the zip's run. */
 const FILING_COLUMNS = [

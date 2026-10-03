@@ -5,7 +5,7 @@ const server = createWorkerHarness();
 
 beforeAll(async () => {
   await server.listen();
-  await server.getWorker().applyD1Migrations("DB");
+  await server.getWorker().applyD1Migrations("APP_DB");
 });
 
 afterAll(async () => {
@@ -13,11 +13,11 @@ afterAll(async () => {
 });
 
 test("the daily cron prunes usage rows more than 7 days older than its run, and keeps the rest", async () => {
-  const { DB } = await testEnv(server);
+  const { APP_DB } = await testEnv(server);
   const days = ["2026-12-10", "2026-12-12", "2026-12-13", "2026-12-19"];
-  await DB.batch(
+  await APP_DB.batch(
     days.map((day) =>
-      DB.prepare(
+      APP_DB.prepare(
         "INSERT INTO key_usage (subject, day, requests, minute, minute_requests) VALUES (?1, ?2, 1, 0, 1)",
       ).bind(`prune-test:${day}`, day),
     ),
@@ -29,7 +29,7 @@ test("the daily cron prunes usage rows more than 7 days older than its run, and 
   });
 
   expect(run.outcome).toBe("ok");
-  const { results } = await DB.prepare(
+  const { results } = await APP_DB.prepare(
     "SELECT day FROM key_usage WHERE subject LIKE 'prune-test:%' ORDER BY day",
   ).all<{ day: string }>();
   expect(results).toStrictEqual([{ day: "2026-12-13" }, { day: "2026-12-19" }]);

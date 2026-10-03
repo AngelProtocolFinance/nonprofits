@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { COLUMNS, type ImportSource, type SwappedTable } from "@nonprofits/db";
+import { COLUMNS, type DataTable, type ImportSource } from "@nonprofits/db";
 import { CsvError, type Options as CsvOptions, parse } from "csv-parse";
 
 export type OrgColumn = (typeof COLUMNS.orgs)[number];
@@ -11,8 +11,8 @@ type RunColumn = (typeof COLUMNS.import_runs)[number];
 export const org = (column: OrgColumn) => column;
 export const run = (column: RunColumn) => column;
 
-export const ORGS: SwappedTable = "orgs";
-export const IMPORT_RUNS: SwappedTable = "import_runs";
+export const ORGS: DataTable = "orgs";
+export const IMPORT_RUNS: DataTable = "import_runs";
 
 /** D1 rejects a statement over 100 KB. */
 export const MAX_STATEMENT_BYTES = 90_000;

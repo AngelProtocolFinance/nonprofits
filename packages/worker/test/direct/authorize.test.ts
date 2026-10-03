@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import { createTestHarness } from "wrangler";
 import { admin } from "../../src/admin.ts";
 import { authorize, bearerCredential, lookup } from "../../src/handlers.ts";
+import { emptyServedData } from "./empty-data.ts";
 import { failingD1 } from "./failing-d1.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
@@ -39,8 +40,9 @@ function adminRequest(path: string, body: unknown): Request {
 
 beforeAll(async () => {
   await server.listen();
-  await server.getWorker().applyD1Migrations("DB");
+  await server.getWorker().applyD1Migrations("APP_DB");
   env = (await server.getWorker().getEnv()) as Env;
+  await emptyServedData(env);
 });
 
 afterEach(() => {
@@ -149,7 +151,7 @@ test("a key issued today still authorizes 8 days later", async () => {
 
 test("a key past its expiresAt is refused as invalid", async () => {
   const issued = await issueKey();
-  await env.DB.prepare("UPDATE apikey SET expiresAt = ?1 WHERE id = ?2")
+  await env.APP_DB.prepare("UPDATE apikey SET expiresAt = ?1 WHERE id = ?2")
     .bind(new Date(Date.now() - 1000).toISOString(), issued.id)
     .run();
 
@@ -174,7 +176,7 @@ test("answers auth_unavailable, not invalid_api_key, when D1 is unreachable", as
     { credential: issued.key, clientIp: null, cfWorker: null },
     {
       ...env,
-      DB: failingD1(env.DB, /./),
+      APP_DB: failingD1(env.APP_DB, /./),
     },
   );
 
@@ -188,7 +190,7 @@ test("a request whose usage can't be counted answers auth_unavailable and is not
   const issued = await issueKey();
 
   const result = await lookup("530196605", {
-    env: { ...env, DB: failingD1(env.DB, /insert into key_usage/i) },
+    env: { ...env, APP_DB: failingD1(env.APP_DB, /insert into key_usage/i) },
     credential: issued.key,
     clientIp: null,
     cfWorker: null,
@@ -209,14 +211,14 @@ test("an issue that loses the race to create its owner reuses the winning owner"
   const email = "race@example.org";
   // a concurrent issue for the same new email commits its owner just before this one's insert
   const createWinner = () =>
-    env.DB.prepare(
+    env.APP_DB.prepare(
       `INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('winner', ?1, ?1, 0, ?2, ?2)`,
     )
       .bind(email, new Date().toISOString())
       .run();
-  const DB = {
+  const APP_DB = {
     prepare: (sql: string) => {
-      const statement = env.DB.prepare(sql);
+      const statement = env.APP_DB.prepare(sql);
       if (!/^insert into "user"/i.test(sql)) return statement;
       return {
         bind: (...params: unknown[]) => ({
@@ -227,18 +229,18 @@ test("an issue that loses the race to create its owner reuses the winning owner"
         }),
       };
     },
-    batch: (statements: D1PreparedStatement[]) => env.DB.batch(statements),
-    exec: (sql: string) => env.DB.exec(sql),
+    batch: (statements: D1PreparedStatement[]) => env.APP_DB.batch(statements),
+    exec: (sql: string) => env.APP_DB.exec(sql),
   } as unknown as D1Database;
 
   const response = await admin(adminRequest("/admin/keys", { email }), {
     ...env,
-    DB,
+    APP_DB,
   });
 
   expect(response.status).toBe(201);
   const issued = (await response.json()) as { id: string };
-  const owner = await env.DB.prepare(
+  const owner = await env.APP_DB.prepare(
     `SELECT referenceId FROM apikey WHERE id = ?1`,
   )
     .bind(issued.id)
@@ -249,7 +251,7 @@ test("an issue that loses the race to create its owner reuses the winning owner"
 test("an admin call that fails in storage answers a problem 500, not a bare one", async () => {
   const response = await admin(
     adminRequest("/admin/keys", { email: "owner@example.org" }),
-    { ...env, DB: failingD1(env.DB, /./) },
+    { ...env, APP_DB: failingD1(env.APP_DB, /./) },
   );
 
   expect(response.status).toBe(500);

@@ -45,11 +45,21 @@
       "simple": { "limit": 60, "period": 60 }
     }
   ],
+  // APP_DB holds keys, quota and the data_generation pointer naming which data DB
+  // is served. The data DBs have no migrations: resetGenerationSql is their schema.
   "d1_databases": [
     {
-      "binding": "DB",
-      "database_name": "nonprofits",
-      "migrations_dir": "../db/migrations"
+      "binding": "APP_DB",
+      "database_name": "nonprofits-app",
+      "migrations_dir": "../db/migrations/app"
+    },
+    {
+      "binding": "DATA_DB_A",
+      "database_name": "nonprofits-data-a"
+    },
+    {
+      "binding": "DATA_DB_B",
+      "database_name": "nonprofits-data-b"
     }
   ]
 }

@@ -127,8 +127,8 @@ describe("admin key endpoints", () => {
 
   test("stores keys hashed only: the key table holds the key's row but not its secret", async () => {
     const issued = await issueKey(server);
-    const { DB } = await testEnv(server);
-    const { results } = await DB.prepare("SELECT * FROM apikey").all();
+    const { APP_DB } = await testEnv(server);
+    const { results } = await APP_DB.prepare("SELECT * FROM apikey").all();
     const table = JSON.stringify(results);
     expect(table).toContain(issued.id);
     expect(table).not.toContain(issued.key);

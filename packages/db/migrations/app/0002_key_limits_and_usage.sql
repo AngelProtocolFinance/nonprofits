@@ -1,5 +1,5 @@
--- Per-key limits and per-subject usage for the request guard. Never in the swapped table
--- set: an import must not touch them.
+-- Per-key limits and per-subject usage for the request guard. In the app database,
+-- never a data database: an import must not touch them.
 
 -- A row here whitelists its key with its own limits; no row means the default tier.
 CREATE TABLE key_limits (

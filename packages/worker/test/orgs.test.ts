@@ -267,23 +267,23 @@ describe("GET /v1/orgs/:ein", () => {
   });
 
   test("reads a bounded number of rows however many orgs and runs are stored", async () => {
-    const { DB } = await testEnv(server);
+    const { DATA_DB_A } = await testEnv(server);
     const filler = Array.from({ length: 300 }, (_, i) => String(900000000 + i));
     const laterBmfRuns = Array.from({ length: 200 }, (_, i) =>
-      DB.prepare(
+      DATA_DB_A.prepare(
         "INSERT INTO import_runs (id, source, file_url, released_at, fetched_at, row_count) VALUES (?1, ?2, 'https://example.invalid/bmf', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 0)",
       ).bind(100 + i, "bmf"),
     );
-    await DB.batch([
+    await DATA_DB_A.batch([
       ...laterBmfRuns,
       ...filler.flatMap((ein) => [
-        DB.prepare(
+        DATA_DB_A.prepare(
           "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id) VALUES (?1, 'FILLER', 1, '03', 1)",
         ).bind(ein),
-        DB.prepare(
+        DATA_DB_A.prepare(
           "INSERT INTO filings (ein, object_id, form_type, tax_period, tax_year, run_id) VALUES (?1, ?1, '990', '2024-12', 2024, 5)",
         ).bind(ein),
-        DB.prepare(
+        DATA_DB_A.prepare(
           "INSERT INTO programs (ein, object_id, rank, expense) VALUES (?1, ?1, 1, 1), (?1, ?1, 2, 1), (?1, ?1, 3, 1)",
         ).bind(ein),
       ]),

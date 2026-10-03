@@ -50,7 +50,7 @@ export const authOptions = {
 export function createAuth(env: Env) {
   return betterAuth({
     ...authOptions,
-    database: env.DB,
+    database: env.APP_DB,
     secret: env.BETTER_AUTH_SECRET,
   });
 }

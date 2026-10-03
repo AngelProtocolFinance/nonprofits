@@ -1,6 +1,9 @@
+import { mkdir, writeFile } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { wrangler } from "./wrangler.ts";
+import { join } from "node:path";
+import { resetGenerationSql } from "@nonprofits/db";
+import { applyLoad, LOAD_BINDING, wrangler } from "./wrangler.ts";
 
 /** A body served whole, or a handler that writes the response itself. */
 export type Route = string | Uint8Array | ((res: ServerResponse) => void);
@@ -25,25 +28,20 @@ export async function serve(
   return { server, base: `http://127.0.0.1:${port}` };
 }
 
-/** Applies the migrations to a fresh local D1 under `persistTo`. */
-export async function migrate(persistTo: string): Promise<void> {
-  await wrangler([
-    "d1",
-    "migrations",
-    "apply",
-    "DB",
-    "--local",
-    "--persist-to",
-    persistTo,
-  ]);
+/** Builds an empty data generation in the local load DB under `persistTo`. */
+export async function resetDataDb(persistTo: string): Promise<void> {
+  await mkdir(persistTo, { recursive: true });
+  const file = join(persistTo, "reset-generation.sql");
+  await writeFile(file, resetGenerationSql("a", "test"));
+  await applyLoad(file, { remote: false, persistTo });
 }
 
-/** Runs `sql` against the local D1 under `persistTo`; resolves with the last statement's rows. */
+/** Runs `sql` against the local load DB under `persistTo`; resolves with the last statement's rows. */
 export async function query<T>(persistTo: string, sql: string): Promise<T[]> {
   const out = await wrangler([
     "d1",
     "execute",
-    "DB",
+    LOAD_BINDING,
     "--local",
     "--persist-to",
     persistTo,

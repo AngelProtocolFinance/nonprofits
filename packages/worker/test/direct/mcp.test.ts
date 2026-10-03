@@ -7,6 +7,7 @@ import { createTestHarness } from "wrangler";
 import { lookup } from "../../src/handlers.ts";
 import { mcp } from "../../src/mcp.ts";
 import { clearOfUtcMidnight } from "../clock-windows.ts";
+import { emptyServedData } from "./empty-data.ts";
 import { failingD1 } from "./failing-d1.ts";
 import { noBurstLimit } from "./limiters.ts";
 
@@ -27,8 +28,9 @@ let env: Env;
 
 beforeAll(async () => {
   await server.listen();
-  await server.getWorker().applyD1Migrations("DB");
+  await server.getWorker().applyD1Migrations("APP_DB");
   env = (await server.getWorker().getEnv()) as Env;
+  await emptyServedData(env);
 });
 
 afterAll(async () => {
@@ -47,7 +49,7 @@ async function connect(workerEnv: Env, ip: string): Promise<Client> {
   return client;
 }
 
-/** A keyless REST lookup from `ip`; this D1 holds no orgs, so an admitted one is not_found. */
+/** A keyless REST lookup from `ip`; the served data DB holds no orgs, so an admitted one is not_found. */
 async function restLookup(workerEnv: Env, ip: string) {
   const result = await lookup("530196605", {
     env: workerEnv,
@@ -106,7 +108,7 @@ test("without a key, tool calls and REST requests from one IP share its 5 a day;
 }, 30_000);
 
 test("a D1 outage behind a tool call is a tool error carrying the REST 503 problem", async () => {
-  const orgsDown = { ...env, DB: failingD1(env.DB, /FROM orgs/) };
+  const orgsDown = { ...env, DATA_DB_A: failingD1(env.DATA_DB_A, /FROM orgs/) };
   const client = await connect(orgsDown, "203.0.113.121");
 
   const result = await client.callTool({

@@ -29,12 +29,12 @@ const UNAVAILABLE = {
 
 describe("a D1 failure behind a data read", () => {
   test("answers a search with a 503 problem, not a bare 500", async () => {
-    const { DB } = await testEnv(server);
+    const { DATA_DB_A } = await testEnv(server);
     const before = await server.fetch("/v1/search?q=red%20cross", {
       headers: { authorization },
     });
     expect(before.status).toBe(200);
-    await DB.batch([DB.prepare("DROP TABLE orgs_fts")]);
+    await DATA_DB_A.batch([DATA_DB_A.prepare("DROP TABLE orgs_fts")]);
 
     const response = await server.fetch("/v1/search?q=red%20cross", {
       headers: { authorization },
@@ -48,12 +48,12 @@ describe("a D1 failure behind a data read", () => {
   });
 
   test("answers a lookup with a 503 problem, not a bare 500", async () => {
-    const { DB } = await testEnv(server);
+    const { DATA_DB_A } = await testEnv(server);
     const before = await server.fetch("/v1/orgs/530196605", {
       headers: { authorization },
     });
     expect(before.status).toBe(200);
-    await DB.batch([DB.prepare("DROP TABLE programs")]);
+    await DATA_DB_A.batch([DATA_DB_A.prepare("DROP TABLE programs")]);
 
     const response = await server.fetch("/v1/orgs/530196605", {
       headers: { authorization },

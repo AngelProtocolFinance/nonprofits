@@ -7,12 +7,14 @@
   },
   "scripts": {
     "dev": "wrangler dev",
-    "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:seed:local": "wrangler d1 execute DB --local --file fixtures/seed.sql",
-    "db:search-index:local": "node --input-type=module -e \"import { rebuildSearchIndexSql } from '@nonprofits/db'; process.stdout.write(rebuildSearchIndexSql(''))\" > .wrangler/search-index.sql && wrangler d1 execute DB --local --file .wrangler/search-index.sql",
+    "db:migrate:local": "wrangler d1 migrations apply APP_DB --local",
+    "db:reset:local": "node scripts/local-data.ts reset",
+    "db:seed:local": "node scripts/local-data.ts seed",
+    "db:search-index:local": "node scripts/local-data.ts search-index",
+    "db:flip:local": "node scripts/local-data.ts flip",
     "types": "wrangler types --strict-vars=false",
     "auth:generate": "auth generate --config auth.generate.ts --output .wrangler/auth-schema.sql --yes",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p test && tsc --noEmit -p test/direct"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test && tsc --noEmit -p test/direct && tsc --noEmit -p scripts"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "catalog:",

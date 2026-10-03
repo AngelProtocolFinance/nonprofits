@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup, search } from "../../src/handlers.ts";
 import { startOfMinuteWindow } from "../clock-windows.ts";
+import { emptyServedData } from "./empty-data.ts";
 import { noBurstLimit } from "./limiters.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
@@ -22,8 +23,9 @@ let env: Env;
 
 beforeAll(async () => {
   await server.listen();
-  await server.getWorker().applyD1Migrations("DB");
+  await server.getWorker().applyD1Migrations("APP_DB");
   env = (await server.getWorker().getEnv()) as Env;
+  await emptyServedData(env);
 });
 
 afterAll(async () => {
@@ -48,7 +50,7 @@ async function issueKey(): Promise<{ id: string; key: string }> {
   return (await response.json()) as { id: string; key: string };
 }
 
-/** The outcome of a lookup with `credential`; this D1 holds no orgs, so an admitted one is `not_found`. */
+/** The outcome of a lookup with `credential`; the served data DB holds no orgs, so an admitted one is `not_found`. */
 async function lookupWith(
   env: Env,
   credential: string,
@@ -304,7 +306,7 @@ test("a keyless request is counted under a keyed hash of its IP; no usage row ho
   const day = "2026-11-07";
   await keylessLookup(env, ip, `${day}T12:00:00Z`);
 
-  const { results } = await env.DB.prepare(
+  const { results } = await env.APP_DB.prepare(
     "SELECT * FROM key_usage WHERE day = ?1 AND subject LIKE 'ip:%'",
   )
     .bind(day)
@@ -312,7 +314,7 @@ test("a keyless request is counted under a keyed hash of its IP; no usage row ho
   expect(results).toMatchObject([
     { subject: expect.stringMatching(/^ip:[0-9a-f]{64}$/), requests: 1 },
   ]);
-  const everyRow = await env.DB.prepare("SELECT * FROM key_usage").all();
+  const everyRow = await env.APP_DB.prepare("SELECT * FROM key_usage").all();
   expect(JSON.stringify(everyRow.results)).not.toContain(ip);
 });
 
@@ -437,7 +439,7 @@ test("past 600 requests a minute carrying a key from one client, the next is 429
     },
   } as unknown as D1Database;
 
-  expect(await from({ ...env, DB: noQueries })).toStrictEqual({
+  expect(await from({ ...env, APP_DB: noQueries })).toStrictEqual({
     ok: false,
     error: {
       code: "per_minute_limit_exceeded",

@@ -2,6 +2,7 @@ import { createServer } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createWorkerHarness,
+  resetDataSlot,
   TEST_SECRETS,
   testEnv,
 } from "../../worker/test/harness.ts";
@@ -12,7 +13,9 @@ let baseUrl: string;
 
 beforeAll(async () => {
   baseUrl = (await server.listen()).url.href;
-  await server.getWorker().applyD1Migrations("DB");
+  await server.getWorker().applyD1Migrations("APP_DB");
+  // the served data DB, empty: an authorized lookup is not_found
+  await resetDataSlot(server, "a");
 });
 
 afterAll(async () => {
@@ -249,8 +252,8 @@ describe("keys CLI", () => {
       "10",
       "0",
     ]);
-    const { DB } = await testEnv(server);
-    const stored = await DB.prepare("SELECT key FROM apikey").all<{
+    const { APP_DB } = await testEnv(server);
+    const stored = await APP_DB.prepare("SELECT key FROM apikey").all<{
       key: string;
     }>();
     for (const secret of [

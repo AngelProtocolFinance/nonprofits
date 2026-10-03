@@ -7,7 +7,7 @@ import { zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
 import { importList, type ListName } from "./lists.ts";
-import { migrate, query, type Route, serve } from "./test-support.ts";
+import { query, type Route, resetDataDb, serve } from "./test-support.ts";
 
 const BMF_FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
 const BMF_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
@@ -129,10 +129,10 @@ afterAll(async () => {
   if (work) await rm(work, { recursive: true, force: true });
 });
 
-/** A fresh local D1 under `work`, migrated. */
+/** A fresh local data DB under `work`, reset. */
 async function freshD1(name: string): Promise<string> {
   const persistTo = join(work, name);
-  await migrate(persistTo);
+  await resetDataDb(persistTo);
   return persistTo;
 }
 

@@ -10,7 +10,7 @@ import {
   type EfileImportOptions,
   importEfile,
 } from "./efile.ts";
-import { migrate, query, type Route, serve } from "./test-support.ts";
+import { query, type Route, resetDataDb, serve } from "./test-support.ts";
 
 const BMF_FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
 const BMF_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
@@ -233,10 +233,10 @@ afterAll(async () => {
   if (work) await rm(work, { recursive: true, force: true });
 });
 
-/** A fresh local D1 under `work`, migrated and loaded with the BMF fixture. */
+/** A fresh local data DB under `work`, reset and loaded with the BMF fixture. */
 async function d1WithBmf(name: string): Promise<string> {
   const persistTo = join(work, name);
-  await migrate(persistTo);
+  await resetDataDb(persistTo);
   await importBmf({
     urls: BMF_FILES.map((file) => `${base}/${file}`),
     minOrgs: 1,

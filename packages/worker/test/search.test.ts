@@ -36,10 +36,10 @@ const RED_CROSS_ORDER = ["530196605", "581771391", "362276983", "841189480"];
 
 beforeAll(async () => {
   await listenSeeded(server);
-  const { DB } = await testEnv(server);
-  await DB.batch(
+  const { DATA_DB_A } = await testEnv(server);
+  await DATA_DB_A.batch(
     NEAR_MISSES.map(({ ein, name, subsection }) =>
-      DB.prepare(
+      DATA_DB_A.prepare(
         "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id) VALUES (?1, ?2, 1, ?3, iif(?3 IS NULL, NULL, 1))",
       ).bind(ein, name, subsection),
     ),
@@ -251,11 +251,11 @@ describe("GET /v1/search", () => {
   });
 
   test("reads only the names holding every word, not every name holding one", async () => {
-    const { DB } = await testEnv(server);
+    const { DATA_DB_A } = await testEnv(server);
     const filler = Array.from({ length: 300 }, (_, i) => String(900000000 + i));
-    await DB.batch(
+    await DATA_DB_A.batch(
       filler.map((ein) =>
-        DB.prepare(
+        DATA_DB_A.prepare(
           "INSERT INTO orgs (ein, name, name_run_id) VALUES (?1, 'FILLER FOUNDATION OF THE CROSS ROADS', 1)",
         ).bind(ein),
       ),

@@ -1,9 +1,20 @@
 export {
+  DATA_DB_BINDING,
+  type DataDbBinding,
+  type DataSlot,
+  flipActiveSlotSql,
+  otherSlot,
+  READ_ACTIVE_SLOT_SQL,
+  READ_DATA_META_SQL,
+  resetGenerationSql,
+  sealGenerationSql,
+} from "./generation.ts";
+export {
   COLUMNS,
+  DATA_TABLES,
+  type DataTable,
   dataTablesDdl,
   IMPORT_SOURCES,
   type ImportSource,
-  SWAPPED_TABLES,
-  type SwappedTable,
 } from "./schema.ts";
 export { rebuildSearchIndexSql, searchIndexDdl } from "./search-index.ts";
