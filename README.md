@@ -159,3 +159,7 @@ Run it by hand from the Actions tab (**Run workflow**), with two switches:
 The run's summary page shows the CLI's `--summary`. A failed run is red, and opens an issue titled "Monthly IRS import failed" with the run's link and the summary's `**Failed:**` line, or comments on that issue while it is open. GitHub notifies the repository's watchers of the issue and each comment, beyond its failed-run email; close the issue once the import is fixed. A cancelled run releases its build's claim itself; if that stop was cut off, the workflow runs the `irs release --remote --build <id>` it printed, unless a remote import may still be running, which keeps the claim until it lapses or is released by hand.
 
 The job has 350 minutes (GitHub's limit is 6 h), the import step 335 of them. A full run downloads about 10 GB, one e-file batch zip on disk at a time; the step before the import logs the runner's free disk, and the last one deletes `data/` and `load/`.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The IRS data the import loads is public.
