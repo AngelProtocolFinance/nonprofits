@@ -170,6 +170,9 @@ catalogs:
     '@types/node':
       specifier: ^24.0.0
       version: 24.19.1
+    csv-parse:
+      specifier: 7.0.3
+      version: 7.0.3
     typescript:
       specifier: ^7.0.2
       version: 7.0.2
@@ -203,14 +206,24 @@ importers:
 
   packages/db: {}
 
-  packages/import: {}
+  packages/import:
+    dependencies:
+      '@nonprofits/db':
+        specifier: workspace:*
+        version: link:../db
+      csv-parse:
+        specifier: 'catalog:'
+        version: 7.0.3
+      wrangler:
+        specifier: 'catalog:'
+        version: 4.146.0(@types/node@24.19.1)
 
   packages/worker:
     dependencies:
-      '@irs-lookup/core':
+      '@nonprofits/core':
         specifier: workspace:*
         version: link:../core
-      '@irs-lookup/db':
+      '@nonprofits/db':
         specifier: workspace:*
         version: link:../db
     devDependencies:
@@ -936,6 +949,9 @@ packages:
   cookie@1.1.1:
     resolution: {integrity: sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==}
     engines: {node: '>=18'}
+
+  csv-parse@7.0.3:
+    resolution: {integrity: sha512-YFd3QM/yo17vH91L1IOZuvl09zM0zEEtdfTcOCKWcMdM++MNaQSyp09slXyFCLaPXvHstQFx/xC8myiFHSMUvw==}
 
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
@@ -1689,6 +1705,8 @@ snapshots:
   chai@6.3.0: {}
 
   cookie@1.1.1: {}
+
+  csv-parse@7.0.3: {}
 
   detect-libc@2.1.2: {}
 

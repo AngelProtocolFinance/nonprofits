@@ -33,3 +33,14 @@ pnpm dev            # GET http://localhost:8787/v1/orgs/530196605
 ```
 
 Rerun `pnpm types` after editing `wrangler.jsonc`.
+
+## Import
+
+Loads the IRS EO BMF (`eo1.csv` … `eo4.csv`) into the worker's D1, local by default:
+
+```sh
+pnpm --filter @nonprofits/worker db:migrate:local   # once, on a fresh local D1
+pnpm --filter @nonprofits/import bmf                # or: bmf --remote
+```
+
+The job streams each file into one SQL load file (`load/bmf.load.sql`) and applies it with a single `wrangler d1 execute --file`, so a header that drifted from the expected layout, or fewer orgs than the floor, aborts before anything is loaded. Re-running replaces the BMF rows in place.

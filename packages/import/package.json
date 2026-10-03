@@ -1,11 +1,17 @@
 {
-  "name": "@irs-lookup/import",
+  "name": "@nonprofits/import",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
+    "bmf": "node src/cli.ts",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nonprofits/db": "workspace:*",
+    "csv-parse": "catalog:",
+    "wrangler": "catalog:"
   }
 }
