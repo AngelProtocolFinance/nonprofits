@@ -18,7 +18,8 @@ CREATE VIRTUAL TABLE orgs_fts${suffix} USING fts5 (
 /**
  * Empties `orgs_fts` + `suffix` and indexes every named row of `orgs` +
  * `suffix`, one statement per two-digit EIN prefix: D1 stops a single query
- * at 30 s, and the largest prefix holds under 100k orgs.
+ * at 30 s. On 3.03M named orgs the slowest chunk (prefix 23, 144k names) took
+ * 0.44 s locally.
  */
 export function rebuildSearchIndexSql(suffix: string): string {
   const fts = `orgs_fts${suffix}`;

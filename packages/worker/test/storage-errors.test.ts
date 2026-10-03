@@ -1,0 +1,65 @@
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import {
+  createWorkerHarness,
+  issueKey,
+  listenSeeded,
+  testEnv,
+} from "./harness.ts";
+
+const server = createWorkerHarness();
+let authorization: string;
+
+beforeAll(async () => {
+  await listenSeeded(server);
+  authorization = `Bearer ${(await issueKey(server)).key}`;
+});
+
+afterAll(async () => {
+  await server.close();
+});
+
+const UNAVAILABLE = {
+  type: "about:blank",
+  title: "Service Unavailable",
+  status: 503,
+  code: "data_unavailable",
+  detail:
+    "The org data store failed to answer; nothing is wrong with your request. Retry shortly.",
+};
+
+describe("a D1 failure behind a data read", () => {
+  test("answers a search with a 503 problem, not a bare 500", async () => {
+    const { DB } = await testEnv(server);
+    const before = await server.fetch("/v1/search?q=red%20cross", {
+      headers: { authorization },
+    });
+    expect(before.status).toBe(200);
+    await DB.batch([DB.prepare("DROP TABLE orgs_fts")]);
+
+    const response = await server.fetch("/v1/search?q=red%20cross", {
+      headers: { authorization },
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("content-type")).toBe(
+      "application/problem+json",
+    );
+    expect(await response.json()).toStrictEqual(UNAVAILABLE);
+  });
+
+  test("answers a lookup with a 503 problem, not a bare 500", async () => {
+    const { DB } = await testEnv(server);
+    const before = await server.fetch("/v1/orgs/530196605", {
+      headers: { authorization },
+    });
+    expect(before.status).toBe(200);
+    await DB.batch([DB.prepare("DROP TABLE programs")]);
+
+    const response = await server.fetch("/v1/orgs/530196605", {
+      headers: { authorization },
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toStrictEqual(UNAVAILABLE);
+  });
+});

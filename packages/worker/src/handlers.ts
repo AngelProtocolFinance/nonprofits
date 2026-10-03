@@ -28,12 +28,16 @@ export type AuthError = {
 /** The key store failed mid-check, so there is no verdict on the key: a 503, never a 401. */
 export type AuthUnavailable = { code: "auth_unavailable"; message: string };
 
+/** D1 failed a data read: a 503 the caller can retry, never a bare 500. */
+export type DataUnavailable = { code: "data_unavailable"; message: string };
+
 /** Every refusal a handler can return; transports map each `code`. */
 export type HandlerError =
   | OrgLookupError
   | OrgSearchError
   | AuthError
-  | AuthUnavailable;
+  | AuthUnavailable
+  | DataUnavailable;
 
 /** The caller a valid key stands for. */
 export interface Principal {
@@ -82,13 +86,18 @@ function refuse(
   };
 }
 
-function unavailable(cause: unknown): Result<never, AuthUnavailable> {
+/** An Error is logged as text: `wrangler dev` stalls when handed the object. */
+function logFailure(event: string, cause: unknown) {
   console.error(
     JSON.stringify({
-      event: "auth_unavailable",
+      event,
       cause: cause instanceof Error ? `${cause.name}: ${cause.message}` : cause,
     }),
   );
+}
+
+function unavailable(cause: unknown): Result<never, AuthUnavailable> {
+  logFailure("auth_unavailable", cause);
   return {
     ok: false,
     error: {
@@ -159,6 +168,25 @@ function emit(metrics: { event: string; outcome: string; rowsRead: number }) {
   console.log(JSON.stringify(metrics));
 }
 
+/** Runs a core op over D1, turning a thrown D1 error into `data_unavailable`. */
+async function readData<T, E extends HandlerError>(
+  op: () => Promise<Result<T, E>>,
+): Promise<Result<T, E | DataUnavailable>> {
+  try {
+    return await op();
+  } catch (error) {
+    logFailure("data_unavailable", error);
+    return {
+      ok: false,
+      error: {
+        code: "data_unavailable",
+        message:
+          "The org data store failed to answer; nothing is wrong with your request. Retry shortly.",
+      },
+    };
+  }
+}
+
 export async function lookup(
   ein: string,
   ctx: HandlerContext,
@@ -170,7 +198,7 @@ export async function lookup(
   const reader = new D1OrgReader(ctx.env.DB, (rows) => {
     rowsRead += rows;
   });
-  const result = await lookupOrg(ein, reader);
+  const result = await readData(() => lookupOrg(ein, reader));
   emit({
     event: "org_lookup",
     outcome: result.ok ? "ok" : result.error.code,
@@ -190,7 +218,7 @@ export async function search(
   const searcher = new D1OrgSearcher(ctx.env.DB, (rows) => {
     rowsRead += rows;
   });
-  const result = await searchOrgs(input, searcher);
+  const result = await readData(() => searchOrgs(input, searcher));
   emit({
     event: "org_search",
     outcome: result.ok ? "ok" : result.error.code,

@@ -7,12 +7,12 @@ import {
 
 function searcherOf(
   ...records: OrgSearchRecord[]
-): OrgSearcher & { calls: { query: string; limit: number }[] } {
-  const calls: { query: string; limit: number }[] = [];
+): OrgSearcher & { calls: { words: string[]; limit: number }[] } {
+  const calls: { words: string[]; limit: number }[] = [];
   return {
     calls,
-    async search(query, limit) {
-      calls.push({ query, limit });
+    async search(words, limit) {
+      calls.push({ words, limit });
       return records.slice(0, limit);
     },
   };
@@ -97,7 +97,7 @@ describe("searchOrgs", () => {
         },
       },
     );
-    expect(searcher.calls).toEqual([{ query: "red cross", limit: 10 }]);
+    expect(searcher.calls).toEqual([{ words: ["red", "cross"], limit: 10 }]);
   });
 
   test.each([
@@ -112,7 +112,9 @@ describe("searchOrgs", () => {
       searcher,
     );
     expect(result).toMatchObject({ ok: true, value: { limit: applied } });
-    expect(searcher.calls).toEqual([{ query: "red cross", limit: applied }]);
+    expect(searcher.calls).toEqual([
+      { words: ["red", "cross"], limit: applied },
+    ]);
   });
 
   test.each([0, -1, 2.5, Number.NaN])(
@@ -127,6 +129,96 @@ describe("searchOrgs", () => {
           code: "invalid_limit",
           message:
             "limit must be a whole number from 1; above 50 is capped at 50.",
+        },
+      });
+      expect(searcher.calls).toEqual([]);
+    },
+  );
+
+  test("searches each word once, whatever its case, and echoes the words searched", async () => {
+    const searcher = searcherOf();
+    const result = await searchOrgs(
+      { query: `${"inc ".repeat(40)}Red INC red cross` },
+      searcher,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      value: { query: "inc Red cross" },
+    });
+    expect(searcher.calls).toEqual([
+      { words: ["inc", "Red", "cross"], limit: 10 },
+    ]);
+  });
+
+  test("searches the first 8 words of a longer query", async () => {
+    const searcher = searcherOf();
+    const result = await searchOrgs(
+      { query: "one two three four five six seven eight nine ten" },
+      searcher,
+    );
+    const words = [
+      "one",
+      "two",
+      "three",
+      "four",
+      "five",
+      "six",
+      "seven",
+      "eight",
+    ];
+    expect(result).toMatchObject({
+      ok: true,
+      value: { query: words.join(" ") },
+    });
+    expect(searcher.calls).toEqual([{ words, limit: 10 }]);
+  });
+
+  test("reads punctuation as a word break and drops apostrophes", async () => {
+    const searcher = searcherOf();
+    await searchOrgs({ query: '"st. jude" (children’s) AND-OR*' }, searcher);
+    expect(searcher.calls).toEqual([
+      { words: ["st", "jude", "childrens", "AND", "OR"], limit: 10 },
+    ]);
+  });
+
+  test("composes a decomposed letter before splitting words", async () => {
+    const searcher = searcherOf();
+    await searchOrgs({ query: "Mu\u0308ller foundation" }, searcher);
+    expect(searcher.calls).toEqual([
+      { words: ["M\u00fcller", "foundation"], limit: 10 },
+    ]);
+  });
+
+  test("refuses a query over 200 characters without searching", async () => {
+    const searcher = searcherOf();
+    expect(
+      await searchOrgs({ query: "a".repeat(201) }, searcher),
+    ).toStrictEqual({
+      ok: false,
+      error: {
+        code: "invalid_query",
+        message:
+          "Search query must be at most 200 characters: send a few distinctive words of the name.",
+      },
+    });
+    expect(searcher.calls).toEqual([]);
+    expect(
+      await searchOrgs({ query: "a".repeat(200) }, searcher),
+    ).toMatchObject({
+      ok: true,
+    });
+  });
+
+  test.each(["**", '"" ""', "-- !"])(
+    "refuses %j, which holds no word, without searching",
+    async (query) => {
+      const searcher = searcherOf();
+      expect(await searchOrgs({ query }, searcher)).toStrictEqual({
+        ok: false,
+        error: {
+          code: "invalid_query",
+          message:
+            'Search query must hold a word of letters or digits, e.g. "red cross".',
         },
       });
       expect(searcher.calls).toEqual([]);

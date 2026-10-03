@@ -145,24 +145,54 @@ describe("GET /v1/search", () => {
   );
 
   test.each([
-    '"red',
-    "AND OR",
-    "**",
-    "red OR",
-    "NEAR(red cross)",
-    "-red",
-    "^red",
-    "name:red",
-    "red*",
-    '"" ""',
-    "''",
-    "{red cross}",
-  ])("answers FTS syntax %j as plain words, never a 5xx", async (q) => {
-    const response = await search(`q=${encodeURIComponent(q)}`);
+    ['"red', "red"],
+    ["AND OR", "AND OR"],
+    ["red OR", "red OR"],
+    ["NEAR(red cross)", "NEAR red cross"],
+    ["-red", "red"],
+    ["^red", "red"],
+    ["name:red", "name red"],
+    ["red*", "red"],
+    ["{red cross}", "red cross"],
+  ])(
+    "answers FTS syntax %j as the plain words %j, never a 5xx",
+    async (q, words) => {
+      const response = await search(`q=${encodeURIComponent(q)}`);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as OrgSearchResponse;
+      expect(body.query).toBe(words);
+      expect(Array.isArray(body.results)).toBe(true);
+    },
+  );
+
+  test.each(["**", '"" ""', "''"])(
+    "refuses %j, which holds no word, with a 400",
+    async (q) => {
+      const response = await search(`q=${encodeURIComponent(q)}`);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        code: "invalid_query",
+        detail:
+          'Search query must hold a word of letters or digits, e.g. "red cross".',
+      });
+    },
+  );
+
+  test("refuses a query over 200 characters with a 400", async () => {
+    const response = await search(`q=${"red%20".repeat(50)}cross`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      code: "invalid_query",
+      detail:
+        "Search query must be at most 200 characters: send a few distinctive words of the name.",
+    });
+  });
+
+  test("searches a repeated word once", async () => {
+    const response = await search(`q=${"inc%20".repeat(30)}red%20cross`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as OrgSearchResponse;
-    expect(body.query).toBe(q);
-    expect(Array.isArray(body.results)).toBe(true);
+    expect(body.query).toBe("inc red cross");
   });
 
   test("reads an FTS operator as a word to match, not as syntax", async () => {
@@ -198,18 +228,23 @@ describe("GET /v1/search", () => {
     expect(body.results.map((r) => r.ein)).toEqual(["530196605"]);
   });
 
-  test.each(["limit=abc", "limit=0", "limit=", "limit=2.5"])(
-    "refuses %j with a 400 naming the range",
-    async (limit) => {
-      const response = await search(`q=red%20cross&${limit}`);
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({
-        code: "invalid_limit",
-        detail:
-          "limit must be a whole number from 1; above 50 is capped at 50.",
-      });
-    },
-  );
+  test.each([
+    "limit=abc",
+    "limit=0",
+    "limit=",
+    "limit=2.5",
+    "limit=1e1",
+    "limit=%2B5",
+    "limit=%205",
+    "limit=0x10",
+  ])("refuses %j with a 400 naming the range", async (limit) => {
+    const response = await search(`q=red%20cross&${limit}`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      code: "invalid_limit",
+      detail: "limit must be a whole number from 1; above 50 is capped at 50.",
+    });
+  });
 
   test("answers 405 for a method other than GET", async () => {
     const response = await search("q=red%20cross", "POST");
@@ -217,7 +252,7 @@ describe("GET /v1/search", () => {
     expect(response.headers.get("allow")).toBe("GET");
   });
 
-  test("reads a bounded number of rows however many orgs are indexed", async () => {
+  test("reads only the names holding every word, not every name holding one", async () => {
     const { DB } = await testEnv(server);
     const filler = Array.from({ length: 300 }, (_, i) => String(900000000 + i));
     await DB.batch(

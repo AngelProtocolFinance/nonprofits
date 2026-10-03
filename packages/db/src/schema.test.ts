@@ -10,14 +10,10 @@ import {
 
 const MIGRATIONS = new URL("../migrations/", import.meta.url);
 
-/** Applies the migrations in order; `before` runs ahead of the first one it names. */
-async function migrated(
-  before: Record<string, (db: DatabaseSync) => void> = {},
-): Promise<DatabaseSync> {
+async function migrated(): Promise<DatabaseSync> {
   const db = new DatabaseSync(":memory:");
   const files = (await readdir(MIGRATIONS)).filter((f) => f.endsWith(".sql"));
   for (const file of files.sort()) {
-    before[file]?.(db);
     db.exec(await readFile(new URL(file, MIGRATIONS), "utf8"));
   }
   return db;
@@ -75,21 +71,6 @@ describe("searchIndexDdl", () => {
     expect(schemaOf(fromDdl(searchIndexDdl("")), ["orgs_fts"])).toEqual(
       schemaOf(await migrated(), ["orgs_fts"]),
     );
-  });
-
-  test("the migration indexes the orgs already loaded", async () => {
-    const db = await migrated({
-      "0003_org_name_search.sql": (db) =>
-        db.exec(`
-          INSERT INTO import_runs VALUES (1, 'bmf', 'https://example.invalid/bmf', '2026-09-08', '2026-09-10', 1);
-          INSERT INTO orgs (ein, name, name_run_id) VALUES ('530196605', 'AMERICAN NATIONAL RED CROSS', 1);
-        `),
-    });
-    expect(
-      db
-        .prepare("SELECT rowid FROM orgs_fts WHERE orgs_fts MATCH 'red cross'")
-        .all(),
-    ).toEqual([{ rowid: 530196605 }]);
   });
 });
 

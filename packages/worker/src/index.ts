@@ -22,7 +22,15 @@ const STATUS = {
   revoked_api_key: 401,
   not_found: 404,
   auth_unavailable: 503,
+  data_unavailable: 503,
 } as const satisfies Record<HandlerError["code"], number>;
+
+/** Digits only: `Number` would also take `1e1`, `0x10` and ` 5`. NaN is refused by core. */
+function limitOf(url: URL): number | undefined {
+  const limit = url.searchParams.get("limit");
+  if (limit === null) return undefined;
+  return /^\d+$/.test(limit) ? Number(limit) : Number.NaN;
+}
 
 function respond(result: Result<unknown, HandlerError>): Response {
   if (result.ok) return Response.json(result.value);
@@ -55,13 +63,9 @@ export default {
       now: new Date(),
     };
     if (ein !== undefined) return respond(await lookup(ein, ctx));
-    const limit = url.searchParams.get("limit");
     return respond(
       await search(
-        {
-          query: url.searchParams.get("q") ?? "",
-          limit: limit === null ? undefined : Number(limit),
-        },
+        { query: url.searchParams.get("q") ?? "", limit: limitOf(url) },
         ctx,
       ),
     );

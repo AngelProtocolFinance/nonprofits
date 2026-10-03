@@ -30,8 +30,11 @@ From `packages/worker`, against a local D1 seeded with fixture rows:
 cp .dev.vars.example .dev.vars   # then fill both secrets: openssl rand -base64 32
 pnpm db:migrate:local
 pnpm db:seed:local
+pnpm db:search-index:local
 pnpm dev
 ```
+
+`/v1/search` reads a full-text index that migrations create empty and every load rebuilds. After migrating or seeding a local D1 that already holds orgs, rebuild it with `pnpm db:search-index:local`.
 
 Every lookup needs an API key, sent as `Authorization: Bearer <key>`. Keys are issued and revoked through the Worker's admin endpoints, with `ADMIN_TOKEN` read from `.dev.vars`:
 
