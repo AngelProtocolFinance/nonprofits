@@ -62,6 +62,21 @@ Against a deployed Worker, set `NONPROFITS_URL` and `ADMIN_TOKEN` in the shell. 
 
 Rerun `pnpm types` after editing `wrangler.jsonc`.
 
+## MCP
+
+The same Worker serves `/mcp` (streamable HTTP, stateless) with two tools: `lookup_nonprofit` (`ein`) and `search_nonprofits` (`query`, optional `limit`). Each answers with the REST JSON as structured content, and as text after a short rendering. A REST error comes back as a tool error (`isError: true`) carrying the REST problem body, plus `retryAfterSeconds` on a 429. Connect Claude Code:
+
+```sh
+claude mcp add --transport http nonprofits <worker-url>/mcp --header "Authorization: Bearer <key>"
+claude mcp add --transport http nonprofits <worker-url>/mcp   # keyless
+```
+
+Auth and limits are REST's: a malformed, unknown or revoked key is the same 401 problem before any MCP message is read, no `Authorization` header is the keyless tier, and each tool call counts as one request on the same counters as REST. Protocol messages (the handshake, tool listings) count toward no quota, but are capped per client: requests carrying a key by `KEYED_REQUEST_LIMITER`, keyless `/mcp` requests by `KEYLESS_MCP_LIMITER` (60 a minute, then `per_minute_limit_exceeded`). MCP clients read a 401 as a sign-in prompt, so a mistyped key can surface as an authentication error rather than this API's message. Locally:
+
+```sh
+npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp --method tools/list
+```
+
 ## Import
 
 Loads the IRS EO BMF (`eo1.csv` … `eo4.csv`) into the worker's D1, local by default:
@@ -72,3 +87,13 @@ pnpm --filter @nonprofits/import bmf                # or: bmf --remote
 ```
 
 The job streams each file into one SQL load file (`load/bmf.load.sql`) and applies it with a single `wrangler d1 execute --file`, so a header that drifted from the expected layout, or fewer orgs than the floor, aborts before anything is loaded. Re-running replaces the BMF rows in place.
+
+The other sources go through `irs <source>`, each as its own load:
+
+```sh
+pnpm --filter @nonprofits/import irs all                # bmf, pub78, revocation, epostcard
+pnpm --filter @nonprofits/import irs efile              # 990 e-file XML: the full 3-year run, ~10 GB and about an hour
+pnpm --filter @nonprofits/import irs efile --batch 2026_TEOS_XML_03A   # one batch; every other stored filing kept
+```
+
+`all` leaves out `efile`, which runs only when named. It reads the 990 e-file index of the three latest release years (the year before, when this year's index isn't published yet), keeps each EIN's latest filing (latest tax period, then latest received, amendments included), and parses those returns out of the batch zips, one zip on disk at a time under `data/efile/`. A return whose EIN, form type, an amount or its tax year can't be read is rejected and skipped, keeping that EIN's stored filing; more than 1% rejected, or a run (or a returnVersion with 200+ Form 990s) under the mission or revenue yield floor, aborts before anything is loaded. A full run deletes the filings it didn't write and the orgs left with no fact and no filing; a `--batch` run deletes nothing.

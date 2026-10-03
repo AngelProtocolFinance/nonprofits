@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
-import { type EfileImportOptions, importEfile, releaseYears } from "./efile.ts";
+import { type EfileImportOptions, importEfile } from "./efile.ts";
 import { migrate, query, type Route, serve } from "./test-support.ts";
 
 const BMF_FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
@@ -30,9 +30,12 @@ const PREFIXED = "202601499349300130";
 /** Listed in index batch `2024_TEOS_XML_05a`; the IRS serves it as `…05A.zip`. */
 const LOWERCASE_BATCH = "202431369349308428";
 
+/** The only 2024v5.0 return in the fixture indexes. */
+const V2024_5_0 = "202630139349301998";
+
 /** Which fixture returns each batch zip holds, as served for both index variants. */
 const ZIPS: Record<string, string[]> = {
-  "2026_TEOS_XML_01A": ["202630139349301998", "202620149349301082"],
+  "2026_TEOS_XML_01A": [V2024_5_0, "202620149349301082"],
   "2026_TEOS_XML_02A": [DELTA_TRITON_OLD, DELTA_TRITON_NEW, DROPPED],
   "2026_TEOS_XML_03A": [RED_CROSS_990, PF],
   // the IRS's 05A zip holds none of the fixture filings its index rows name
@@ -97,6 +100,44 @@ beforeAll(async () => {
     if (batch !== "2026_TEOS_XML_06A") routes.set(`/missing/${path}`, zipped);
   }
   routes.set("/missing/2026/2026_TEOS_XML_06A.zip", await batchZip([PF]));
+  // a run with two returns rejected: one listed under the wrong EIN, one with a cents amount
+  for (const year of YEARS) {
+    const index = (await fixture(`index_${year}.csv`)).toString("utf8");
+    routes.set(
+      `/rejecting/${year}/index_${year}.csv`,
+      index.replace(",203349625,", ",203349626,"),
+    );
+    routes.set(`/version-drift/${year}/index_${year}.csv`, index);
+  }
+  const cents = (await fixture(`xml/${DELTA_TRITON_NEW}_public.xml`))
+    .toString("utf8")
+    .replace("<CYTotalRevenueAmt>42888<", "<CYTotalRevenueAmt>42888.50<");
+  for (const [batch, objectIds] of Object.entries(ZIPS)) {
+    const path = `${batch.slice(0, 4)}/${batch}.zip`;
+    const zipped = await batchZip(objectIds);
+    routes.set(`/version-drift/${path}`, zipped);
+    routes.set(
+      `/rejecting/${path}`,
+      batch === "2026_TEOS_XML_02A"
+        ? zip({ [`${DELTA_TRITON_NEW}_public.xml`]: Buffer.from(cents) })
+        : zipped,
+    );
+  }
+  // the one 2024v5.0 return, its mission and revenue elements renamed
+  routes.set(
+    "/version-drift/2026/2026_TEOS_XML_01A.zip",
+    zip({
+      [`${V2024_5_0}_public.xml`]: Buffer.from(
+        (await fixture(`xml/${V2024_5_0}_public.xml`))
+          .toString("utf8")
+          .replaceAll("MissionDesc>", "MissionStatementTxt>")
+          .replaceAll("CYTotalRevenueAmt>", "CurrentYearTotalRevenueAmt>"),
+      ),
+      "202620149349301082_public.xml": await fixture(
+        "xml/202620149349301082_public.xml",
+      ),
+    }),
+  );
   // the 990 as it would read had the IRS renamed both elements the floor watches
   const drifted = (await fixture(`xml/${RED_CROSS_990}_public.xml`))
     .toString("utf8")
@@ -134,8 +175,8 @@ function loadEfile(
 ) {
   return importEfile({
     baseUrl: `${base}/xml/`,
-    years: YEARS,
-    minYield: { mission: 0.9, revenue: 0.9 },
+    latestYear: 2026,
+    floors: { mission: 0.9, revenue: 0.9, versionFrom: 200, rejects: 0.01 },
     workDir: join(work, "batches"),
     out: join(work, "efile.load.sql"),
     target: { remote: false, persistTo },
@@ -333,6 +374,15 @@ describe("a full run after an earlier one", { timeout: 60_000 }, () => {
     ]);
   });
 
+  test("deletes the nameless org whose only fact was the dropped filing, keeping orgs with a fact or a filing", async () => {
+    const rows = await query(
+      d1,
+      "SELECT ein FROM orgs WHERE ein IN ('813192688', '934054155', '000019818') ORDER BY ein",
+    );
+    // 934054155 is nameless but has a filing; 000019818 is a BMF org with no filing
+    expect(rows).toStrictEqual([{ ein: "000019818" }, { ein: "934054155" }]);
+  });
+
   test("deletes the filing and programs of an EIN the indexes no longer list", async () => {
     const rows = await query(
       d1,
@@ -379,6 +429,56 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
     await expectNothingLoaded(out);
   });
 
+  test("rejects more than the allowed share of its filings, naming the reasons", async () => {
+    const out = join(work, "rejecting.load.sql");
+    await expect(
+      loadEfile(d1, {
+        baseUrl: `${base}/rejecting/`,
+        out,
+        floors: { mission: 0.5, revenue: 0.5, versionFrom: 200, rejects: 0.01 },
+      }),
+    ).rejects.toThrow(
+      "990 import aborted: 2 of 8 latest filings rejected (25.0%), above the 1.0% allowed (EIN mismatch: 1, bad amount: 1); nothing was loaded",
+    );
+    await expectNothingLoaded(out);
+  });
+
+  test("holds a returnVersion with enough 990s to the floor, naming it", async () => {
+    const out = join(work, "version-drift.load.sql");
+    await expect(
+      loadEfile(d1, {
+        baseUrl: `${base}/version-drift/`,
+        out,
+        floors: { mission: 0.5, revenue: 0.5, versionFrom: 1, rejects: 0.01 },
+      }),
+    ).rejects.toThrow(
+      "990 import aborted: returnVersion 2024v5.0: of 1 Form 990s, 0.0% state a mission and 0.0% a total revenue, below the floor of 50.0% and 50.0%; nothing was loaded",
+    );
+    await expectNothingLoaded(out);
+  });
+
+  test("has a filing too large for one statement, naming it", async () => {
+    const out = join(work, "oversize.load.sql");
+    await expect(
+      loadEfile(d1, {
+        batches: ["2026_TEOS_XML_03A"],
+        out,
+        maxStatementBytes: 3_000,
+      }),
+    ).rejects.toThrow(
+      /^990 return 202640829349300109 in \S+\/2026_TEOS_XML_03A\.zip needs a \d+-byte statement, over the 3000-byte budget; nothing was loaded$/,
+    );
+    await expectNothingLoaded(out);
+  });
+
+  test("finds neither this year's index nor last year's", async () => {
+    const out = join(work, "unpublished.load.sql");
+    await expect(loadEfile(d1, { latestYear: 2028, out })).rejects.toThrow(
+      `990 index download failed: ${base}/xml/2027/index_2027.csv: HTTP 404`,
+    );
+    await expectNothingLoaded(out);
+  });
+
   test("names a batch holding no latest filing", async () => {
     const out = join(work, "unlisted.load.sql");
     await expect(
@@ -390,11 +490,66 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   });
 });
 
-test("the release years read are the current one and the two before it", () => {
-  expect(releaseYears(new Date("2026-10-03T12:00:00Z"))).toEqual([
-    2026, 2025, 2024,
-  ]);
-  expect(releaseYears(new Date("2027-01-01T00:00:00Z"))).toEqual([
-    2027, 2026, 2025,
-  ]);
+describe("a full run with rejected returns", { timeout: 60_000 }, () => {
+  let d1: string;
+  let summary: Awaited<ReturnType<typeof importEfile>>;
+
+  beforeAll(async () => {
+    d1 = await d1WithBmf("rejecting");
+    await loadEfile(d1, { baseUrl: `${base}/older/` });
+    summary = await loadEfile(d1, {
+      baseUrl: `${base}/rejecting/`,
+      floors: { mission: 0.5, revenue: 0.5, versionFrom: 200, rejects: 0.5 },
+    });
+  }, 120_000);
+
+  test("reports each rejected return by reason", () => {
+    expect(summary.rejects).toStrictEqual({
+      "EIN mismatch": ["202620149349301082"],
+      "bad amount": [DELTA_TRITON_NEW],
+    });
+  });
+
+  test("keeps the stored filing of an EIN whose latest return was rejected", async () => {
+    expect((await storedFilings(d1))["920724925"]).toEqual([
+      DELTA_TRITON_OLD,
+      "2026_TEOS_XML_02A.zip",
+    ]);
+  });
+
+  test("counts rejected 990s against the yield floors", () => {
+    // 7 Form 990s selected, the 2 rejected among them; the 5 loaded all state a mission
+    expect(summary.forms990).toBe(7);
+    expect(summary.yield.mission).toBeCloseTo(5 / 7);
+  });
+});
+
+describe("a returnVersion whose 990s fall below the floor", {
+  timeout: 60_000,
+}, () => {
+  test("loads while the version has fewer 990s than the floor applies from", async () => {
+    const d1 = await d1WithBmf("version-few");
+    const summary = await loadEfile(d1, {
+      baseUrl: `${base}/version-drift/`,
+      floors: { mission: 0.5, revenue: 0.5, versionFrom: 2, rejects: 0.01 },
+    });
+    expect(summary.filings).toBe(8);
+  });
+});
+
+describe("a run in January, before the year's index is out", {
+  timeout: 60_000,
+}, () => {
+  test("reads the three years before it, naming them", async () => {
+    const d1 = await d1WithBmf("january");
+    const summary = await loadEfile(d1, {
+      latestYear: 2027,
+      batches: ["2026_TEOS_XML_03A"],
+    });
+    expect(summary.indexes.map((i) => i.url)).toEqual(
+      YEARS.map((year) => `${base}/xml/${year}/index_${year}.csv`),
+    );
+    expect(summary.unpublished).toBe(2027);
+    expect(Object.keys(await storedFilings(d1))).toContain("530196605");
+  });
 });

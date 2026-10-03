@@ -84,11 +84,41 @@ const FORM_FIELDS: Record<string, FormField> = {
   TotalAssetsEOYAmt: "totalAssetsEoy",
 };
 
+/** Why a return is skipped on its own rather than aborting the run. */
+export type RejectReason =
+  | "EIN mismatch"
+  | "form type mismatch"
+  | "bad amount"
+  | "bad TaxYr";
+
+/** A return whose header or an amount can't be read, or doesn't match its index row. */
+export class RejectedReturn extends Error {
+  readonly reason: RejectReason;
+  readonly returnVersion: string | null;
+
+  constructor(
+    reason: RejectReason,
+    returnVersion: string | null,
+    message: string,
+  ) {
+    super(message);
+    this.reason = reason;
+    this.returnVersion = returnVersion;
+  }
+}
+
+/**
+ * A mission that is only a pointer to Schedule O ("SEE SCHEDULE O.",
+ * "CONTINUED IN SCHEDULE O"), not one that states a mission and then points there.
+ */
+const SCHEDULE_O_POINTER =
+  /^(?:please\s+)?(?:see|refer\s+to|continued\s+(?:in|on)|see\s+mission\s+statement\s+(?:in|on)|mission\s+statement\s+is\s+\w+\s+(?:in|on))\s+(?:the\s+)?sch(?:edule|ed)?\.?\s*o\b/i;
+
 /**
  * Parses one e-filed return as its bytes stream in, and stops reading once it
  * has what it keeps: the end of the IRS990 form for a 990, the end of the
- * ReturnHeader for a 990-EZ or 990-PF. Malformed XML, or a header or amount
- * that breaks the layout, throws.
+ * ReturnHeader for a 990-EZ or 990-PF. A header or amount that can't be read
+ * throws a `RejectedReturn`; malformed or cut-off XML throws a plain Error.
  */
 export async function parseReturn(
   xml: AsyncIterable<Uint8Array>,
@@ -142,14 +172,16 @@ export async function parseReturn(
     } else if (section === "ReturnData" && owner === "IRS990") {
       if (path.length === 4) {
         const field = FORM_FIELDS[name];
-        if (field !== undefined) form[field] = formValue(field, name, content);
-        setProgramField(line4a, name, content);
+        if (field !== undefined) {
+          form[field] = formValue(field, name, content, returnVersion);
+        }
+        setProgramField(line4a, name, content, returnVersion);
         if (PROGRAM_GROUPS.has(name)) {
           programs.push(group);
           group = emptyProgram();
         }
       } else if (path.length === 5 && child && PROGRAM_GROUPS.has(child)) {
-        setProgramField(group, name, content);
+        setProgramField(group, name, content, returnVersion);
       }
     }
     path.pop();
@@ -177,13 +209,25 @@ export async function parseReturn(
 
   const formType = formTypeOf(returnType ?? "");
   if (formType === undefined) {
-    throw new Error(`ReturnTypeCd is "${returnType}"`);
+    throw new RejectedReturn(
+      "form type mismatch",
+      returnVersion,
+      `ReturnTypeCd is "${returnType}"`,
+    );
   }
   if (ein === null || !/^\d{9}$/.test(ein)) {
-    throw new Error(`Filer EIN is "${ein}"`);
+    throw new RejectedReturn(
+      "EIN mismatch",
+      returnVersion,
+      `Filer EIN is "${ein}"`,
+    );
   }
   if (taxYear === null || !/^\d{4}$/.test(taxYear)) {
-    throw new Error(`TaxYr is "${taxYear}"`);
+    throw new RejectedReturn(
+      "bad TaxYr",
+      returnVersion,
+      `TaxYr is "${taxYear}"`,
+    );
   }
   return {
     returnVersion,
@@ -199,29 +243,49 @@ function emptyProgram(): Program {
   return { description: null, expense: null, grants: null, revenue: null };
 }
 
-function setProgramField(program: Program, name: string, raw: string): void {
+function setProgramField(
+  program: Program,
+  name: string,
+  raw: string,
+  returnVersion: string | null,
+): void {
   if (!Object.hasOwn(PROGRAM_FIELDS, name)) return;
   const field = PROGRAM_FIELDS[name as keyof typeof PROGRAM_FIELDS];
   if (field === "description") program.description = text(raw);
-  else program[field] = amount(name, raw);
+  else program[field] = amount(name, raw, returnVersion);
 }
 
 function formValue(
   field: FormField,
   name: string,
   raw: string,
+  returnVersion: string | null,
 ): string | number | null {
   if (field === "website") return webAddress(raw);
-  if (field === "mission" || field === "activitySummary") return text(raw);
-  return amount(name, raw);
+  if (field === "activitySummary") return text(raw);
+  if (field === "mission") {
+    const mission = text(raw);
+    return mission !== null && SCHEDULE_O_POINTER.test(mission)
+      ? null
+      : mission;
+  }
+  return amount(name, raw, returnVersion);
 }
 
 /** A whole-dollar amount; IRS e-file amounts carry no cents. */
-function amount(name: string, raw: string): number {
+function amount(
+  name: string,
+  raw: string,
+  returnVersion: string | null,
+): number {
   const value = raw.trim();
   const n = Number(value);
   if (!/^-?\d+$/.test(value) || !Number.isSafeInteger(n)) {
-    throw new Error(`${name} is "${value}", expected a whole-dollar amount`);
+    throw new RejectedReturn(
+      "bad amount",
+      returnVersion,
+      `${name} is "${value}", expected a whole-dollar amount`,
+    );
   }
   return n;
 }

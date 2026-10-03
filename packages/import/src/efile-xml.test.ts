@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { describe, expect, test } from "vitest";
-import { parseReturn } from "./efile-xml.ts";
+import { parseReturn, RejectedReturn } from "./efile-xml.ts";
 
 /** Real returns from the IRS batch zips, trimmed after the form itself (the schedules are never read). */
 const XML = new URL("../fixtures/efile/xml/", import.meta.url);
@@ -702,21 +702,95 @@ describe("a 990-PF", () => {
   });
 });
 
-describe("a return breaking the layout", () => {
-  test("with a cents amount throws naming the element", async () => {
-    const xml = (
-      await readFile(new URL("202640829349300109_public.xml", XML), "utf8")
-    ).replace(
-      "<CYTotalRevenueAmt>3916983933<",
-      "<CYTotalRevenueAmt>3916983933.25<",
+/** The Red Cross 990 with `from` replaced by `to`, as one chunk. */
+async function redCrossWith(from: string, to: string): Promise<Readable> {
+  const xml = await readFile(
+    new URL("202640829349300109_public.xml", XML),
+    "utf8",
+  );
+  if (!xml.includes(from)) throw new Error(`fixture lacks ${from}`);
+  return Readable.from([Buffer.from(xml.replace(from, to))]);
+}
+
+describe("a return rejected on its own, leaving the run going", () => {
+  test.each([
+    {
+      reason: "bad amount",
+      from: "<CYTotalRevenueAmt>3916983933<",
+      to: "<CYTotalRevenueAmt>3916983933.25<",
+      message:
+        'CYTotalRevenueAmt is "3916983933.25", expected a whole-dollar amount',
+    },
+    {
+      reason: "bad TaxYr",
+      from: "<TaxYr>2024<",
+      to: "<TaxYr>FY24<",
+      message: 'TaxYr is "FY24"',
+    },
+    {
+      reason: "form type mismatch",
+      from: "<ReturnTypeCd>990<",
+      to: "<ReturnTypeCd>990T<",
+      message: 'ReturnTypeCd is "990T"',
+    },
+    {
+      reason: "EIN mismatch",
+      from: "<EIN>530196605<",
+      to: "<EIN>53019660<",
+      message: 'Filer EIN is "53019660"',
+    },
+  ])("has a $reason", async ({ reason, from, to, message }) => {
+    const rejected = await parseReturn(await redCrossWith(from, to)).catch(
+      (error: unknown) => error,
     );
-    await expect(
-      parseReturn(Readable.from([Buffer.from(xml)])),
-    ).rejects.toThrow(
-      'CYTotalRevenueAmt is "3916983933.25", expected a whole-dollar amount',
+    expect(rejected).toBeInstanceOf(RejectedReturn);
+    expect(rejected).toMatchObject({
+      reason,
+      returnVersion: "2024v5.1",
+      message,
+    });
+  });
+});
+
+describe("a mission that only points to Schedule O", () => {
+  // the variants seen among the 990 missions of 2026_TEOS_XML_03A
+  test.each([
+    "SEE SCHEDULE O",
+    "SEE SCHEDULE O.",
+    "See Schedule O",
+    "PLEASE SEE SCHEDULE O",
+    "SEE SCH O",
+    "SEE SCHEDULE O FOR DETAILS.",
+    "SEE SCHEDULE O, STATEMENT 1",
+    "SEE SCHEDULE O FORM 990, PART I, LINE 1",
+    "SEE MISSION STATEMENT ON SCHEDULE O.",
+    "CONTINUED IN SCHEDULE O",
+    "MISSION STATEMENT IS OUTLINED IN SCHEDULE O.",
+  ])("is stored as null: %s", async (pointer) => {
+    const parsed = await parseReturn(
+      await redCrossWith(
+        `<MissionDesc>${RED_CROSS_MISSION}<`,
+        `<MissionDesc>${pointer}<`,
+      ),
     );
+    expect(parsed.mission).toBeNull();
   });
 
+  test.each([
+    "EARLY CHILDHOOD EDUCATION - SEE SCHEDULE O.",
+    "TO PROVIDE EXCEPTIONAL HEALTHCARE. SEE SCHEDULE O FOR ADDITIONAL INFORMATION.",
+  ])("is kept when it states a mission first: %s", async (mission) => {
+    const parsed = await parseReturn(
+      await redCrossWith(
+        `<MissionDesc>${RED_CROSS_MISSION}<`,
+        `<MissionDesc>${mission}<`,
+      ),
+    );
+    expect(parsed.mission).toBe(mission);
+  });
+});
+
+describe("a return breaking the layout", () => {
   test("cut off before its form ends throws", async () => {
     const xml = await readFile(new URL("202640829349300109_public.xml", XML));
     await expect(

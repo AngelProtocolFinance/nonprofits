@@ -8,12 +8,12 @@ export {
 } from "./bmf.ts";
 export {
   EFILE_BASE_URL,
-  EFILE_MIN_YIELD,
+  EFILE_FLOORS,
+  type EfileFloors,
   type EfileImportOptions,
   type EfileImportSummary,
   type EfileYield,
   importEfile,
-  releaseYears,
 } from "./efile.ts";
 export {
   importList,

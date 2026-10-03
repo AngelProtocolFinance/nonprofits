@@ -10,18 +10,23 @@ import {
   indexedFilings,
   latestPerEin,
 } from "./efile-index.ts";
-import { type ParsedReturn, parseReturn } from "./efile-xml.ts";
+import {
+  type ParsedReturn,
+  parseReturn,
+  RejectedReturn,
+  type RejectReason,
+} from "./efile-xml.ts";
 import {
   batches,
   download,
   downloadIfPresent,
-  IMPORT_RUNS,
   type ImportFile,
   insertRun,
+  latestRun,
   literal,
   MAX_STATEMENT_BYTES,
   ORGS,
-  run,
+  org,
   setRowCount,
   tuple,
   writeLoad,
@@ -31,49 +36,65 @@ import { zipEntries } from "./zip.ts";
 
 export const EFILE_BASE_URL = "https://apps.irs.gov/pub/epostcard/990/xml/";
 
-/** The release years the import reads: this one and the two before it. */
-export function releaseYears(now: Date): number[] {
-  const year = now.getUTCFullYear();
-  return [year, year - 1, year - 2];
-}
+/** Release years read: the latest whose index is published, and the two before it. */
+const RELEASE_YEARS = 3;
 
-/** Shares of the 990s parsed in a run that state a mission, and a total revenue. */
+/** Shares of a run's Form 990s, rejected ones included, that state a mission, and a total revenue. */
 export interface EfileYield {
   mission: number;
   revenue: number;
 }
 
-/** 90% of the yields of the 21,404 Form 990s in 2026_TEOS_XML_03A: 99.1% state a mission, 100.0% a total revenue. */
-export const EFILE_MIN_YIELD: EfileYield = { mission: 0.89, revenue: 0.9 };
+/** What a run must meet to load; any miss aborts it before anything is applied. */
+export interface EfileFloors extends EfileYield {
+  /** A returnVersion with at least this many Form 990s in the run is held to the same yields. */
+  versionFrom: number;
+  /** The largest share of the run's selected filings that may be rejected. */
+  rejects: number;
+}
+
+export const EFILE_FLOORS: EfileFloors = {
+  // 90% of the yields of the 21,404 Form 990s in 2026_TEOS_XML_03A: 98.0% and 100.0%
+  mission: 0.88,
+  revenue: 0.9,
+  versionFrom: 200,
+  rejects: 0.01,
+};
 
 export interface EfileImportOptions {
   /** Holds `{year}/index_{year}.csv` and `{year}/{batch}.zip`. */
   baseUrl: string;
-  years: readonly number[];
+  /** The current year; when its index isn't published yet (January), the run starts a year earlier. */
+  latestYear: number;
   /**
    * Index XML_BATCH_IDs whose filings alone are loaded, leaving every other
-   * stored filing as it is; omitted, every batch is loaded and filings this
-   * run didn't write are deleted.
+   * stored filing as it is; omitted, every batch is loaded, and the filings
+   * this run didn't write (but those of EINs whose latest return it rejected)
+   * are deleted, with the orgs that leaves without a fact or a filing.
    */
   batches?: readonly string[];
-  /** A run whose 990s fall below either share aborts before anything is applied. */
-  minYield: EfileYield;
+  floors: EfileFloors;
   /** Where batch zips are downloaded, one at a time, each deleted once read. */
   workDir: string;
   /** Where the generated SQL load file is written. */
   out: string;
   target: D1Target;
-  /** Largest statement written, in bytes; defaults under D1's 100 KB limit. */
+  /** Largest statement written, in bytes; defaults under D1's 100 KB limit. A filing too large for one aborts the run. */
   maxStatementBytes?: number;
 }
 
 export interface EfileImportSummary {
-  indexes: { url: string; releasedAt: string; rows: number }[];
+  /** One per release year read, latest first. */
+  indexes: { year: number; url: string; releasedAt: string; rows: number }[];
+  /** The current year, when its index wasn't published and the run read the three before it. */
+  unpublished: number | null;
   /** Index rows of return types not stored (990-T), by type. */
   skipped: Record<string, number>;
   zips: { url: string; releasedAt: string; filings: number }[];
   filings: number;
-  /** Form 990s among `filings`, over which `yield` is measured. */
+  /** Object ids of the selected returns skipped, by why. */
+  rejects: Partial<Record<RejectReason, string[]>>;
+  /** Form 990s selected, rejected ones included, over which `yield` is measured. */
   forms990: number;
   yield: EfileYield;
 }
@@ -112,10 +133,12 @@ const PROGRAM_COLUMNS = [
 /**
  * Reads the 990 e-file index of each release year, picks each EIN's latest
  * filing, and parses those filings out of the batch zips into one SQL load
- * file, applied to D1 in a single `wrangler d1 execute --file`. A drifted
- * index or return, a filing missing from its batch, a failed download or a
- * yield under the floor throws before the apply, leaving D1 untouched and no
- * load file behind.
+ * file, applied to D1 in a single `wrangler d1 execute --file`. A return
+ * whose EIN, form type, an amount or its TaxYr can't be read is rejected and
+ * skipped. A drifted index, an unreadable return, a filing missing from its
+ * batch or too large for a statement, a failed download, too many rejects or
+ * a yield under the floors throws before the apply, leaving D1 untouched and
+ * no load file behind.
  */
 export async function importEfile(
   options: EfileImportOptions,
@@ -142,22 +165,33 @@ interface BatchGroup {
 async function* efileSql(
   options: EfileImportOptions,
 ): AsyncGenerator<string, EfileImportSummary> {
-  const { baseUrl, years } = options;
+  const { baseUrl, latestYear, floors } = options;
   const tally: IndexTally = { rows: 0, skipped: {} };
   const indexes: EfileImportSummary["indexes"] = [];
   const fetchedAt = new Date().toISOString();
+  const indexFile = (year: number): ImportFile => ({
+    source: "efile_index",
+    label: "990 index",
+    url: `${baseUrl}${year}/index_${year}.csv`,
+  });
 
+  const current = await downloadIfPresent(indexFile(latestYear));
+  const firstYear = current === null ? latestYear - 1 : latestYear;
   async function* listed(): AsyncGenerator<IndexedFiling> {
-    for (const year of years) {
-      const file: ImportFile = {
-        source: "efile_index",
-        label: "990 index",
-        url: `${baseUrl}${year}/index_${year}.csv`,
-      };
-      const { body, releasedAt } = await download(file);
+    for (let year = firstYear; year > firstYear - RELEASE_YEARS; year--) {
+      const file = indexFile(year);
+      const { body, releasedAt } =
+        year === latestYear && current !== null
+          ? current
+          : await download(file);
       const before = tally.rows;
       yield* indexedFilings(file, year, Readable.fromWeb(body), tally);
-      indexes.push({ url: file.url, releasedAt, rows: tally.rows - before });
+      indexes.push({
+        year,
+        url: file.url,
+        releasedAt,
+        rows: tally.rows - before,
+      });
     }
   }
   const latest = await latestPerEin(listed());
@@ -171,8 +205,14 @@ async function* efileSql(
   }
 
   const zips: EfileImportSummary["zips"] = [];
-  const counts = { filings: 0, forms990: 0, missions: 0, revenues: 0 };
-  for (const group of batchGroups(latest, options.batches)) {
+  const groups = batchGroups(latest, options.batches);
+  const selected = groups.reduce((n, group) => n + group.wanted.size, 0);
+  let filingsLoaded = 0;
+  const yields = new YieldCounts();
+  const rejects: EfileImportSummary["rejects"] = {};
+  const rejectedEins: string[] = [];
+  const budget = options.maxStatementBytes ?? MAX_STATEMENT_BYTES;
+  for (const group of groups) {
     for (const letter of BATCH_LETTERS) {
       if (group.wanted.size === 0) break;
       const file: ImportFile = {
@@ -186,25 +226,36 @@ async function* efileSql(
       try {
         yield insertRun(file, releasedAt, fetchedAt);
         let filings = 0;
+        const accepted = parsedFilings(
+          file,
+          path,
+          group.wanted,
+          budget,
+          (reject) => {
+            (rejects[reject.reason] ??= []).push(reject.filing.objectId);
+            rejectedEins.push(reject.filing.ein);
+            if (reject.filing.formType === "990") {
+              yields.add(reject.returnVersion, null);
+            }
+          },
+        );
         for await (const batch of batches(
-          parsedFilings(file, path, group.wanted),
-          // sized together, the filing and program tuples bound both statements
-          (p) => [p.filingTuple, ...p.programTuples].join(",\n"),
+          accepted,
+          (p) => p.tuples,
           upsertFilings([]),
-          options.maxStatementBytes ?? MAX_STATEMENT_BYTES,
+          budget,
         )) {
           yield* filingsSql(batch);
           for (const { parsed } of batch) {
             filings++;
-            if (parsed.formType !== "990") continue;
-            counts.forms990++;
-            if (parsed.mission !== null) counts.missions++;
-            if (parsed.totalRevenue !== null) counts.revenues++;
+            if (parsed.formType === "990") {
+              yields.add(parsed.returnVersion, parsed);
+            }
           }
         }
         yield setRowCount("efile_xml", filings);
         zips.push({ url: file.url, releasedAt, filings });
-        counts.filings += filings;
+        filingsLoaded += filings;
       } finally {
         await rm(path, { force: true });
       }
@@ -217,32 +268,111 @@ async function* efileSql(
     }
   }
 
-  const share = (n: number) =>
-    counts.forms990 === 0 ? 0 : n / counts.forms990;
-  const observed = {
-    mission: share(counts.missions),
-    revenue: share(counts.revenues),
-  };
-  if (
-    observed.mission < options.minYield.mission ||
-    observed.revenue < options.minYield.revenue
-  ) {
+  const rejected = rejectedEins.length;
+  if (rejected > floors.rejects * selected) {
+    const reasons = Object.entries(rejects)
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([reason, ids]) => `${reason}: ${ids.length}`)
+      .join(", ");
     throw new Error(
-      `990 import aborted: of ${counts.forms990} Form 990s, ${percent(observed.mission)} state a mission and ${percent(observed.revenue)} a total revenue, below the floor of ${percent(options.minYield.mission)} and ${percent(options.minYield.revenue)}; nothing was loaded`,
+      `990 import aborted: ${rejected} of ${selected} latest filings rejected (${percent(rejected / selected)}), above the ${percent(floors.rejects)} allowed (${reasons}); nothing was loaded`,
     );
   }
+  yields.check(floors);
   if (options.batches === undefined) {
-    // every filing this run wrote cites a zip run newer than its index runs
-    yield `DELETE FROM ${FILINGS} WHERE run_id < (SELECT max(${run("id")}) FROM ${IMPORT_RUNS} WHERE ${run("source")} = 'efile_index');\n`;
+    yield* deleteStale(rejectedEins);
   }
   return {
     indexes,
+    unpublished: current === null ? latestYear : null,
     skipped: tally.skipped,
     zips,
-    filings: counts.filings,
-    forms990: counts.forms990,
-    yield: observed,
+    filings: filingsLoaded,
+    rejects,
+    forms990: yields.total.forms990,
+    yield: yields.total.shares(),
   };
+}
+
+/** Form 990 yields, for the run and per returnVersion. */
+class YieldCounts {
+  readonly total = new Yields();
+  readonly byVersion = new Map<string, Yields>();
+
+  /** Counts one Form 990: `parsed` null for a rejected one, which yields nothing. */
+  add(returnVersion: string | null, parsed: ParsedReturn | null): void {
+    const version = returnVersion ?? "unknown";
+    let counts = this.byVersion.get(version);
+    if (counts === undefined) {
+      counts = new Yields();
+      this.byVersion.set(version, counts);
+    }
+    for (const yields of [this.total, counts]) {
+      yields.forms990++;
+      if (parsed?.mission != null) yields.missions++;
+      if (parsed?.totalRevenue != null) yields.revenues++;
+    }
+  }
+
+  /** Throws when the run, or a returnVersion with `floors.versionFrom` 990s or more, falls below the floors. */
+  check(floors: EfileFloors): void {
+    this.total.check(floors, "");
+    const versions = [...this.byVersion].sort(([a], [b]) => (a < b ? -1 : 1));
+    for (const [version, yields] of versions) {
+      if (yields.forms990 >= floors.versionFrom) {
+        yields.check(floors, `returnVersion ${version}: `);
+      }
+    }
+  }
+}
+
+class Yields {
+  forms990 = 0;
+  missions = 0;
+  revenues = 0;
+
+  shares(): EfileYield {
+    const share = (n: number) => (this.forms990 === 0 ? 0 : n / this.forms990);
+    return { mission: share(this.missions), revenue: share(this.revenues) };
+  }
+
+  check(floors: EfileFloors, which: string): void {
+    const { mission, revenue } = this.shares();
+    if (mission >= floors.mission && revenue >= floors.revenue) return;
+    throw new Error(
+      `990 import aborted: ${which}of ${this.forms990} Form 990s, ${percent(mission)} state a mission and ${percent(revenue)} a total revenue, below the floor of ${percent(floors.mission)} and ${percent(floors.revenue)}; nothing was loaded`,
+    );
+  }
+}
+
+/** EINs per stale-filing DELETE, which names them in a NOT IN list. */
+const KEPT_PER_DELETE = 1_000;
+
+/**
+ * A full run's tail: deletes the filings it didn't write, except those of
+ * EINs whose latest return it rejected, then the orgs left with no fact and no
+ * filing (the nameless rows earlier runs added for those filings).
+ */
+function* deleteStale(rejectedEins: readonly string[]): Generator<string> {
+  // every filing this run wrote cites a zip run newer than its index runs
+  const stale = `run_id < ${latestRun("efile_index")}`;
+  const kept = [...rejectedEins].sort();
+  let after = "";
+  for (let i = 0; i < kept.length; i += KEPT_PER_DELETE) {
+    const chunk = kept.slice(i, i + KEPT_PER_DELETE);
+    const through = chunk.at(-1) ?? after;
+    yield `DELETE FROM ${FILINGS} WHERE ${stale} AND ein > ${literal(after)} AND ein <= ${literal(through)} AND ein NOT IN (${chunk.map(literal).join(", ")});\n`;
+    after = through;
+  }
+  yield `DELETE FROM ${FILINGS} WHERE ${stale} AND ein > ${literal(after)};\n`;
+  const factless = COLUMNS.orgs
+    .filter((column) => column !== org("ein"))
+    .map((column) =>
+      column === org("in_pub78") || column === org("files_990n")
+        ? `${column} = 0`
+        : `${column} IS NULL`,
+    );
+  yield `DELETE FROM ${ORGS} WHERE ${factless.join(" AND ")} AND NOT EXISTS (SELECT 1 FROM ${FILINGS} f WHERE f.ein = ${ORGS}.ein);\n`;
 }
 
 const BATCH_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -314,14 +444,30 @@ interface Parsed {
   parsed: ParsedReturn;
   filingTuple: string;
   programTuples: string[];
+  /** Both kinds of tuple together: what sizes the statements that hold them. */
+  tuples: string;
 }
 
-/** The wanted filings in the zip at `path`, each removed from `wanted` once parsed. */
+/** A wanted filing skipped on its own. */
+interface Reject {
+  filing: IndexedFiling;
+  reason: RejectReason;
+  returnVersion: string | null;
+}
+
+/**
+ * The wanted filings in the zip at `path`, each removed from `wanted` once
+ * read; a return rejected on its own goes to `onReject` instead. One too large
+ * for a `budget`-byte statement throws.
+ */
 async function* parsedFilings(
   file: ImportFile,
   path: string,
   wanted: Map<string, IndexedFiling>,
+  budget: number,
+  onReject: (reject: Reject) => void,
 ): AsyncGenerator<Parsed> {
+  const fixedBytes = Buffer.byteLength(upsertFilings([]));
   for await (const entry of zipEntries(path)) {
     const objectId = /^(?:.*\/)?(\d{18})_public\.xml$/.exec(entry.name)?.[1];
     const filing = objectId === undefined ? undefined : wanted.get(objectId);
@@ -331,21 +477,48 @@ async function* parsedFilings(
     try {
       parsed = await parseReturn(entry.read());
     } catch (error) {
+      if (error instanceof RejectedReturn) {
+        onReject({
+          filing,
+          reason: error.reason,
+          returnVersion: error.returnVersion,
+        });
+        continue;
+      }
       throw new Error(
         `990 return ${objectId} in ${file.url} unreadable: ${error instanceof Error ? error.message : error}`,
         { cause: error },
       );
     }
-    if (parsed.ein !== filing.ein || parsed.formType !== filing.formType) {
+    const mismatch =
+      parsed.ein !== filing.ein
+        ? "EIN mismatch"
+        : parsed.formType !== filing.formType
+          ? "form type mismatch"
+          : null;
+    if (mismatch !== null) {
+      onReject({
+        filing,
+        reason: mismatch,
+        returnVersion: parsed.returnVersion,
+      });
+      continue;
+    }
+    const filingSql = filingTuple(filing, parsed);
+    const programsSql = programTuples(filing, parsed);
+    const tuples = [filingSql, ...programsSql].join(",\n");
+    const bytes = fixedBytes + Buffer.byteLength(tuples);
+    if (bytes > budget) {
       throw new Error(
-        `990 return ${objectId} in ${file.url} is a ${parsed.formType} for EIN ${parsed.ein}, but the index lists a ${filing.formType} for EIN ${filing.ein}`,
+        `990 return ${objectId} in ${file.url} needs a ${bytes}-byte statement, over the ${budget}-byte budget; nothing was loaded`,
       );
     }
     yield {
       filing,
       parsed,
-      filingTuple: filingTuple(filing, parsed),
-      programTuples: programTuples(filing, parsed),
+      filingTuple: filingSql,
+      programTuples: programsSql,
+      tuples,
     };
   }
 }
@@ -405,6 +578,6 @@ function upsertFilings(tuples: readonly string[]): string {
   );
   return `INSERT INTO ${FILINGS} (${FILING_COLUMNS.join(", ")}, run_id)
 SELECT ${v.join(", ")}, r.id
-FROM (VALUES ${tuples.join(",\n")}) AS v, (SELECT max(${run("id")}) AS id FROM ${IMPORT_RUNS} WHERE ${run("source")} = 'efile_xml') AS r WHERE true
+FROM (VALUES ${tuples.join(",\n")}) AS v, (SELECT ${latestRun("efile_xml")} AS id) AS r WHERE true
 ON CONFLICT (ein) DO UPDATE SET ${updates.join(", ")};\n`;
 }

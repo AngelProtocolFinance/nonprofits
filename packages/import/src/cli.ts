@@ -1,21 +1,17 @@
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { BMF_MIN_ORGS, BMF_URLS, importBmf } from "./bmf.ts";
-import {
-  EFILE_BASE_URL,
-  EFILE_MIN_YIELD,
-  importEfile,
-  percent,
-  releaseYears,
-} from "./efile.ts";
+import { EFILE_BASE_URL, EFILE_FLOORS, importEfile, percent } from "./efile.ts";
 import { importList, LISTS, type ListName } from "./lists.ts";
 import type { D1Target } from "./wrangler.ts";
 
-/** In load order: the 990 filings attach to the orgs the others write. */
 const SOURCES = ["bmf", "pub78", "revocation", "epostcard", "efile"] as const;
 type Source = (typeof SOURCES)[number];
+/** What `all` loads, in order. Not efile: a full 990 run downloads ~10 GB and takes about an hour, so it is asked for by name. */
+const ALL: readonly Source[] = ["bmf", "pub78", "revocation", "epostcard"];
 
 const USAGE = `usage: node src/cli.ts <${SOURCES.join("|")}|all> [--remote] [--batch <XML_BATCH_ID>]...
+  all      ${ALL.join(", ")}; efile only when named
   --batch  efile only: load just the filings in this batch, keeping all others`;
 
 function repoPath(path: string): string {
@@ -36,14 +32,18 @@ async function importSource(
   if (source === "efile") {
     const summary = await importEfile({
       baseUrl: EFILE_BASE_URL,
-      years: releaseYears(new Date()),
+      latestYear: new Date().getUTCFullYear(),
       ...(batches === undefined ? {} : { batches }),
-      minYield: EFILE_MIN_YIELD,
+      floors: EFILE_FLOORS,
       workDir: repoPath("data/efile"),
       out,
       target,
     });
     return [
+      ...(summary.unpublished === null
+        ? []
+        : [`index_${summary.unpublished}.csv is not published yet`]),
+      `release years read: ${summary.indexes.map((i) => i.year).join(", ")}`,
       ...summary.indexes.map(
         (i) => `${i.url}  released ${i.releasedAt}  ${i.rows} rows`,
       ),
@@ -52,6 +52,10 @@ async function importSource(
       ),
       ...summary.zips.map(
         (z) => `${z.url}  released ${z.releasedAt}  ${z.filings} filings`,
+      ),
+      ...Object.entries(summary.rejects).map(
+        ([reason, ids]) =>
+          `rejected ${ids.length} (${reason}): ${ids.slice(0, 10).join(", ")}${ids.length > 10 ? ", …" : ""}`,
       ),
       `efile: ${summary.filings} filings, ${summary.forms990} Form 990s: ${percent(summary.yield.mission)} with a mission, ${percent(summary.yield.revenue)} with total revenue`,
     ];
@@ -95,11 +99,7 @@ async function main(): Promise<void> {
   });
   const [name, ...rest] = positionals;
   const sources =
-    name === "all"
-      ? SOURCES
-      : name !== undefined && isSource(name)
-        ? [name]
-        : [];
+    name === "all" ? ALL : name !== undefined && isSource(name) ? [name] : [];
   if (
     sources.length === 0 ||
     rest.length > 0 ||

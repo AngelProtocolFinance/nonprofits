@@ -47,7 +47,7 @@ export interface Downloaded {
   releasedAt: string;
 }
 
-/** Fetches `file`. */
+/** Fetches `file`; a 404 like any other failed response throws. */
 export async function download(file: ImportFile): Promise<Downloaded> {
   const downloaded = await downloadIfPresent(file);
   if (downloaded === null) {
@@ -56,7 +56,10 @@ export async function download(file: ImportFile): Promise<Downloaded> {
   return downloaded;
 }
 
-/** Fetches `file`, or resolves null when the server has no such file (404). */
+/**
+ * Fetches `file`, resolving null when the server answers 404; any other
+ * failed response or network error throws, as `download` does.
+ */
 export async function downloadIfPresent(
   file: ImportFile,
 ): Promise<Downloaded | null> {
@@ -188,8 +191,8 @@ export function tuple(values: readonly (string | number | null)[]): string {
   return `(${values.map(literal).join(",")})`;
 }
 
-/** The newest run of `source`: the one inserted just before the statement using it. */
-function latestRun(source: ImportSource): string {
+/** The id of the newest run of `source`, as a subquery: within a load, the one it inserted last. */
+export function latestRun(source: ImportSource): string {
   return `(SELECT max(${run("id")}) FROM ${IMPORT_RUNS} WHERE ${run("source")} = ${literal(source)})`;
 }
 
