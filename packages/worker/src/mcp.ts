@@ -1,7 +1,6 @@
 import {
   type CallToolResult,
   createMcpHandler,
-  localhostAllowedOrigins,
   McpServer,
   originValidationResponse,
 } from "@modelcontextprotocol/server";
@@ -13,13 +12,14 @@ import {
   type Caller,
   type HandlerError,
   limitKeylessMcpRequests,
+  logFailure,
   lookupAs,
   searchAs,
 } from "./handlers.ts";
 import { problem } from "./problem.ts";
 import { refusalBody, refusalResponse } from "./refusal.ts";
 
-/** Far above any tool call's arguments (a query is at most 200 characters); the SDK answers 413 past it. */
+/** Far above any tool call's arguments (a query is at most 200 characters). */
 const MAX_BODY_BYTES = 16 * 1024;
 
 const LOOKUP_DESCRIPTION = `Look up a US tax-exempt organization by its EIN (Employer Identification Number: the 9-digit number the IRS identifies an organization by). Pass it as a string, with or without the dash: "530196605" or "53-0196605".
@@ -95,19 +95,18 @@ function toolResult<T extends OrgResponse | OrgSearchResponse>(
     };
   }
   const body = refusalBody(result.error);
-  const retry =
-    "retryAfterSeconds" in body
-      ? ` Retry after ${body.retryAfterSeconds} seconds.`
-      : "";
   return {
     isError: true,
-    content: [{ type: "text", text: `${body.code}: ${body.detail}${retry}` }],
+    content: [{ type: "text", text: `${body.code}: ${body.detail}` }],
     structuredContent: body,
   };
 }
 
 function nonprofitsServer(caller: Caller): McpServer {
-  const server = new McpServer({ name: "nonprofits", version: "1.0.0" });
+  const server = new McpServer(
+    { name: "nonprofits", version: "1.0.0" },
+    { capabilities: { tools: { listChanged: false } } },
+  );
   server.registerTool(
     "lookup_nonprofit",
     {
@@ -146,6 +145,67 @@ function nonprofitsServer(caller: Caller): McpServer {
   return server;
 }
 
+/** The body as text, or null past `limit` bytes, where reading stops. */
+async function bodyText(
+  request: Request,
+  limit: number,
+): Promise<string | null> {
+  if (request.body === null) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = request.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  return new Blob(chunks).text();
+}
+
+type JsonRpcRequest = { method: string; id?: string | number | null };
+
+function isListenRequest(message: unknown): message is JsonRpcRequest {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "method" in message &&
+    message.method === "subscriptions/listen"
+  );
+}
+
+/** A `subscriptions/listen` among a POST's messages; malformed JSON is left for the SDK to answer. */
+function listenRequestIn(body: string): JsonRpcRequest | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  return (Array.isArray(parsed) ? parsed : [parsed]).find(isListenRequest);
+}
+
+/**
+ * The tools never change, so a listen stream would only hold a connection
+ * open. Refused, not capped: `maxSubscriptions` counts per handler, and one is
+ * built per request.
+ */
+function refuseListen(id: string | number | null): Response {
+  return Response.json({
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: -32601,
+      message:
+        "subscriptions/listen is not offered: these tools never change, so there is nothing to notify.",
+    },
+  });
+}
+
 /**
  * `/mcp`: stateless streamable HTTP. The credential is checked once per HTTP
  * request, before any MCP message is read, so a bad key is a 401 even on the
@@ -155,10 +215,9 @@ export async function mcp(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") {
     return problem(405, "method_not_allowed", "Use POST.", { allow: "POST" });
   }
-  // a browser page on another site can't drive a visitor's quota here
+  // the MCP transport spec: servers MUST validate Origin, against DNS rebinding
   const crossOrigin = originValidationResponse(request, [
     new URL(request.url).hostname,
-    ...localhostAllowedOrigins(),
   ]);
   if (crossOrigin !== undefined) return crossOrigin;
 
@@ -174,8 +233,26 @@ export async function mcp(request: Request, env: Env): Promise<Response> {
   const limited = await limitKeylessMcpRequests(authorized.value, env);
   if (!limited.ok) return refusalResponse(limited.error);
 
+  const body = await bodyText(request, MAX_BODY_BYTES);
+  if (body === null) {
+    return problem(
+      413,
+      "body_too_large",
+      `An MCP request body is at most ${MAX_BODY_BYTES} bytes.`,
+    );
+  }
+  const listen = listenRequestIn(body);
+  if (listen !== undefined) return refuseListen(listen.id ?? null);
+
   const caller: Caller = { env, now: new Date(), principal: authorized.value };
   return createMcpHandler(() => nonprofitsServer(caller), {
-    maxRequestBodySize: MAX_BODY_BYTES,
-  }).fetch(request);
+    onerror: (error) => logFailure("mcp_error", error),
+  }).fetch(
+    new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body,
+      signal: request.signal,
+    }),
+  );
 }

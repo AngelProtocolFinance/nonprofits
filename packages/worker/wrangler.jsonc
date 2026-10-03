@@ -37,8 +37,9 @@
       "simple": { "limit": 600, "period": 60 }
     },
     {
-      // /mcp requests without a key, per client: handshakes and tool listings
-      // aren't metered, so this bounds them; well above a keyless session's few
+      // HTTP requests to /mcp without a key, per client, whatever messages each
+      // carries: handshakes and tool listings aren't metered, so this bounds
+      // them; well above a keyless session's few
       "name": "KEYLESS_MCP_LIMITER",
       "namespace_id": "1004",
       "simple": { "limit": 60, "period": 60 }

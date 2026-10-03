@@ -71,7 +71,13 @@ claude mcp add --transport http nonprofits <worker-url>/mcp --header "Authorizat
 claude mcp add --transport http nonprofits <worker-url>/mcp   # keyless
 ```
 
-Auth and limits are REST's: a malformed, unknown or revoked key is the same 401 problem before any MCP message is read, no `Authorization` header is the keyless tier, and each tool call counts as one request on the same counters as REST. Protocol messages (the handshake, tool listings) count toward no quota, but are capped per client: requests carrying a key by `KEYED_REQUEST_LIMITER`, keyless `/mcp` requests by `KEYLESS_MCP_LIMITER` (60 a minute, then `per_minute_limit_exceeded`). MCP clients read a 401 as a sign-in prompt, so a mistyped key can surface as an authentication error rather than this API's message. Locally:
+Keyless `/mcp` is limited per IP address, so it suits a client running on one machine. A hosted connector (claude.ai, ChatGPT and the like) calls from its provider's servers, so all of its users would share one IP's keyless limits: it isn't a supported keyless client. Configure it with a key instead (ask the operator for one).
+
+Auth and limits are REST's: a malformed, unknown or revoked key is the same 401 problem before any MCP message is read, no `Authorization` header is the keyless tier, and each tool call counts as one request on the same counters as REST. Protocol messages (the handshake, tool listings) count toward no quota, but HTTP requests are capped per client whatever messages each carries: those carrying a key by `KEYED_REQUEST_LIMITER`, keyless ones by `KEYLESS_MCP_LIMITER` (60 HTTP requests a minute, then `per_minute_limit_exceeded`). A batch of tool calls in one request counts each call. `subscriptions/listen` is refused: the tools never change.
+
+A 401 carries a `Bearer` challenge, which some MCP clients show as an OAuth or login prompt. Here it always means the key is wrong: check it was copied whole, or ask the operator for a new one.
+
+To try it against `pnpm dev`:
 
 ```sh
 npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp --method tools/list

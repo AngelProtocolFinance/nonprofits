@@ -58,14 +58,14 @@ export function keyedRequestRefusal(): QuotaError {
   };
 }
 
-/** `KEYLESS_MCP_LIMITER`'s limit in wrangler.jsonc: `/mcp` requests without a key, per client. */
+/** `KEYLESS_MCP_LIMITER`'s limit in wrangler.jsonc: HTTP requests to `/mcp` without a key, per client. */
 const KEYLESS_MCP_REQUESTS_PER_MINUTE = 60;
 
-/** A keyless client over `KEYLESS_MCP_LIMITER`, whatever MCP messages it sent. */
+/** A keyless client over `KEYLESS_MCP_LIMITER`, whatever messages its requests carried. */
 export function keylessMcpRefusal(): QuotaError {
   return {
     code: "per_minute_limit_exceeded",
-    message: `MCP requests without an API key are limited to ${KEYLESS_MCP_REQUESTS_PER_MINUTE} per minute per IP address. Retry in ${BURST_PERIOD_SECONDS} seconds. ${KEY_LIFTS_LIMIT}`,
+    message: `HTTP requests to /mcp without an API key are limited to ${KEYLESS_MCP_REQUESTS_PER_MINUTE} per minute per IP address, whatever MCP messages each carries. Retry in ${BURST_PERIOD_SECONDS} seconds. ${KEY_LIFTS_LIMIT}`,
     retryAfterSeconds: BURST_PERIOD_SECONDS,
   };
 }

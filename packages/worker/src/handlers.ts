@@ -125,7 +125,7 @@ function refuse(
 }
 
 /** An Error is logged as text: `wrangler dev` stalls when handed the object. */
-function logFailure(event: string, cause: unknown) {
+export function logFailure(event: string, cause: unknown) {
   console.error(
     JSON.stringify({
       event,
@@ -257,9 +257,10 @@ export async function authorize(
 }
 
 /**
- * Caps a keyless client's MCP requests per minute: handshakes and tool
- * listings aren't metered, and nothing else bounds them. A keyed client's are
- * capped before its key is read (`limitKeyedRequests`).
+ * Caps a keyless client's HTTP requests to `/mcp` per minute, whatever
+ * messages each carries: handshakes and tool listings aren't metered, and
+ * nothing else bounds them. A keyed client's are capped before its key is read
+ * (`limitKeyedRequests`).
  */
 export async function limitKeylessMcpRequests(
   principal: Principal,

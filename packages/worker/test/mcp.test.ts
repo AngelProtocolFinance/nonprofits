@@ -1,5 +1,6 @@
 import {
   Client,
+  type ClientOptions,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -26,8 +27,11 @@ afterAll(async () => {
 const MCP_URL = new URL("http://localhost/mcp");
 
 /** An MCP client connected to `/mcp` through the harness, sending `headers` on every request. */
-async function connect(headers: Record<string, string>): Promise<Client> {
-  const client = new Client({ name: "mcp-test", version: "1.0.0" });
+async function connect(
+  headers: Record<string, string>,
+  options?: ClientOptions,
+): Promise<Client> {
+  const client = new Client({ name: "mcp-test", version: "1.0.0" }, options);
   await client.connect(
     new StreamableHTTPClientTransport(MCP_URL, {
       requestInit: { headers },
@@ -155,6 +159,18 @@ describe("/mcp transport", () => {
 });
 
 describe("/mcp with a key", () => {
+  test("refuses subscriptions/listen with a JSON-RPC error: the tools never change, so no stream is held open", async () => {
+    const client = await connect(
+      { authorization },
+      { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+    );
+
+    await expect(
+      client.listen({ toolsListChanged: true }, { timeout: 5_000 }),
+    ).rejects.toThrow(/subscriptions\/listen is not offered/);
+    await client.close();
+  });
+
   test("lists lookup_nonprofit and search_nonprofits", async () => {
     const client = await connect({ authorization });
 
@@ -307,7 +323,7 @@ describe("/mcp without a key", () => {
     expect(result.content).toStrictEqual([
       {
         type: "text",
-        text: `per_minute_limit_exceeded: ${message} Retry after 60 seconds.`,
+        text: `per_minute_limit_exceeded: ${message}`,
       },
     ]);
     await client.close();
@@ -332,7 +348,19 @@ describe("/mcp protocol traffic", () => {
       status: 429,
       code: "per_minute_limit_exceeded",
       detail:
-        "MCP requests without an API key are limited to 60 per minute per IP address. Retry in 60 seconds. An API key lifts this limit: ask the operator for one.",
+        "HTTP requests to /mcp without an API key are limited to 60 per minute per IP address, whatever MCP messages each carries. Retry in 60 seconds. An API key lifts this limit: ask the operator for one.",
     });
+  }, 30_000);
+
+  test("with a key, a client past 60 requests in a minute is still served: the keyless cap is not the keyed one", async () => {
+    const keyed = { authorization, "cf-connecting-ip": "198.51.100.13" };
+    await startOfMinuteWindow();
+    for (let i = 1; i <= 60; i++) {
+      expect((await post(INITIALIZE, keyed)).status, `request ${i}`).toBe(200);
+    }
+
+    const response = await post(INITIALIZE, keyed);
+
+    expect(response.status).toBe(200);
   }, 30_000);
 });

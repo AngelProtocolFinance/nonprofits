@@ -2,7 +2,7 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup } from "../../src/handlers.ts";
 import { mcp } from "../../src/mcp.ts";
@@ -129,3 +129,81 @@ test("a D1 outage behind a tool call is a tool error carrying the REST 503 probl
   ]);
   await client.close();
 });
+
+test("a message the SDK rejects is logged as one structured error line", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+  const response = await mcp(
+    new Request("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "cf-connecting-ip": "203.0.113.122",
+        // names the 2026 revision, but the body lacks its per-request envelope
+        "mcp-protocol-version": "2026-07-28",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    }),
+    env,
+  );
+  const lines = errors.mock.calls.map(([line]) => JSON.parse(String(line)));
+  errors.mockRestore();
+
+  expect(response.status).toBe(400);
+  expect(lines).toContainEqual(
+    expect.objectContaining({ event: "mcp_error", cause: expect.any(String) }),
+  );
+});
+
+/** Every JSON-RPC response in a body sent as JSON or as server-sent events. */
+async function rpcResponses(response: Response): Promise<unknown[]> {
+  const text = await response.text();
+  const payloads = response.headers
+    .get("content-type")
+    ?.includes("text/event-stream")
+    ? text
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map((line) => JSON.parse(line.slice("data: ".length)) as unknown)
+    : [JSON.parse(text) as unknown];
+  return payloads.flat();
+}
+
+test("a batch POST of 6 tool calls without a key is metered 6 times: the 6th is past the IP's 5 a day", async () => {
+  const unlimitedBursts = { ...env, KEYLESS_BURST_LIMITER: noBurstLimit };
+  await clearOfUtcMidnight();
+  const batch = [1, 2, 3, 4, 5, 6].map((id) => ({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name: "lookup_nonprofit", arguments: { ein: "530196605" } },
+  }));
+
+  const response = await mcp(
+    new Request("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "cf-connecting-ip": "203.0.113.123",
+        "mcp-protocol-version": "2025-03-26",
+      },
+      body: JSON.stringify(batch),
+    }),
+    unlimitedBursts,
+  );
+
+  type ToolError = { result: { structuredContent: { code: string } } };
+  const codes = (await rpcResponses(response))
+    .map((message) => (message as ToolError).result.structuredContent.code)
+    .sort();
+  expect(codes).toStrictEqual([
+    "daily_quota_exceeded",
+    "not_found",
+    "not_found",
+    "not_found",
+    "not_found",
+    "not_found",
+  ]);
+}, 30_000);
