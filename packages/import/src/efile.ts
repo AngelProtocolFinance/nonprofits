@@ -127,7 +127,8 @@ export interface EfileImportSummary {
   rejects: Partial<Record<RejectReason, string[]>>;
   /** Returns selected of each form, rejected ones included, over which `yields` are measured. */
   returns: Record<FormType, number>;
-  yields: FormYields;
+  /** Null for a form the run selected none of. */
+  yields: { [F in FormType]: FormYields[F] | null };
 }
 
 type FilingColumn = (typeof COLUMNS.filings)[number];
@@ -149,6 +150,7 @@ const FILING_COLUMNS = [
   "total_revenue",
   "total_expenses",
   "total_assets_eoy",
+  "mission_on_schedule_o",
 ] as const satisfies readonly FilingColumn[];
 
 const PROGRAM_COLUMNS = [
@@ -305,7 +307,7 @@ async function* efileSql(
       `990 import aborted: ${rejected} of ${selected} latest filings rejected (${percent(rejected / selected)}), above the ${percent(floors.rejects)} allowed (${reasons}); nothing was loaded`,
     );
   }
-  yields.check(floors);
+  yields.check(floors, options.batches === undefined);
   if (options.batches === undefined) {
     yield* deleteStale(rejectedEins);
   }
@@ -362,17 +364,23 @@ class YieldCounts {
     return perForm((form) => this.total[form].returns);
   }
 
-  shares(): FormYields {
-    return perForm((form) => this.total[form].shares()) as FormYields;
+  shares(): EfileImportSummary["yields"] {
+    return perForm((form) =>
+      this.total[form].returns === 0 ? null : this.total[form].shares(),
+    ) as EfileImportSummary["yields"];
   }
 
   /**
-   * Throws when a form with returns in the run, or a returnVersion with
-   * `floors.versionFrom` returns of it or more, falls below its floors.
+   * Throws when a form, or a returnVersion with `floors.versionFrom` returns
+   * of it or more, falls below its floors. A form with no returns falls below
+   * them on a full run, where its stored filings would otherwise be deleted;
+   * a `--batch` run need not hold every form.
    */
-  check(floors: EfileFloors): void {
+  check(floors: EfileFloors, fullRun: boolean): void {
     for (const form of FORM_TYPES) {
-      if (this.total[form].returns > 0) this.total[form].check(floors, "");
+      if (fullRun || this.total[form].returns > 0) {
+        this.total[form].check(floors, "");
+      }
       const versions = [...this.byVersion[form]].sort(([a], [b]) =>
         a < b ? -1 : 1,
       );
@@ -405,18 +413,27 @@ class Yields {
     }
   }
 
+  /** Each yield's share of `returns`, which must be more than 0. */
   shares(): Partial<Record<YieldName, number>> {
     return Object.fromEntries(
       this.#held.map((name) => [
         name,
-        this.returns === 0 ? 0 : (this.#stated.get(name) ?? 0) / this.returns,
+        (this.#stated.get(name) ?? 0) / this.returns,
       ]),
     );
   }
 
   check(floors: EfileFloors, which: string): void {
-    const shares = this.shares();
     const floor: Partial<Record<YieldName, number>> = floors[this.form];
+    const floored = this.#held
+      .map((name) => percent(floor[name] ?? 0))
+      .join(" and ");
+    if (this.returns === 0) {
+      throw new Error(
+        `990 import aborted: ${which}the run selected no ${FORM_NAMES[this.form]}s, below the floor of ${floored}; nothing was loaded`,
+      );
+    }
+    const shares = this.shares();
     const below = this.#held.some(
       (name) => (shares[name] ?? 0) < (floor[name] ?? 0),
     );
@@ -426,9 +443,6 @@ class Yields {
         (name, i) =>
           `${percent(shares[name] ?? 0)} ${i === 0 ? "state " : ""}${YIELDS[name].states}`,
       )
-      .join(" and ");
-    const floored = this.#held
-      .map((name) => percent(floor[name] ?? 0))
       .join(" and ");
     throw new Error(
       `990 import aborted: ${which}of ${this.returns} ${FORM_NAMES[this.form]}s, ${stated}, below the floor of ${floored}; nothing was loaded`,
@@ -628,6 +642,7 @@ function filingTuple(filing: IndexedFiling, parsed: ParsedReturn): string {
     parsed.totalRevenue,
     parsed.totalExpenses,
     parsed.totalAssetsEoy,
+    parsed.missionOnScheduleO ? 1 : 0,
   ]);
 }
 

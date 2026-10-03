@@ -22,6 +22,8 @@ export interface ParsedReturn {
   totalRevenue: number | null;
   totalExpenses: number | null;
   totalAssetsEoy: number | null;
+  /** Whether the mission is null because it only points to Schedule O. */
+  missionOnScheduleO: boolean;
   /** The top 3 by expense, largest first. */
   programs: Program[];
 }
@@ -61,12 +63,15 @@ export interface ParsedReturn {
  *   programs          ProgramSrvcAccomplishmentGrp (lines 28–31, repeats): DescriptionProgramSrvcAccomTxt,
  *                     ProgramServiceExpensesAmt, GrantsAndAllocationsAmt; the EZ has no program revenue
  *                     and no activity summary
- * Under /Return/ReturnData/IRS990PF, each in every return:
+ * Under /Return/ReturnData/IRS990PF:
  *   finances          AnalysisOfRevenueAndExpenses/TotalRevAndExpnssAmt (Part I line 12 column a),
  *                     AnalysisOfRevenueAndExpenses/TotalExpensesRevAndExpnssAmt (line 26 column a),
  *                     Form990PFBalanceSheetsGrp/TotalAssetsEOYAmt (Part II line 16 column b, book value;
- *                     TotalAssetsEOYFMVAmt beside it and the header's FMVAssetsEOYAmt are fair market value)
- *   The PF states no mission; its website (StatementsRegardingActyGrp/WebsiteAddressTxt) isn't read.
+ *                     TotalAssetsEOYFMVAmt beside it and the header's FMVAssetsEOYAmt are fair market value);
+ *                     each in every return
+ *   website           StatementsRegardingActyGrp/WebsiteAddressTxt (Part VII-A line 13), the only website
+ *                     element in any version; in 33–100% of a version's returns
+ *   The PF states no mission.
  * Object ids checked, one per returnVersion (fixtures/efile/xml/), 990-EZ:
  *   2019v5.0 202212589349200831  2019v5.1 202222529349200147  2019v5.2 202202569349201150
  *   2020v4.0 202202559349200225  2020v4.1 202343569349200609  2020v4.2 202202529349200535
@@ -158,12 +163,21 @@ const LAYOUTS: Record<FormType, FormLayout> = {
       "AnalysisOfRevenueAndExpenses/TotalExpensesRevAndExpnssAmt":
         "totalExpenses",
       "Form990PFBalanceSheetsGrp/TotalAssetsEOYAmt": "totalAssetsEoy",
+      "StatementsRegardingActyGrp/WebsiteAddressTxt": "website",
     },
     programGroups: new Set(),
     programFields: {},
     topProgram: false,
   },
 };
+
+/** How many elements below its form a layout's deepest field sits; nothing deeper is matched. */
+const FIELD_DEPTH = new Map(
+  Object.values(LAYOUTS).map((layout) => [
+    layout,
+    Math.max(...Object.keys(layout.fields).map((p) => p.split("/").length)),
+  ]),
+);
 
 /** Why a return is skipped on its own rather than aborting the run. */
 export type RejectReason =
@@ -222,6 +236,7 @@ export async function parseReturn(
     totalAssetsEoy: null,
   };
   let layout: FormLayout | undefined;
+  let missionOnScheduleO = false;
   const programs: Program[] = [];
   const topProgram = emptyProgram();
   let group = emptyProgram();
@@ -262,10 +277,20 @@ export async function parseReturn(
       owner === layout.element &&
       path.length > 3
     ) {
-      const fieldPath = path.slice(3).join("/");
+      const fieldPath =
+        path.length - 3 <= (FIELD_DEPTH.get(layout) ?? 0)
+          ? path.slice(3).join("/")
+          : "";
       if (Object.hasOwn(layout.fields, fieldPath)) {
         const field = layout.fields[fieldPath] as FormField;
-        form[field] = formValue(field, name, content, returnVersion);
+        if (field === "mission") {
+          const mission = text(content);
+          missionOnScheduleO =
+            mission !== null && SCHEDULE_O_POINTER.test(mission);
+          form.mission = missionOnScheduleO ? null : mission;
+        } else {
+          form[field] = formValue(field, name, content, returnVersion);
+        }
       }
       if (path.length === 4) {
         if (layout.topProgram) {
@@ -334,6 +359,7 @@ export async function parseReturn(
     ein,
     taxYear: Number(taxYear),
     ...(form as Pick<ParsedReturn, FormField>),
+    missionOnScheduleO,
     programs: topPrograms([topProgram, ...programs]),
   };
 }
@@ -356,19 +382,13 @@ function setProgramField(
 }
 
 function formValue(
-  field: FormField,
+  field: Exclude<FormField, "mission">,
   name: string,
   raw: string,
   returnVersion: string | null,
 ): string | number | null {
   if (field === "website") return webAddress(raw);
   if (field === "activitySummary") return text(raw);
-  if (field === "mission") {
-    const mission = text(raw);
-    return mission !== null && SCHEDULE_O_POINTER.test(mission)
-      ? null
-      : mission;
-  }
   return amount(name, raw, returnVersion);
 }
 

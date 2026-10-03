@@ -652,13 +652,18 @@ describe.each([
 ])("a $returnVersion Form 990 ($objectId)", ({ objectId, ...expected }) => {
   test("yields its mission, website, finances and top programs", async () => {
     const { activitySummary: _, ...parsed } = await parseFixture(objectId);
-    expect(parsed).toEqual({ formType: "990", ...expected });
+    expect(parsed).toEqual({
+      formType: "990",
+      missionOnScheduleO: false,
+      ...expected,
+    });
   });
 });
 
 describe("a Form 990 whose elements carry a namespace prefix (irs:Return)", () => {
   test("yields the same fields as an unprefixed one", async () => {
     expect(await parseFixture("202601499349300130")).toEqual({
+      missionOnScheduleO: false,
       returnVersion: "2025v4.1",
       formType: "990",
       ein: "992834231",
@@ -687,6 +692,7 @@ describe("a Form 990 whose elements carry a namespace prefix (irs:Return)", () =
 describe("a 990-EZ", () => {
   test("yields its primary exempt purpose as mission, its website, finances and top programs by expense", async () => {
     expect(await parseFixture("202630139349200908")).toEqual({
+      missionOnScheduleO: false,
       returnVersion: "2024v5.0",
       formType: "990-EZ",
       ein: "316050644",
@@ -722,15 +728,16 @@ describe("a 990-EZ", () => {
 });
 
 describe("a 990-PF", () => {
-  test("yields its book-value finances and no mission, website or programs", async () => {
+  test("yields its website and book-value finances, and no mission or programs", async () => {
     expect(await parseFixture("202630139349100013")).toEqual({
+      missionOnScheduleO: false,
       returnVersion: "2023v6.0",
       formType: "990-PF",
       ein: "920372947",
       taxYear: 2023,
       mission: null,
       activitySummary: null,
-      website: null,
+      website: "https://www.flipcause.com/secure/cause_pdetai",
       totalRevenue: 4_136,
       totalExpenses: 7_856,
       // Part II line 16 column (b); its fair market value, column (c), is 6,728
@@ -1242,6 +1249,7 @@ describe.each([
   test("yields its mission, website, finances and top programs", async () => {
     expect(await parseFixture(objectId)).toEqual({
       formType: "990-EZ",
+      missionOnScheduleO: false,
       activitySummary: null,
       ...expected,
     });
@@ -1318,6 +1326,7 @@ describe.each([
     returnVersion: "2021v4.1",
     ein: "844210848",
     taxYear: 2021,
+    website: "www.milkfoundation.org",
     totalRevenue: 373_576,
     totalExpenses: 291_132,
     totalAssetsEoy: 334_012,
@@ -1372,6 +1381,7 @@ describe.each([
     returnVersion: "2023v6.0",
     ein: "920372947",
     taxYear: 2023,
+    website: "https://www.flipcause.com/secure/cause_pdetai",
     totalRevenue: 4136,
     totalExpenses: 7856,
     totalAssetsEoy: 7478,
@@ -1440,9 +1450,10 @@ describe.each([
     totalAssetsEoy: 5_165_072,
   },
 ])("a $returnVersion 990-PF ($objectId)", ({ objectId, ...expected }) => {
-  test("yields its finances and nothing else", async () => {
+  test("yields its website, when it reads as one, and finances", async () => {
     expect(await parseFixture(objectId)).toEqual({
       formType: "990-PF",
+      missionOnScheduleO: false,
       mission: null,
       activitySummary: null,
       website: null,
@@ -1509,6 +1520,16 @@ describe("a return rejected on its own, leaving the run going", () => {
 });
 
 describe("a mission that only points to Schedule O", () => {
+  test("is stored as null and flagged in a real 990-EZ", async () => {
+    expect(await parseFixture("202640199349200804")).toMatchObject({
+      returnVersion: "2024v5.0",
+      formType: "990-EZ",
+      ein: "310899051",
+      mission: null,
+      missionOnScheduleO: true,
+    });
+  });
+
   // the variants seen among the 990 missions of 2026_TEOS_XML_03A
   test.each([
     "SEE SCHEDULE O",
@@ -1529,7 +1550,7 @@ describe("a mission that only points to Schedule O", () => {
         `<MissionDesc>${pointer}<`,
       ),
     );
-    expect(parsed.mission).toBeNull();
+    expect(parsed).toMatchObject({ mission: null, missionOnScheduleO: true });
   });
 
   test("is stored as null when a 990-EZ's primary exempt purpose", async () => {
@@ -1540,7 +1561,11 @@ describe("a mission that only points to Schedule O", () => {
         "<PrimaryExemptPurposeTxt>SEE SCHEDULE O<",
       ),
     );
-    expect(parsed).toMatchObject({ formType: "990-EZ", mission: null });
+    expect(parsed).toMatchObject({
+      formType: "990-EZ",
+      mission: null,
+      missionOnScheduleO: true,
+    });
   });
 
   test.each([
@@ -1553,7 +1578,7 @@ describe("a mission that only points to Schedule O", () => {
         `<MissionDesc>${mission}<`,
       ),
     );
-    expect(parsed.mission).toBe(mission);
+    expect(parsed).toMatchObject({ mission, missionOnScheduleO: false });
   });
 });
 

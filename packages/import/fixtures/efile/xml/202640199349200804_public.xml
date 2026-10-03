@@ -1,0 +1,162 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" returnVersion="2024v5.0">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2026-01-19T10:00:40-05:00</ReturnTs>
+    <TaxPeriodEndDt>2024-12-31</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmEIN>203388433</PreparerFirmEIN>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>HAMILTON WALTMAN OBENOUR &amp; MELSHEIMER</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>PO BOX 8200</AddressLine1Txt>
+        <CityNm>ZANESVILLE</CityNm>
+        <StateAbbreviationCd>OH</StateAbbreviationCd>
+        <ZIPCd>437028200</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990EZ</ReturnTypeCd>
+    <TaxPeriodBeginDt>2024-01-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>310899051</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>COMMUNITY IMPROVEMENT CORP OF NOBLE</BusinessNameLine1Txt>
+        <BusinessNameLine2Txt>COUNTY</BusinessNameLine2Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>COMM</BusinessNameControlTxt>
+      <PhoneNum>7407327387</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>508 MAIN STREET</AddressLine1Txt>
+        <CityNm>CALDWELL</CityNm>
+        <StateAbbreviationCd>OH</StateAbbreviationCd>
+        <ZIPCd>43724</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>DIANE BRADEN</PersonNm>
+      <PersonTitleTxt>TREASURER</PersonTitleTxt>
+      <PhoneNum>7407327387</PhoneNum>
+      <SignatureDt>2026-01-19</SignatureDt>
+      <DiscussWithPaidPreparerInd>true</DiscussWithPaidPreparerInd>
+    </BusinessOfficerGrp>
+    <IRSResponsiblePrtyInfoCurrInd>true</IRSResponsiblePrtyInfoCurrInd>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>TROY K SCOTT CPA</PreparerPersonNm>
+      <PTIN>P01953897</PTIN>
+      <PhoneNum>7404548852</PhoneNum>
+      <PreparationDt>2026-01-19</PreparationDt>
+    </PreparerPersonGrp>
+    <TaxYr>2024</TaxYr>
+    <BuildTS>2025-03-06 01:10:19Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="2">
+    <IRS990EZ documentId="RetDoc1" referenceDocumentId="RetDoc2">
+      <MethodOfAccountingCashInd>X</MethodOfAccountingCashInd>
+      <ScheduleBNotRequiredInd>X</ScheduleBNotRequiredInd>
+      <WebsiteAddressTxt>N/A</WebsiteAddressTxt>
+      <Organization501cInd organization501cTypeTxt="6">X</Organization501cInd>
+      <TypeOfOrganizationCorpInd>X</TypeOfOrganizationCorpInd>
+      <GrossReceiptsAmt>5426</GrossReceiptsAmt>
+      <InfoInScheduleOPartIInd>X</InfoInScheduleOPartIInd>
+      <ContributionsGiftsGrantsEtcAmt>4500</ContributionsGiftsGrantsEtcAmt>
+      <InvestmentIncomeAmt>221</InvestmentIncomeAmt>
+      <OtherRevenueTotalAmt>705</OtherRevenueTotalAmt>
+      <TotalRevenueAmt>5426</TotalRevenueAmt>
+      <SalariesOtherCompEmplBnftAmt>14000</SalariesOtherCompEmplBnftAmt>
+      <FeesAndOtherPymtToIndCntrctAmt>905</FeesAndOtherPymtToIndCntrctAmt>
+      <OtherExpensesTotalAmt>41247</OtherExpensesTotalAmt>
+      <TotalExpensesAmt>56152</TotalExpensesAmt>
+      <ExcessOrDeficitForYearAmt>-50726</ExcessOrDeficitForYearAmt>
+      <NetAssetsOrFundBalancesBOYAmt>472201</NetAssetsOrFundBalancesBOYAmt>
+      <OtherChangesInNetAssetsAmt>-144500</OtherChangesInNetAssetsAmt>
+      <NetAssetsOrFundBalancesEOYAmt>276975</NetAssetsOrFundBalancesEOYAmt>
+      <InfoInScheduleOPartIIInd>X</InfoInScheduleOPartIIInd>
+      <CashSavingsAndInvestmentsGrp>
+        <BOYAmt>145033</BOYAmt>
+        <EOYAmt>88494</EOYAmt>
+      </CashSavingsAndInvestmentsGrp>
+      <LandAndBuildingsGrp>
+        <BOYAmt>37694</BOYAmt>
+        <EOYAmt>45815</EOYAmt>
+      </LandAndBuildingsGrp>
+      <OtherAssetsTotalDetail>
+        <BOYAmt>289474</BOYAmt>
+        <EOYAmt>142666</EOYAmt>
+      </OtherAssetsTotalDetail>
+      <Form990TotalAssetsGrp>
+        <BOYAmt>472201</BOYAmt>
+        <EOYAmt>276975</EOYAmt>
+      </Form990TotalAssetsGrp>
+      <NetAssetsOrFundBalancesGrp>
+        <BOYAmt>472201</BOYAmt>
+        <EOYAmt>276975</EOYAmt>
+      </NetAssetsOrFundBalancesGrp>
+      <PrimaryExemptPurposeTxt>SEE SCHEDULE O</PrimaryExemptPurposeTxt>
+      <ProgramSrvcAccomplishmentGrp>
+        <DescriptionProgramSrvcAccomTxt>THE PURPOSE OF THE ORGANIZATION IS TO ENCOURAGE AND PROMOTE THE ECONOMIC, INDUSTRIAL, COMMERCIAL, AND CIVIC DEVELOPMENT OF NOBLE COUNTY, OHIO.</DescriptionProgramSrvcAccomTxt>
+      </ProgramSrvcAccomplishmentGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>ED CROCK</PersonNm>
+        <TitleTxt>VICE PRESIDE</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>000.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>SCOTT BRADEN</PersonNm>
+        <TitleTxt>PRESIDENT</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>000.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>COURTNEY NORMAN</PersonNm>
+        <TitleTxt>SECRETARY</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>000.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>14000</CompensationAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>DIANE BRADEN</PersonNm>
+        <TitleTxt>TREASURER</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>000.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>RICHARD RUTHERFORD</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>000.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <OfficerDirectorTrusteeEmplGrp>
+        <PersonNm>MATT WYSCARVER</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHrsPerWkDevotedToPosRt>000.00</AverageHrsPerWkDevotedToPosRt>
+        <CompensationAmt>0</CompensationAmt>
+      </OfficerDirectorTrusteeEmplGrp>
+      <ActivitiesNotPreviouslyRptInd>false</ActivitiesNotPreviouslyRptInd>
+      <ChgMadeToOrgnzngDocNotRptInd>false</ChgMadeToOrgnzngDocNotRptInd>
+      <OrganizationHadUBIInd>false</OrganizationHadUBIInd>
+      <SubjectToProxyTaxInd>false</SubjectToProxyTaxInd>
+      <OrganizationDissolvedEtcInd>false</OrganizationDissolvedEtcInd>
+      <Form1120PolFiledInd>false</Form1120PolFiledInd>
+      <MadeLoansToFromOfficersInd>false</MadeLoansToFromOfficersInd>
+      <ProhibitedTaxShelterTransInd>false</ProhibitedTaxShelterTransInd>
+      <BooksInCareOfDetail>
+        <PersonNm>DIANE BRADEN</PersonNm>
+        <USAddress>
+          <AddressLine1Txt>508 MAIN STREET</AddressLine1Txt>
+          <CityNm>CALDWELL</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43724</ZIPCd>
+        </USAddress>
+        <PhoneNum>7407327387</PhoneNum>
+      </BooksInCareOfDetail>
+      <ForeignFinancialAccountInd>false</ForeignFinancialAccountInd>
+      <ForeignOfficeInd>false</ForeignOfficeInd>
+      <DonorAdvisedFndsInd>false</DonorAdvisedFndsInd>
+      <OperateHospitalInd>false</OperateHospitalInd>
+      <TanningServicesProvidedInd>false</TanningServicesProvidedInd>
+      <RelatedOrganizationCtrlEntInd>false</RelatedOrganizationCtrlEntInd>
+      <TransactionWithControlEntInd>false</TransactionWithControlEntInd>
+      <PoliticalCampaignActyInd>false</PoliticalCampaignActyInd>
+    </IRS990EZ>
+  </ReturnData>
+</Return>

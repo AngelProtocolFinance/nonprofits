@@ -58,13 +58,16 @@ async function importSource(
           `rejected ${ids.length} (${reason}): ${ids.slice(0, 10).join(", ")}${ids.length > 10 ? ", …" : ""}`,
       ),
       `efile: ${summary.filings} filings`,
-      ...Object.entries(summary.yields).map(
-        ([form, shares]) =>
-          `${form}: ${summary.returns[form as keyof typeof summary.returns]} selected, ${Object.entries(
-            shares,
-          )
-            .map(([name, share]) => `${percent(share)} with ${name}`)
-            .join(", ")}`,
+      ...Object.entries(summary.yields).flatMap(([form, shares]) =>
+        shares === null
+          ? []
+          : [
+              `${form}: ${summary.returns[form as keyof typeof summary.returns]} selected, ${Object.entries(
+                shares,
+              )
+                .map(([name, share]) => `${percent(share)} with ${name}`)
+                .join(", ")}`,
+            ],
       ),
     ];
   }

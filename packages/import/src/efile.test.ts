@@ -39,6 +39,8 @@ const V2024_5_0 = "202630139349301998";
 /** A 990-EZ and a 990-PF, both in batch 01A. */
 const EZ = "202630139349200908";
 const PF_01A = "202630139349100013";
+/** A 990-EZ in batch 01A whose mission reads only "SEE SCHEDULE O"; only the schedule-o route lists it. */
+const EZ_SCHEDULE_O = "202640199349200804";
 
 /** Which fixture returns each batch zip holds, as served for both index variants. */
 const ZIPS: Record<string, string[]> = {
@@ -131,6 +133,17 @@ beforeAll(async () => {
       index.replace(",203349625,", ",203349626,"),
     );
     routes.set(`/version-drift/${year}/index_${year}.csv`, index);
+    routes.set(
+      `/schedule-o/${year}/index_${year}.csv`,
+      year === 2026
+        ? `${index}24039646,EFILE,310899051,202412,2026,COMMUNITY IMPROVEMENT CORP OF NOBLE COUNTY,990EZ,93492019008046,${EZ_SCHEDULE_O},2026_TEOS_XML_01A\r\n`
+        : index,
+    );
+    // every 990 row under a code the import doesn't know
+    routes.set(
+      `/renamed-990/${year}/index_${year}.csv`,
+      index.replaceAll(",990,", ",990X,"),
+    );
     // a return type the IRS might add to the index
     routes.set(
       `/new-type/${year}/index_${year}.csv`,
@@ -150,6 +163,13 @@ beforeAll(async () => {
     const zipped = await batchZip(objectIds);
     routes.set(`/version-drift/${path}`, zipped);
     routes.set(`/new-type/${path}`, zipped);
+    routes.set(`/renamed-990/${path}`, zipped);
+    routes.set(
+      `/schedule-o/${path}`,
+      batch === "2026_TEOS_XML_01A"
+        ? await batchZip([...objectIds, EZ_SCHEDULE_O])
+        : zipped,
+    );
     routes.set(
       `/rejecting/${path}`,
       batch === "2026_TEOS_XML_02A"
@@ -433,7 +453,7 @@ describe("importing a batch holding a 990-EZ and a 990-PF", {
     ]);
   });
 
-  test("stores the 990-PF's filing facts and finances, with no mission", async () => {
+  test("stores the 990-PF's filing facts, website and finances, with no mission", async () => {
     expect(await storedFiling("920372947")).toStrictEqual([
       {
         object_id: PF_01A,
@@ -442,12 +462,39 @@ describe("importing a batch holding a 990-EZ and a 990-PF", {
         tax_year: 2023,
         mission: null,
         activity_summary: null,
-        website: null,
+        website: "https://www.flipcause.com/secure/cause_pdetai",
         total_revenue: 4_136,
         total_expenses: 7_856,
         total_assets_eoy: 7_478,
         file_url: `${base}/xml/2026/2026_TEOS_XML_01A.zip`,
         programs: 0,
+      },
+    ]);
+  });
+});
+
+describe("importing a filing whose mission only points to Schedule O", {
+  timeout: 60_000,
+}, () => {
+  test("flags it, and not a filing stating its mission", async () => {
+    const d1 = await d1WithBmf("schedule-o");
+    await loadEfile(d1, {
+      baseUrl: `${base}/schedule-o/`,
+      batches: ["2026_TEOS_XML_01A"],
+      // one of the two 990-EZs states no mission
+      floors: floorsAt(0.5, { versionFrom: 200, rejects: 0.01 }),
+    });
+    expect(
+      await query(
+        d1,
+        "SELECT ein, mission, mission_on_schedule_o FROM filings WHERE ein IN ('310899051', '316050644') ORDER BY ein",
+      ),
+    ).toStrictEqual([
+      { ein: "310899051", mission: null, mission_on_schedule_o: 1 },
+      {
+        ein: "316050644",
+        mission: "Assist statewide youth through optimism and public service",
+        mission_on_schedule_o: 0,
       },
     ]);
   });
@@ -615,6 +662,16 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
     await expectNothingLoaded(out);
   });
 
+  test("is a full run whose indexes list no Form 990 under a code it knows", async () => {
+    const out = join(work, "renamed-990.load.sql");
+    await expect(
+      loadEfile(d1, { baseUrl: `${base}/renamed-990/`, out }),
+    ).rejects.toThrow(
+      "990 import aborted: the run selected no Form 990s, below the floor of 90.0% and 90.0%; nothing was loaded",
+    );
+    await expectNothingLoaded(out);
+  });
+
   test("has a filing too large for one statement, naming it", async () => {
     const out = join(work, "oversize.load.sql");
     await expect(
@@ -681,7 +738,7 @@ describe("a full run with rejected returns", { timeout: 60_000 }, () => {
   test("counts rejected 990s against the yield floors", () => {
     // 7 Form 990s selected, the 2 rejected among them; the 5 loaded all state a mission
     expect(summary.returns["990"]).toBe(7);
-    expect(summary.yields["990"].mission).toBeCloseTo(5 / 7);
+    expect(summary.yields["990"]?.mission).toBeCloseTo(5 / 7);
   });
 
   test("counts a rejected 990-EZ against its form's floors", () => {
@@ -713,6 +770,16 @@ describe("an index listing a return type the import doesn't store", {
       batches: ["2026_TEOS_XML_03A"],
     });
     expect(summary.skipped).toStrictEqual({ "990T": 3, "990X": 1 });
+  });
+});
+
+describe("a --batch run holding no 990-EZ", { timeout: 60_000 }, () => {
+  test("loads, reporting no yields for that form", async () => {
+    const d1 = await d1WithBmf("no-ez");
+    const summary = await loadEfile(d1, { batches: ["2026_TEOS_XML_03A"] });
+    expect(summary.returns["990-EZ"]).toBe(0);
+    expect(summary.yields["990-EZ"]).toBeNull();
+    expect(summary.yields["990-PF"]).toStrictEqual({ finances: 1 });
   });
 });
 
