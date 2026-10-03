@@ -226,6 +226,22 @@ describe("GET /v1/orgs/:ein", () => {
     });
   });
 
+  test("answers the Schedule O fixture with null mission and the Schedule O note", async () => {
+    const { body } = await getOrg("/v1/orgs/010654321");
+    expect(body).toMatchObject({
+      name: "HARBORVIEW LITERACY PROJECT",
+      mission: null,
+      activitySummary:
+        "Free tutoring and book distribution for adult learners.",
+      notes: ["mission is on Schedule O, not extracted"],
+    });
+    expect(body.provenance.mission).toBeNull();
+    expect(body.provenance.finances).toMatchObject({
+      objectId: "202531329349300421",
+      formType: "990",
+    });
+  });
+
   test("answers the revoked fixture as revoked with its date", async () => {
     const { body } = await getOrg("/v1/orgs/201234567");
     expect(body).toMatchObject({

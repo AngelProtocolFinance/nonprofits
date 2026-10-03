@@ -42,6 +42,7 @@ interface FilingRow {
   total_revenue: number | null;
   total_expenses: number | null;
   total_assets_eoy: number | null;
+  mission_on_schedule_o: 0 | 1;
   file: string;
   released_at: string;
   fetched_at: string;
@@ -68,7 +69,7 @@ WHERE o.ein = ?1`;
 
 const FILING_SQL = `
 SELECT f.object_id, f.form_type, f.tax_year, f.mission, f.activity_summary, f.website,
-  f.total_revenue, f.total_expenses, f.total_assets_eoy,
+  f.total_revenue, f.total_expenses, f.total_assets_eoy, f.mission_on_schedule_o,
   i.file_url AS file, i.released_at, i.fetched_at
 FROM filings f
 JOIN import_runs i ON i.id = f.run_id
@@ -213,6 +214,7 @@ function toFiling(row: FilingRow, programs: Program[]): FilingRecord {
     totalRevenue: row.total_revenue,
     totalExpenses: row.total_expenses,
     totalAssetsEoy: row.total_assets_eoy,
+    missionOnScheduleO: row.mission_on_schedule_o === 1,
     programs,
     source: {
       file: row.file,

@@ -57,6 +57,7 @@ function redCrossFiling(): FilingRecord {
     totalRevenue: 3_200_000_000,
     totalExpenses: 3_100_000_000,
     totalAssetsEoy: 4_000_000_000,
+    missionOnScheduleO: false,
     programs: [
       {
         description: "Biomedical services",
@@ -253,6 +254,7 @@ describe("lookupOrg", () => {
           totalRevenue: 12_500_000,
           totalExpenses: 9_800_000,
           totalAssetsEoy: 210_000_000,
+          missionOnScheduleO: false,
           programs: [],
           source: XML_ZIP,
         },
@@ -375,6 +377,23 @@ describe("lookupOrg", () => {
       efile: { filing: { ...redCrossFiling(), mission: null } },
     });
     expect(org.notes).toStrictEqual(["latest 990 states no mission"]);
+  });
+
+  test("notes a mission given only on Schedule O instead of saying none", async () => {
+    const org = await lookup({
+      ...redCross(),
+      efile: {
+        filing: {
+          ...redCrossFiling(),
+          mission: null,
+          missionOnScheduleO: true,
+        },
+      },
+    });
+    expect({ mission: org.mission, notes: org.notes }).toStrictEqual({
+      mission: null,
+      notes: ["mission is on Schedule O, not extracted"],
+    });
   });
 
   test("prefers the 990 website over the e-Postcard's and cites the filing", async () => {

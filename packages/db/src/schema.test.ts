@@ -10,12 +10,19 @@ import {
 
 const MIGRATIONS = new URL("../migrations/", import.meta.url);
 
-async function migrated(): Promise<DatabaseSync> {
-  const db = new DatabaseSync(":memory:");
-  const files = (await readdir(MIGRATIONS)).filter((f) => f.endsWith(".sql"));
-  for (const file of files.sort()) {
+async function migrationFiles(): Promise<string[]> {
+  return (await readdir(MIGRATIONS)).filter((f) => f.endsWith(".sql")).sort();
+}
+
+async function applyMigrations(db: DatabaseSync, files: string[]) {
+  for (const file of files) {
     db.exec(await readFile(new URL(file, MIGRATIONS), "utf8"));
   }
+}
+
+async function migrated(): Promise<DatabaseSync> {
+  const db = new DatabaseSync(":memory:");
+  await applyMigrations(db, await migrationFiles());
   return db;
 }
 
@@ -85,5 +92,28 @@ describe("COLUMNS", () => {
       ).map((c) => c.name);
       expect(actual, table).toEqual(COLUMNS[table]);
     }
+  });
+});
+
+describe("migration 0005", () => {
+  test("marks filings already stored as not pointing to Schedule O", async () => {
+    const files = await migrationFiles();
+    const at = files.indexOf("0005_filings_mission_on_schedule_o.sql");
+    expect(at).toBeGreaterThan(0);
+    const db = new DatabaseSync(":memory:");
+    await applyMigrations(db, files.slice(0, at));
+    db.exec(`
+      INSERT INTO import_runs (id, source, file_url, released_at, fetched_at, row_count)
+        VALUES (1, 'efile_xml', 'https://example.invalid/x.zip', '2026-09-04', '2026-09-10', 1);
+      INSERT INTO orgs (ein) VALUES ('530196605');
+      INSERT INTO filings (ein, object_id, form_type, tax_period, tax_year, run_id)
+        VALUES ('530196605', '202511319349301234', '990', '2025-06', 2024, 1);
+    `);
+
+    await applyMigrations(db, files.slice(at));
+
+    expect(
+      db.prepare("SELECT ein, mission_on_schedule_o FROM filings").all(),
+    ).toEqual([{ ein: "530196605", mission_on_schedule_o: 0 }]);
   });
 });

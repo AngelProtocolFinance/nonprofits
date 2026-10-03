@@ -124,7 +124,11 @@ function notesFor(
   } else if (filing.formType === "990-PF") {
     notes.push("990-PF: filing facts only");
   } else if (mission === null) {
-    notes.push(`latest ${filing.formType} states no mission`);
+    notes.push(
+      filing.missionOnScheduleO
+        ? "mission is on Schedule O, not extracted"
+        : `latest ${filing.formType} states no mission`,
+    );
   }
   if (!hasWebsite) notes.push("no website on record");
   return notes;

@@ -62,6 +62,7 @@ export const COLUMNS = {
     "total_expenses",
     "total_assets_eoy",
     "run_id",
+    "mission_on_schedule_o",
   ],
   programs: [
     "ein",
@@ -146,6 +147,8 @@ CREATE TABLE ${t("filings")} (
   total_assets_eoy INTEGER,
   -- the efile_xml run whose zip held this return
   run_id INTEGER NOT NULL REFERENCES ${t("import_runs")} (id),
+  -- 1 when the mission field only points to Schedule O; mission is then null
+  mission_on_schedule_o INTEGER NOT NULL DEFAULT 0 CHECK (mission_on_schedule_o IN (0, 1)),
   UNIQUE (ein, object_id)
 ) STRICT;
 

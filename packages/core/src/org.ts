@@ -99,6 +99,8 @@ export interface FilingRecord {
   totalRevenue: number | null;
   totalExpenses: number | null;
   totalAssetsEoy: number | null;
+  /** The mission field only points to Schedule O, which is not extracted; `mission` is null. */
+  missionOnScheduleO: boolean;
   /** Ordered by rank, at most 3. */
   programs: Program[];
   /** The e-file XML zip the return was read from. */
