@@ -516,14 +516,14 @@ test("keyless IPv6 callers are counted per /64: addresses in one /64 share a day
   ).toMatchObject({ code: "not_found" });
 });
 
-test("an IPv4-mapped IPv6 caller shares the quota of the IPv4 client it maps; another IPv4 client has its own", async () => {
+test("an IPv4-mapped IPv6 caller, dotted or in hex, shares the quota of the IPv4 client it maps; another IPv4 client has its own", async () => {
   const unlimitedBursts = burstless();
   const now = virtualAt(18);
   const callers = [
     "192.0.2.1",
     "::ffff:192.0.2.1",
-    "192.0.2.1",
-    "::ffff:192.0.2.1",
+    "::ffff:c000:201",
+    "0:0:0:0:0:ffff:c000:201",
     "192.0.2.1",
   ];
   for (const [i, ip] of callers.entries()) {
@@ -541,6 +541,9 @@ test("an IPv4-mapped IPv6 caller shares the quota of the IPv4 client it maps; an
   });
   expect(
     await keylessLookup(unlimitedBursts, "::ffff:192.0.2.2", now),
+  ).toMatchObject({ code: "not_found" });
+  expect(
+    await keylessLookup(unlimitedBursts, "::ffff:c000:203", now),
   ).toMatchObject({ code: "not_found" });
 });
 

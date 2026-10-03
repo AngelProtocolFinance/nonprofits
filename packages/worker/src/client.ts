@@ -39,6 +39,16 @@ function network(ip: string): string {
     const zeros = Array<string>(missing).fill("0");
     groups.push(...zeros, ...after);
   }
+  const words = groups.map((group) => Number.parseInt(group, 16));
+  // the same mapping written in hex (`::ffff:c000:201`)
+  if (
+    words.length === 8 &&
+    words.slice(0, 5).every((word) => word === 0) &&
+    words[5] === 0xffff
+  ) {
+    const [hi = 0, lo = 0] = words.slice(6);
+    return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  }
   const prefix = groups
     .slice(0, 4)
     .map((group) => Number.parseInt(group, 16).toString(16));
