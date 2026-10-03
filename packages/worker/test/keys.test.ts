@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
+  ADMIN_AUTHORIZATION,
   createWorkerHarness,
   type IssuedKey,
   issueKey,
@@ -158,8 +159,8 @@ describe("admin key endpoints", () => {
       .slice(before)
       .map(({ level, message }) => ({ level, message }));
     expect(refusals).toStrictEqual([
-      { level: "info", message: "api key refused: INVALID_API_KEY" },
-      { level: "info", message: "api key refused: KEY_DISABLED" },
+      { level: "info", message: "api key refused: invalid_api_key" },
+      { level: "info", message: "api key refused: revoked_api_key" },
     ]);
     expect(JSON.stringify(server.getLogs())).not.toMatch(/Base URL is not set/);
   });
@@ -198,5 +199,45 @@ describe("admin key endpoints", () => {
         detail: "Admin endpoints need `Authorization: Bearer <ADMIN_TOKEN>`.",
       });
     }
+  });
+});
+
+describe("quota on /v1", () => {
+  test("a key over its daily quota gets 429 problem details with Retry-After up to UTC midnight", async () => {
+    const issued = await issueKey(server);
+    const limits = await server.fetch(`/admin/keys/${issued.id}/limits`, {
+      method: "PUT",
+      headers: {
+        authorization: ADMIN_AUTHORIZATION,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ daily: 1, perMinute: 60 }),
+    });
+    expect(limits.status).toBe(200);
+    const headers = { authorization: `Bearer ${issued.key}` };
+    expect((await server.fetch("/v1/orgs/530196605", { headers })).status).toBe(
+      200,
+    );
+
+    const response = await server.fetch("/v1/search?q=red", { headers });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("content-type")).toBe(
+      "application/problem+json",
+    );
+    const midnight = new Date();
+    midnight.setUTCHours(24, 0, 0, 0);
+    const retryAfter = Number(response.headers.get("retry-after"));
+    expect(retryAfter).toBeGreaterThan(0);
+    expect(retryAfter).toBeLessThanOrEqual(
+      Math.ceil((midnight.getTime() - Date.now()) / 1000) + 1,
+    );
+    expect(await response.json()).toStrictEqual({
+      type: "about:blank",
+      title: "Too Many Requests",
+      status: 429,
+      code: "daily_quota_exceeded",
+      detail: `This key's daily quota of 1 request is used up. It resets at ${midnight.toISOString().replace(".000Z", "Z")} (UTC midnight).`,
+    });
   });
 });

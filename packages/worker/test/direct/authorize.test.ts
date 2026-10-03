@@ -107,7 +107,28 @@ test("a key issued today still authorizes 8 days later", async () => {
 
   expect(result).toStrictEqual({
     ok: true,
-    value: { keyId: issued.id, tier: "default" },
+    value: {
+      keyId: issued.id,
+      tier: "default",
+      limits: { daily: 50, perMinute: 10 },
+    },
+  });
+});
+
+test("a key past its expiresAt is refused as invalid", async () => {
+  const issued = await issueKey();
+  await env.DB.prepare("UPDATE apikey SET expiresAt = ?1 WHERE id = ?2")
+    .bind(new Date(Date.now() - 1000).toISOString(), issued.id)
+    .run();
+
+  const result = await authorize(issued.key, env);
+
+  expect(result).toMatchObject({
+    ok: false,
+    error: {
+      code: "invalid_api_key",
+      message: expect.stringMatching(/^API key has expired\./),
+    },
   });
 });
 
@@ -122,12 +143,13 @@ test("answers auth_unavailable, not invalid_api_key, when D1 is unreachable", as
   });
 });
 
-test("answers auth_unavailable, not invalid_api_key, when D1 fails mid-check", async () => {
+test("a request whose usage can't be counted answers auth_unavailable and is not served", async () => {
   const issued = await issueKey();
 
-  const result = await authorize(issued.key, {
-    ...env,
-    DB: failingD1(/^\s*update/i),
+  const result = await lookup("530196605", {
+    env: { ...env, DB: failingD1(/insert into key_usage/i) },
+    credential: issued.key,
+    now: new Date(),
   });
 
   expect(result).toStrictEqual({

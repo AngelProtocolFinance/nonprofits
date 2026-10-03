@@ -21,6 +21,8 @@ const STATUS = {
   invalid_api_key: 401,
   revoked_api_key: 401,
   not_found: 404,
+  daily_quota_exceeded: 429,
+  per_minute_limit_exceeded: 429,
   auth_unavailable: 503,
   data_unavailable: 503,
 } as const satisfies Record<HandlerError["code"], number>;
@@ -35,13 +37,13 @@ function limitOf(url: URL): number | undefined {
 function respond(result: Result<unknown, HandlerError>): Response {
   if (result.ok) return Response.json(result.value);
   const { error } = result;
+  const headers: Record<string, string> = {};
   const wwwAuthenticate = challenge(error);
-  return problem(
-    STATUS[error.code],
-    error.code,
-    error.message,
-    wwwAuthenticate === null ? {} : { "www-authenticate": wwwAuthenticate },
-  );
+  if (wwwAuthenticate !== null) headers["www-authenticate"] = wwwAuthenticate;
+  if ("retryAfterSeconds" in error) {
+    headers["retry-after"] = String(error.retryAfterSeconds);
+  }
+  return problem(STATUS[error.code], error.code, error.message, headers);
 }
 
 export default {

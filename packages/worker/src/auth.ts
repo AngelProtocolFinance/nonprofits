@@ -1,6 +1,5 @@
 import { apiKey } from "@better-auth/api-key";
 import { type BetterAuthOptions, betterAuth } from "better-auth";
-import { isAPIError } from "better-auth/api";
 
 /** Every issued key is this prefix plus `API_KEY_LETTERS` ASCII letters. */
 export const API_KEY_PREFIX = "npk_";
@@ -15,12 +14,6 @@ function log(
 ): void {
   // the origin is derived per request on purpose, so this warns on every cold start
   if (message.includes("Base URL is not set")) return;
-  const [cause] = args;
-  // a refused key is routine traffic; a storage failure logged here stays an error
-  if (message.startsWith("Failed to validate API key") && isAPIError(cause)) {
-    console.info(`api key refused: ${cause.body?.code}`);
-    return;
-  }
   // errors as text: `wrangler dev`'s console relay stalls a request for minutes on an error object
   console[level](
     message,
@@ -46,7 +39,13 @@ export const authOptions = {
   ],
 } satisfies BetterAuthOptions;
 
-function createAuth(env: Env) {
+/**
+ * A better-auth instance for one request; never cache it across requests. The
+ * key plugin leaves its expired-key sweep running after `updateApiKey` returns,
+ * and a query still in flight when its request ends wedges every later query
+ * through the same instance.
+ */
+export function createAuth(env: Env) {
   return betterAuth({
     ...authOptions,
     database: env.DB,
@@ -54,16 +53,4 @@ function createAuth(env: Env) {
   });
 }
 
-type Auth = ReturnType<typeof createAuth>;
-
-// one instance per isolate: each new one introspects every D1 table (pragma_table_info) before its first call
-const instances = new WeakMap<Env, Auth>();
-
-export function getAuth(env: Env): Auth {
-  let auth = instances.get(env);
-  if (auth === undefined) {
-    auth = createAuth(env);
-    instances.set(env, auth);
-  }
-  return auth;
-}
+export type Auth = ReturnType<typeof createAuth>;

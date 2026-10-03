@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createWorkerHarness,
   TEST_SECRETS,
+  testEnv,
 } from "../../worker/test/harness.ts";
 import { run } from "../src/index.ts";
 
@@ -49,6 +50,10 @@ async function closedPort(): Promise<number> {
     throw new Error("expected a TCP address");
   }
   return address.port;
+}
+
+function idOf(createStderr: string): string {
+  return /^Created key (\S+)/.exec(createStderr)?.[1] ?? "";
 }
 
 function lookupWith(key: string) {
@@ -117,5 +122,143 @@ describe("keys CLI", () => {
     expect(stderr).toBe(
       `Can't reach the Worker at ${url} (NONPROFITS_URL). Start it locally with \`pnpm --filter @nonprofits/worker dev\` (wrangler dev), or point NONPROFITS_URL at the deployed Worker.\n`,
     );
+  });
+
+  test("set-limit whitelists a key with its own limits, and --default puts it back", async () => {
+    const created = await cli(["create", "--email", "owner@example.org"]);
+    const key = created.stdout.trim();
+    const id = idOf(created.stderr);
+
+    const raised = await cli([
+      "set-limit",
+      id,
+      "--daily",
+      "1",
+      "--per-minute",
+      "60",
+    ]);
+    expect(raised).toStrictEqual({
+      code: 0,
+      stdout: "",
+      stderr: `Key ${id} is whitelisted: 1/day, 60/min.\n`,
+    });
+    expect((await lookupWith(key)).status).toBe(404);
+    expect((await lookupWith(key)).status).toBe(429);
+
+    const reset = await cli(["set-limit", id, "--default"]);
+    expect(reset).toStrictEqual({
+      code: 0,
+      stdout: "",
+      stderr: `Key ${id} is on the default limits: 50/day, 10/min.\n`,
+    });
+    expect((await lookupWith(key)).status).toBe(404);
+  });
+
+  test.each([
+    [["set-limit", "some-id"]],
+    [["set-limit", "some-id", "--daily", "500"]],
+    [["set-limit", "some-id", "--daily", "0", "--per-minute", "60"]],
+    [["set-limit", "some-id", "--daily", "5e2", "--per-minute", "60"]],
+    [
+      [
+        "set-limit",
+        "some-id",
+        "--default",
+        "--daily",
+        "500",
+        "--per-minute",
+        "60",
+      ],
+    ],
+  ])(
+    "set-limit refuses %j with usage, before calling the Worker",
+    async (args) => {
+      const { code, stdout, stderr } = await cli(args);
+      expect(code).toBe(2);
+      expect(stdout).toBe("");
+      expect(stderr).toMatch(
+        /^set-limit takes <key-id> and either --daily <n> --per-minute <n> \(positive integers\) or --default\n\nUsage:/,
+      );
+    },
+  );
+
+  test("set-limit on an id that was never issued exits 1 with key_not_found", async () => {
+    const { code, stderr } = await cli([
+      "set-limit",
+      "no-such-key",
+      "--daily",
+      "500",
+      "--per-minute",
+      "60",
+    ]);
+    expect(code).toBe(1);
+    expect(stderr).toBe("key_not_found: No key with id no-such-key.\n");
+  });
+
+  test("list shows each key's owner, status, tier, limits and today's usage, and never a key or its hash", async () => {
+    const used = await cli([
+      "create",
+      "--email",
+      "list@example.org",
+      "--name",
+      "listed",
+    ]);
+    const usedId = idOf(used.stderr);
+    await cli(["set-limit", usedId, "--daily", "500", "--per-minute", "60"]);
+    await lookupWith(used.stdout.trim());
+    await lookupWith(used.stdout.trim());
+    const revoked = await cli(["create", "--email", "list@example.org"]);
+    const revokedId = idOf(revoked.stderr);
+    await cli(["revoke", revokedId]);
+
+    const { code, stdout, stderr } = await cli(["list"]);
+
+    expect(code).toBe(0);
+    expect(stderr).toBe("");
+    const rows = stdout
+      .trimEnd()
+      .split("\n")
+      .map((line) => line.split(/ {2,}/));
+    expect(rows[0]).toStrictEqual([
+      "ID",
+      "NAME",
+      "OWNER",
+      "STATUS",
+      "TIER",
+      "DAILY",
+      "PER_MIN",
+      "TODAY",
+    ]);
+    expect(rows.find(([id]) => id === usedId)).toStrictEqual([
+      usedId,
+      "listed",
+      "list@example.org",
+      "active",
+      "whitelisted",
+      "500",
+      "60",
+      "2",
+    ]);
+    expect(rows.find(([id]) => id === revokedId)).toStrictEqual([
+      revokedId,
+      "-",
+      "list@example.org",
+      "revoked",
+      "default",
+      "50",
+      "10",
+      "0",
+    ]);
+    const { DB } = await testEnv(server);
+    const stored = await DB.prepare("SELECT key FROM apikey").all<{
+      key: string;
+    }>();
+    for (const secret of [
+      used.stdout.trim(),
+      revoked.stdout.trim(),
+      ...stored.results.map((r) => r.key),
+    ]) {
+      expect(stdout).not.toContain(secret);
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { API_KEY_TABLE_NAME, defaultKeyHasher } from "@better-auth/api-key";
+import { defaultKeyHasher } from "@better-auth/api-key";
 import {
   lookupOrg,
   type OrgLookupError,
@@ -8,9 +8,16 @@ import {
   type Result,
   searchOrgs,
 } from "@nonprofits/core";
-import { API_KEY_LETTERS, API_KEY_PREFIX, getAuth } from "./auth.ts";
+import { API_KEY_LETTERS, API_KEY_PREFIX } from "./auth.ts";
 import { D1OrgReader } from "./d1-org-reader.ts";
 import { D1OrgSearcher } from "./d1-org-searcher.ts";
+import {
+  countRequest,
+  type Limits,
+  limitsOf,
+  type QuotaError,
+  type Tier,
+} from "./quota.ts";
 
 /** What every transport (REST, MCP) hands a handler. */
 export interface HandlerContext {
@@ -37,12 +44,33 @@ export type HandlerError =
   | OrgSearchError
   | AuthError
   | AuthUnavailable
+  | QuotaError
   | DataUnavailable;
 
-/** The caller a valid key stands for. */
+/** The caller a valid key stands for. A whitelisted key has its own limits, set by `keys set-limit`. */
 export interface Principal {
   keyId: string;
-  tier: "default";
+  tier: Tier;
+  limits: Limits;
+}
+
+/**
+ * The plugin's `apikey` row for a hashed key, with its limits, read directly:
+ * the plugin's `verifyApiKey` writes the row on every call (`lastRequest`,
+ * `updatedAt`) and has no option that stops it in database storage.
+ * `enabled` is 0 once revoked.
+ */
+const KEY_SQL = `
+SELECT k.id, k.enabled, k.expiresAt, l.daily, l.per_minute AS perMinute
+FROM apikey k LEFT JOIN key_limits l ON l.key_id = k.id
+WHERE k.key = ?1`;
+
+interface StoredKey {
+  id: string;
+  enabled: number | null;
+  expiresAt: string | null;
+  daily: number | null;
+  perMinute: number | null;
 }
 
 const KEY_FORMAT = new RegExp(
@@ -77,6 +105,8 @@ function refuse(
   code: AuthError["code"],
   reason: string,
 ): Result<never, AuthError> {
+  // a sent key that was refused is routine traffic, logged without key material
+  if (code !== "missing_api_key") console.info(`api key refused: ${code}`);
   return {
     ok: false,
     error: {
@@ -125,43 +155,58 @@ export async function authorize(
       `API key is malformed: expected \`${API_KEY_PREFIX}\` followed by ${API_KEY_LETTERS} letters, sent as \`Authorization: Bearer <key>\`.`,
     );
   }
-  const auth = getAuth(env);
-  let verified: Awaited<ReturnType<typeof auth.api.verifyApiKey>>;
+  let stored: StoredKey | undefined;
   try {
-    verified = await auth.api.verifyApiKey({ body: { key: credential } });
+    const { results } = await env.DB.prepare(KEY_SQL)
+      .bind(await defaultKeyHasher(credential))
+      .all<StoredKey>();
+    stored = results[0];
   } catch (error) {
     return unavailable(error);
   }
-  // revoking disables the key rather than deleting it, so it can be named here
-  if (verified.error?.code === "KEY_DISABLED") {
-    return refuse("revoked_api_key", "API key has been revoked.");
-  }
-  if (!verified.valid || verified.key === null) {
-    // the plugin reports a failed read or write as INVALID_API_KEY too: a stored key means it was storage
-    try {
-      const { adapter } = await auth.$context;
-      const stored = await adapter.findOne({
-        model: API_KEY_TABLE_NAME,
-        where: [{ field: "key", value: await defaultKeyHasher(credential) }],
-        select: ["id"],
-      });
-      if (stored !== null) return unavailable(verified.error);
-    } catch (error) {
-      return unavailable(error);
-    }
+  if (stored === undefined) {
     return refuse(
       "invalid_api_key",
       "API key not recognized: check it was copied whole.",
     );
   }
-  return { ok: true, value: { keyId: verified.key.id, tier: "default" } };
+  // revoking disables the key rather than deleting it, so it can be named here
+  if (stored.enabled === 0) {
+    return refuse("revoked_api_key", "API key has been revoked.");
+  }
+  if (stored.expiresAt !== null && Date.parse(stored.expiresAt) <= Date.now()) {
+    return refuse("invalid_api_key", "API key has expired.");
+  }
+  return {
+    ok: true,
+    value: { keyId: stored.id, ...limitsOf(stored.daily, stored.perMinute) },
+  };
 }
 
-/** Gate, then quota. */
+/** Gate, then quota: a refused key is never counted, and an uncounted request is never served. */
 async function admit(
   ctx: HandlerContext,
 ): Promise<Result<Principal, HandlerError>> {
-  return authorize(ctx.credential, ctx.env);
+  const authorized = await authorize(ctx.credential, ctx.env);
+  if (!authorized.ok) return authorized;
+  const principal = authorized.value;
+  let counted: Result<void, QuotaError>;
+  try {
+    counted = await countRequest(
+      ctx.env.DB,
+      principal.keyId,
+      {
+        daily: principal.limits.daily,
+        // a default key's per-minute limit is the Rate Limiting binding's
+        perMinute:
+          principal.tier === "whitelisted" ? principal.limits.perMinute : null,
+      },
+      ctx.now,
+    );
+  } catch (error) {
+    return unavailable(error);
+  }
+  return counted.ok ? authorized : counted;
 }
 
 function emit(metrics: { event: string; outcome: string; rowsRead: number }) {

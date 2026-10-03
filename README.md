@@ -42,7 +42,12 @@ Every lookup needs an API key, sent as `Authorization: Bearer <key>`. Keys are i
 pnpm --filter @nonprofits/cli keys create --email <owner-email> [--name <name>]   # prints the key once
 curl -H "Authorization: Bearer <key>" http://localhost:8787/v1/orgs/530196605
 pnpm --filter @nonprofits/cli keys revoke <key-id>
+pnpm --filter @nonprofits/cli keys list                 # status, tier, limits, today's usage; never a key
+pnpm --filter @nonprofits/cli keys set-limit <key-id> --daily 500 --per-minute 60
+pnpm --filter @nonprofits/cli keys set-limit <key-id> --default
 ```
+
+Each key gets 50 requests per UTC day; lookups and searches count alike, and a refused request is not counted. Past that a request gets `429 daily_quota_exceeded` with `Retry-After` to the next UTC midnight. `set-limit` whitelists a key with its own daily and per-minute limits (`429 per_minute_limit_exceeded` past the latter, counted per clock minute); `--default` puts it back. Usage lives in `key_usage`, one row per key per day, which imports never touch.
 
 Against a deployed Worker, set `NONPROFITS_URL` and `ADMIN_TOKEN` in the shell. `pnpm auth:generate` writes better-auth's schema for the current plugins to `.wrangler/auth-schema.sql`, the source for any new auth migration.
 
