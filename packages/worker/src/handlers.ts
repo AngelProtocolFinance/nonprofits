@@ -8,11 +8,15 @@ import {
   type Result,
   searchOrgs,
 } from "@nonprofits/core";
-import { READ_ACTIVE_SLOT_SQL } from "@nonprofits/db";
+import {
+  NEVER_BUILT,
+  type Pointer,
+  READ_ACTIVE_SLOT_SQL,
+} from "@nonprofits/db";
 import { API_KEY_LETTERS, API_KEY_PREFIX } from "./auth.ts";
 import { clientSubject } from "./client.ts";
 import { D1OrgReader } from "./d1-org-reader.ts";
-import { activeDataDb } from "./data-db.ts";
+import { activeDataDb, type ServedData } from "./data-db.ts";
 import { logFailure } from "./log.ts";
 import {
   burstRefusal,
@@ -74,16 +78,43 @@ export interface Principal {
  * `enabled` is 0 once revoked.
  */
 const KEY_SQL = `
-SELECT k.id, k.enabled, k.expiresAt, l.daily, l.per_minute AS perMinute
+SELECT k.id, k.enabled, k.expiresAt, k.configId, k.remaining, k.refillAmount,
+  k.refillInterval, k.rateLimitEnabled, k.permissions,
+  l.daily, l.per_minute AS perMinute
 FROM apikey k LEFT JOIN key_limits l ON l.key_id = k.id
 WHERE k.key = ?1`;
 
-interface StoredKey {
+/**
+ * The `apikey` columns the plugin's `verifyApiKey` enforces and `authorize`
+ * doesn't, at the values the plugin writes for a key issued under
+ * `authOptions` (api-key 1.7.7). A row holding anything else carries a rule
+ * this guard would skip, so it is refused.
+ */
+const PLUGIN_DEFAULTS = {
+  configId: "default",
+  remaining: null,
+  refillAmount: null,
+  refillInterval: null,
+  rateLimitEnabled: 0,
+  permissions: null,
+} as const;
+
+type PluginFields = {
+  [field in keyof typeof PLUGIN_DEFAULTS]: string | number | null;
+};
+
+interface StoredKey extends PluginFields {
   id: string;
   enabled: number | null;
   expiresAt: string | null;
   daily: number | null;
   perMinute: number | null;
+}
+
+function unsupportedFields(stored: StoredKey): string[] {
+  return Object.entries(PLUGIN_DEFAULTS)
+    .filter(([field, value]) => stored[field as keyof PluginFields] !== value)
+    .map(([field]) => field);
 }
 
 const KEY_FORMAT = new RegExp(
@@ -234,6 +265,7 @@ export async function authorize(
   let stored: StoredKey | undefined;
   try {
     const { results } = await env.APP_DB.prepare(KEY_SQL)
+      // the plugin's own hasher, whose output a test vector pins (test/direct/authorize.test.ts)
       .bind(await defaultKeyHasher(credential))
       .all<StoredKey>();
     stored = results[0];
@@ -252,6 +284,20 @@ export async function authorize(
   }
   if (stored.expiresAt !== null && Date.parse(stored.expiresAt) <= Date.now()) {
     return refuse("invalid_api_key", "API key has expired.");
+  }
+  const unsupported = unsupportedFields(stored);
+  if (unsupported.length > 0) {
+    console.error(
+      JSON.stringify({
+        event: "api_key_unsupported_fields",
+        keyId: stored.id,
+        fields: unsupported,
+      }),
+    );
+    return refuse(
+      "invalid_api_key",
+      "API key can't be used here: ask the operator for a new one.",
+    );
   }
   return {
     ok: true,
@@ -384,15 +430,11 @@ const DATA_NOT_LOADED: DataUnavailable = {
     "No org data is loaded yet: the service is waiting for its first IRS import. Nothing is wrong with your request, and it wasn't counted.",
 };
 
-/** The pointer's `build_id` until the first import flips it (`0003_data_generation.sql`). */
-const NEVER_BUILT = "empty";
-
 /** Why no data DB could be served: never loaded, or a failure to retry past. */
 async function unservable(env: Env): Promise<DataUnavailable> {
   try {
-    const pointer = await env.APP_DB.prepare(READ_ACTIVE_SLOT_SQL).first<{
-      build_id: string;
-    }>();
+    const pointer =
+      await env.APP_DB.prepare(READ_ACTIVE_SLOT_SQL).first<Pointer>();
     return pointer?.build_id === NEVER_BUILT ? DATA_NOT_LOADED : DATA_FAILED;
   } catch {
     return DATA_FAILED;
@@ -411,17 +453,17 @@ class Refused extends Error {
  * counted. Invalid input never gets here, and a call no data DB can answer is
  * refused before it is counted.
  */
-async function admit(caller: Caller): Promise<D1Database> {
-  let db: D1Database;
+async function admit(caller: Caller): Promise<ServedData> {
+  let served: ServedData;
   try {
-    db = await activeDataDb(caller.env, caller.now.getTime());
+    served = await activeDataDb(caller.env, caller.now.getTime());
   } catch (error) {
     logFailure("data_unavailable", error);
     throw new Refused(await unservable(caller.env));
   }
   const metered = await meter(caller);
   if (!metered.ok) throw new Refused(metered.error);
-  return db;
+  return served;
 }
 
 /**
@@ -460,7 +502,7 @@ export async function lookupAs(
   const result = await answer(() =>
     lookupOrg(ein, {
       read: async (valid) =>
-        new D1OrgReader(await admit(caller), countRows).read(valid),
+        new D1OrgReader((await admit(caller)).db, countRows).read(valid),
     }),
   );
   emit({

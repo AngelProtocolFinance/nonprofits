@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { createWorkerHarness, testEnv } from "./harness.ts";
+import { virtualAt, virtualDay } from "./virtual-clock.ts";
 
 const server = createWorkerHarness();
 
@@ -14,7 +15,7 @@ afterAll(async () => {
 
 test("the daily cron prunes usage rows more than 7 days older than its run, and keeps the rest", async () => {
   const { APP_DB } = await testEnv(server);
-  const days = ["2026-12-10", "2026-12-12", "2026-12-13", "2026-12-19"];
+  const days = [10, 12, 13, 19].map(virtualDay);
   await APP_DB.batch(
     days.map((day) =>
       APP_DB.prepare(
@@ -25,12 +26,15 @@ test("the daily cron prunes usage rows more than 7 days older than its run, and 
 
   const run = await server.getWorker().scheduled({
     cron: "17 3 * * *",
-    scheduledTime: new Date("2026-12-20T03:17:00Z"),
+    scheduledTime: new Date(virtualAt(20, "03:17:00")),
   });
 
   expect(run.outcome).toBe("ok");
   const { results } = await APP_DB.prepare(
     "SELECT day FROM key_usage WHERE subject LIKE 'prune-test:%' ORDER BY day",
   ).all<{ day: string }>();
-  expect(results).toStrictEqual([{ day: "2026-12-13" }, { day: "2026-12-19" }]);
+  expect(results).toStrictEqual([
+    { day: virtualDay(13) },
+    { day: virtualDay(19) },
+  ]);
 });

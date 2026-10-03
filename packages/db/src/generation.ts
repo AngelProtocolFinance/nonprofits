@@ -1,4 +1,4 @@
-import { COLUMNS, DATA_TABLES, dataTablesDdl } from "./schema.ts";
+import { COLUMNS, DATA_TABLES, dataTablesDdl, dateCheck } from "./schema.ts";
 import { searchIndexDdl } from "./search-index.ts";
 
 /** One of the two data databases; `APP_DB`'s `data_generation` names the one served. */
@@ -17,6 +17,9 @@ function literal(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
+/** The database's clock, as the ISO text the protocol's timestamps hold. */
+const DB_NOW = "strftime('%Y-%m-%dT%H:%M:%SZ', 'now')";
+
 /**
  * Drops every data table and builds the current schema, empty, with
  * `data_meta` saying which slot this is and which build is filling it. This
@@ -33,19 +36,21 @@ export function resetGenerationSql(slot: DataSlot, buildId: string): string {
   const drops = DATA_TABLES.map((t) => `DROP TABLE IF EXISTS ${t};`).join("\n");
   return `${drops}
 
-${dataTablesDdl("")}
-${searchIndexDdl("")}
+${dataTablesDdl()}
+${searchIndexDdl()}
 -- Which slot this database is and the build that filled it; one row.
 CREATE TABLE data_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   slot TEXT NOT NULL CHECK (slot IN ('a', 'b')),
   build_id TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('building', 'complete')),
-  built_at TEXT
+  built_at TEXT CHECK (${dateCheck("built_at", "isoSeconds")})
 ) STRICT;
 
 -- Once sealed, the generation is read-only until the next reset drops it.
 ${sealedTriggers()}
+-- fenceSql's probe row: never stored, it only carries the refusal.
+CREATE TRIGGER data_meta_fence BEFORE INSERT ON data_meta WHEN NEW.state = '${FENCE_PROBE}' BEGIN SELECT RAISE(ABORT, 'load refused: this slot is not building the load''s build'); END;
 INSERT INTO data_meta (id, slot, build_id, state) VALUES (1, ${literal(slot)}, ${literal(buildId)}, 'building');
 `;
 }
@@ -69,7 +74,27 @@ function sealedTriggers(): string {
     (op) =>
       `CREATE TRIGGER data_meta_sealed_${op.toLowerCase()} BEFORE ${op} ON data_meta WHEN OLD.state = 'complete' BEGIN ${sealed} END;`,
   );
-  return [...loaded, ...meta].join("\n");
+  // INSERT OR REPLACE drops the sealed row without firing the DELETE trigger
+  const metaInsert = `CREATE TRIGGER data_meta_sealed_insert BEFORE INSERT ON data_meta WHEN EXISTS (SELECT 1 FROM data_meta WHERE state = 'complete') BEGIN ${sealed} END;`;
+  return [...loaded, ...meta, metaInsert].join("\n");
+}
+
+const FENCE_PROBE = "fence";
+
+/**
+ * Against a data database, as the first statement of every load file for
+ * `buildId`: aborts the whole file unless this slot is still `building` that
+ * build. A build whose slot a newer build has reset, or that was sealed, then
+ * writes nothing. Both `wrangler d1 execute --file` paths run a file
+ * atomically: `--local` as one batch, `--remote` as one import.
+ *
+ * It inserts a probe row only when the fence fails, and the `data_meta_fence`
+ * trigger turns the probe into the refusal; a slot reset before that trigger
+ * existed refuses it on `data_meta`'s state CHECK. One line, so a
+ * `;`-at-line-end splitter keeps it whole.
+ */
+export function fenceSql(buildId: string): string {
+  return `INSERT INTO data_meta (id, slot, build_id, state) SELECT 1, 'a', ${literal(buildId)}, '${FENCE_PROBE}' WHERE NOT EXISTS (SELECT 1 FROM data_meta WHERE id = 1 AND build_id = ${literal(buildId)} AND state = 'building');\n`;
 }
 
 /**
@@ -77,7 +102,7 @@ function sealedTriggers(): string {
  * no row when this database holds another build or is already sealed.
  */
 export function sealGenerationSql(buildId: string): string {
-  return `UPDATE data_meta SET state = 'complete', built_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+  return `UPDATE data_meta SET state = 'complete', built_at = ${DB_NOW}
 WHERE id = 1 AND build_id = ${literal(buildId)} AND state = 'building'
 RETURNING slot, build_id, state;`;
 }
@@ -88,8 +113,12 @@ const CLAIM_LEASE_SECONDS = 8 * 60 * 60;
 /** How long a Worker isolate serves the slot it read before reading the pointer again. */
 export const POINTER_TTL_MS = 30_000;
 
-/** Twice the pointer cache: every isolate has reread the pointer since the last flip. */
-const FLIP_SETTLE_SECONDS = (2 * POINTER_TTL_MS) / 1000;
+/**
+ * How long after a flip the slot it left may still be served: twice the
+ * pointer cache, so every isolate has reread the pointer since. `claimSlotSql`
+ * refuses a claim inside it.
+ */
+export const FLIP_SETTLE_MS = 2 * POINTER_TTL_MS;
 
 const CLAIM_COLUMNS =
   "claim_slot, claim_build_id, claimed_at, claim_expires_at";
@@ -97,36 +126,32 @@ const CLAIM_COLUMNS =
 /**
  * Against `APP_DB`: claims `target` for `buildId` before it is reset. Succeeds
  * only while `target` is not the active slot, no other build's lease is
- * running, and the last flip is at least 60 s old; returns the claim, or no
- * row when refused. A reset without a claim can drop the slot another run just
- * flipped live; one inside the 60 s can drop the slot a flip just left, which
- * isolates still caching the old pointer serve.
+ * running, and the last flip is at least `FLIP_SETTLE_MS` old; returns the
+ * claim, or no row when refused. A reset without a claim can drop the slot
+ * another run just flipped live; one inside the settle can drop the slot a
+ * flip just left, which isolates still caching the old pointer serve.
  *
- * The 60 s is measured by the database's clock, not `at`, so a claiming
- * runner's skewed clock can't shorten it. `flipped_at` is the flipping
- * runner's `at`, though: a flipping runner whose clock runs behind the
- * database's shortens the 60 s by that skew.
+ * Every time here is the database's clock, as is `flipped_at`, so no runner's
+ * skewed clock can end another build's lease or shorten the settle.
  *
- * The 60 s doesn't bound one case: an isolate whose pointer reread fails keeps
- * the slot it last served (`activeDataDb`), so one that served the old slot
- * before the flip and failed every reread since serves it past the 60 s. That
- * takes the pointer read failing on each 30 s reread while the same requests'
- * key and quota reads and writes on `APP_DB` succeed, since a request that
- * fails those never reaches the data. The first reread that succeeds moves the
- * isolate to the new slot, so this is a narrow window of stale or 503 answers
- * from a slot being reset, never a lasting one.
+ * An isolate whose pointer reread fails keeps the slot it last served
+ * (`activeDataDb`) only until `FLIP_SETTLE_MS` past its last good read, so
+ * the settle bounds it too.
+ *
+ * @param _at ignored: the database stamps the claim. Kept so callers that
+ * still pass their own clock compile.
  */
 export function claimSlotSql(
   target: DataSlot,
   buildId: string,
-  at: string,
+  _at?: string,
   leaseSeconds = CLAIM_LEASE_SECONDS,
 ): string {
-  return `UPDATE data_generation SET claim_slot = ${literal(target)}, claim_build_id = ${literal(buildId)}, claimed_at = ${literal(at)},
-  claim_expires_at = strftime('%Y-%m-%dT%H:%M:%SZ', ${literal(at)}, '+${Math.trunc(leaseSeconds)} seconds')
+  return `UPDATE data_generation SET claim_slot = ${literal(target)}, claim_build_id = ${literal(buildId)}, claimed_at = ${DB_NOW},
+  claim_expires_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '+${Math.trunc(leaseSeconds)} seconds')
 WHERE id = 1 AND active != ${literal(target)}
-  AND (claim_build_id IS NULL OR julianday(claim_expires_at) <= julianday(${literal(at)}))
-  AND (julianday('now') - julianday(flipped_at)) * 86400 >= ${FLIP_SETTLE_SECONDS}
+  AND (claim_build_id IS NULL OR julianday(claim_expires_at) <= julianday('now'))
+  AND (julianday('now') - julianday(flipped_at)) * 86400 >= ${FLIP_SETTLE_MS / 1000}
 RETURNING ${CLAIM_COLUMNS};`;
 }
 
@@ -143,24 +168,70 @@ RETURNING ${literal(buildId)} AS released_build_id;`;
  * row when `from` is no longer active or `buildId` holds no claim. The caller
  * verifies the target first: its `data_meta` sealed `complete` for `buildId`.
  * The Worker refuses to switch to a slot that isn't, but this statement can't
- * read another database.
+ * read another database. `flipped_at` is the database's clock.
+ *
+ * @param _at ignored, as `claimSlotSql`'s is.
  */
 export function flipActiveSlotSql(
   from: DataSlot,
   buildId: string,
-  at: string,
+  _at?: string,
 ): string {
   const to = otherSlot(from);
-  return `UPDATE data_generation SET active = ${literal(to)}, build_id = ${literal(buildId)}, flipped_at = ${literal(at)},
+  return `UPDATE data_generation SET active = ${literal(to)}, build_id = ${literal(buildId)}, flipped_at = ${DB_NOW},
   claim_slot = NULL, claim_build_id = NULL, claimed_at = NULL, claim_expires_at = NULL
 WHERE id = 1 AND active = ${literal(from)} AND claim_slot = ${literal(to)} AND claim_build_id = ${literal(buildId)}
 RETURNING active, build_id, flipped_at;`;
 }
 
-/** Against `APP_DB`: the slot the Worker serves. */
+/** `APP_DB`'s `data_generation` row: the slot served, the build in it, and when it was flipped to. */
+export interface Pointer {
+  active: DataSlot;
+  build_id: string;
+  flipped_at: string;
+}
+
+/** `APP_DB`'s claim on the slot not served; every field null when no build holds it. */
+export interface Claim {
+  claim_slot: DataSlot | null;
+  claim_build_id: string | null;
+  claimed_at: string | null;
+  claim_expires_at: string | null;
+}
+
+/** A data database's `data_meta` row, as `READ_DATA_META_SQL` reads it. */
+export interface DataMeta {
+  slot: DataSlot;
+  build_id: string;
+  state: "building" | "complete";
+}
+
+/** The pointer's `build_id` until the first build flips it (`0003_data_generation.sql`). */
+export const NEVER_BUILT = "empty";
+
+/** Against `APP_DB`: the slot the Worker serves, as a `Pointer`. */
 export const READ_ACTIVE_SLOT_SQL =
   "SELECT active, build_id, flipped_at FROM data_generation WHERE id = 1";
 
-/** Against a data database: which slot it is, and its build's state. */
+/** Against `APP_DB`: the build holding the slot not served, as a `Claim`. */
+export const READ_CLAIM_SQL = `SELECT ${CLAIM_COLUMNS} FROM data_generation WHERE id = 1`;
+
+/** Against a data database: which slot it is, and its build's state, as a `DataMeta`. */
 export const READ_DATA_META_SQL =
   "SELECT slot, build_id, state FROM data_meta WHERE id = 1";
+
+/**
+ * Whether the slot `pointer` names may be served, given that slot's own
+ * `data_meta`: it says it is that slot, sealed for the pointer's build. A flip
+ * to a half-built or miswired database is never served.
+ */
+export function isServable(
+  pointer: Pointer,
+  meta: DataMeta | undefined,
+): boolean {
+  return (
+    meta?.slot === pointer.active &&
+    meta.build_id === pointer.build_id &&
+    meta.state === "complete"
+  );
+}

@@ -44,15 +44,19 @@ async function point(slot: DataSlot, buildId = `build-${slot}`) {
     .run();
 }
 
-/** Which slot a data DB says it is. */
-async function slotOf(db: D1Database) {
-  return (await db.prepare(READ_DATA_META_SQL).first<{ slot: string }>())?.slot;
+/** Which slot the served data DB says it is. */
+async function slotOf(served: { db: D1Database }) {
+  return (await served.db.prepare(READ_DATA_META_SQL).first<{ slot: string }>())
+    ?.slot;
 }
 
-test("serves the data DB the pointer names", async () => {
+test("serves the data DB the pointer names, with the build it holds", async () => {
   await point("b");
 
-  expect(await slotOf(await createActiveDataDb()(env, T0))).toBe("b");
+  const served = await createActiveDataDb()(env, T0);
+
+  expect(await slotOf(served)).toBe("b");
+  expect(served.buildId).toBe("build-b");
 });
 
 test("keeps serving the slot it read for 30 s, then reads the pointer again", async () => {
@@ -71,7 +75,7 @@ test("serves the last slot it read while the pointer can't be read", async () =>
   await activeDataDb(env, T0);
   const pointerDown = { ...env, APP_DB: failingD1(env.APP_DB, /./) };
 
-  expect(await slotOf(await activeDataDb(pointerDown, T0 + 60_000))).toBe("b");
+  expect(await slotOf(await activeDataDb(pointerDown, T0 + 45_000))).toBe("b");
 });
 
 test("fails when the pointer can't be read and no slot was ever read", async () => {
@@ -90,7 +94,7 @@ test("fails when the pointer names a slot not sealed for its build and none was 
   );
 });
 
-test("after a failed pointer read, serves the last slot 30 s before reading again", async () => {
+test("after a failed pointer read, serves the last slot without reading until 60 s past its last good read, then fails until a read succeeds", async () => {
   const activeDataDb = createActiveDataDb();
   await point("b");
   await activeDataDb(env, T0);
@@ -105,16 +109,49 @@ test("after a failed pointer read, serves the last slot 30 s before reading agai
     } as unknown as D1Database,
   };
 
-  await activeDataDb(pointerDown, T0 + 30_000);
-  const served = await activeDataDb(pointerDown, T0 + 59_999);
-  await activeDataDb(pointerDown, T0 + 60_000);
+  const firstFailure = await activeDataDb(pointerDown, T0 + 30_000);
+  const lastFallback = await activeDataDb(pointerDown, T0 + 59_999);
+  const expired = activeDataDb(pointerDown, T0 + 60_000);
+  await expect(expired).rejects.toThrow("simulated storage outage");
+  await expect(activeDataDb(pointerDown, T0 + 90_000)).rejects.toThrow(
+    "simulated storage outage",
+  );
+  const recovered = await activeDataDb(env, T0 + 90_001);
 
-  expect(await slotOf(served)).toBe("b");
-  expect(reads).toBe(2);
+  expect([
+    await slotOf(firstFailure),
+    await slotOf(lastFallback),
+    await slotOf(recovered),
+  ]).toEqual(["b", "b", "b"]);
+  expect(reads).toBe(3);
+});
+
+test("an isolate idle since its last read 60 s or more ago fails rather than serve that slot", async () => {
+  const activeDataDb = createActiveDataDb();
+  await point("b");
+  await activeDataDb(env, T0);
+  const pointerDown = { ...env, APP_DB: failingD1(env.APP_DB, /./) };
+
+  await expect(activeDataDb(pointerDown, T0 + 100_000)).rejects.toThrow(
+    "simulated storage outage",
+  );
+});
+
+test("a read that succeeds between failures restarts the 60 s", async () => {
+  const activeDataDb = createActiveDataDb();
+  await point("b");
+  await activeDataDb(env, T0);
+  const pointerDown = { ...env, APP_DB: failingD1(env.APP_DB, /./) };
+
+  await activeDataDb(pointerDown, T0 + 30_000);
+  await activeDataDb(env, T0 + 60_000);
+  const afterRecovery = await activeDataDb(pointerDown, T0 + 90_000);
+
+  expect(await slotOf(afterRecovery)).toBe("b");
 });
 
 // last: it leaves slot b on another build
-test("keeps the slot it serves until the pointer names one sealed for its build", async () => {
+test("while the pointer names a slot not sealed for its build, keeps the slot it served until 60 s past its last good read, then fails until the slot is sealed", async () => {
   const activeDataDb = createActiveDataDb();
   await point("a");
   await activeDataDb(env, T0);
@@ -123,13 +160,13 @@ test("keeps the slot it serves until the pointer names one sealed for its build"
   const mismatched = await activeDataDb(env, T0 + 30_000);
   await runSql(env.DATA_DB_B, resetGenerationSql("b", "build-b2"));
   await point("b", "build-b2");
-  const building = await activeDataDb(env, T0 + 60_000);
+  const building = activeDataDb(env, T0 + 60_000);
+  await expect(building).rejects.toThrow(
+    "slot b is not sealed for build build-b2",
+  );
   await env.DATA_DB_B.prepare(sealGenerationSql("build-b2")).run();
-  const sealed = await activeDataDb(env, T0 + 90_000);
+  const sealed = await activeDataDb(env, T0 + 60_001);
 
-  expect([
-    await slotOf(mismatched),
-    await slotOf(building),
-    await slotOf(sealed),
-  ]).toEqual(["a", "a", "b"]);
+  expect([await slotOf(mismatched), await slotOf(sealed)]).toEqual(["a", "b"]);
+  expect(sealed.buildId).toBe("build-b2");
 });

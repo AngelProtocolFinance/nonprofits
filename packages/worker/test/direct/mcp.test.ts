@@ -2,7 +2,7 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup } from "../../src/handlers.ts";
 import worker from "../../src/index.ts";
@@ -10,17 +10,18 @@ import { mcp } from "../../src/mcp.ts";
 import { clearOfUtcMidnight } from "../clock-windows.ts";
 import { emptyServedData } from "./empty-data.ts";
 import { failingD1 } from "./failing-d1.ts";
-import { noBurstLimit } from "./limiters.ts";
+import { countingLimiter, noBurstLimit } from "./limiters.ts";
 import { noCaches } from "./no-cache.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
+const ADMIN_TOKEN = "test-only-admin-token-0123456789abcdef";
 const server = createTestHarness({
   workers: [
     {
       configPath: new URL("../../wrangler.jsonc", import.meta.url),
       secrets: {
         BETTER_AUTH_SECRET: "test-only-better-auth-secret-0123456789abcdef",
-        ADMIN_TOKEN: "test-only-admin-token-0123456789abcdef",
+        ADMIN_TOKEN,
         IP_HASH_SECRET: "test-only-ip-hash-secret-0123456789abcdef",
       },
     },
@@ -109,7 +110,7 @@ test("without a key, tool calls and REST requests from one IP share its 5 a day;
   expect(retryAfterSeconds).toBeGreaterThan(0);
   expect(retryAfterSeconds).toBeLessThanOrEqual(24 * 60 * 60);
   await client.close();
-}, 30_000);
+});
 
 test("a D1 outage behind a tool call is a tool error carrying the REST 503 problem", async () => {
   const orgsDown = { ...env, DATA_DB_A: failingD1(env.DATA_DB_A, /FROM orgs/) };
@@ -212,7 +213,7 @@ test("a batch POST of 6 tool calls without a key is metered 6 times: the 6th is 
     "not_found",
     "not_found",
   ]);
-}, 30_000);
+});
 
 test("a request that throws in a handler answers a 500 problem and logs the cause, not Cloudflare's error page", async () => {
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -253,4 +254,91 @@ test("a request that throws in a handler answers a 500 problem and logs the caus
       stack: expect.stringMatching(/^Error: client went away\n\s+at /),
     }),
   );
+});
+
+test("shares an IP's per-minute limit with REST: after a REST lookup, a tool call is a 429 tool error with its retry seconds", async () => {
+  const ip = "203.0.113.125";
+  const limited = { ...env, KEYLESS_BURST_LIMITER: countingLimiter(1) };
+  expect(await restLookup(limited, ip)).toBe("not_found");
+  const client = await connect(limited, ip);
+
+  const result = await client.callTool({
+    name: "search_nonprofits",
+    arguments: { query: "red cross" },
+  });
+
+  const message =
+    "Requests without an API key are limited to 1 request per minute per IP address. Retry in 60 seconds. An API key lifts this limit: ask the operator for one.";
+  expect(result.isError).toBe(true);
+  expect(result.structuredContent).toStrictEqual({
+    type: "about:blank",
+    title: "Too Many Requests",
+    status: 429,
+    code: "per_minute_limit_exceeded",
+    detail: message,
+    retryAfterSeconds: 60,
+  });
+  expect(result.content).toStrictEqual([
+    { type: "text", text: `per_minute_limit_exceeded: ${message}` },
+  ]);
+  await client.close();
+});
+
+describe("the keyless cap on HTTP requests to /mcp", () => {
+  const INITIALIZE = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "raw-test", version: "1.0.0" },
+    },
+  };
+
+  function initialize(workerEnv: Env, headers: Record<string, string>) {
+    return mcp(
+      new Request("http://localhost/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          ...headers,
+        },
+        body: JSON.stringify(INITIALIZE),
+      }),
+      workerEnv,
+    );
+  }
+
+  test("refuses a keyless client the binding refuses with a 429 problem, and a client with a key is not held to it", async () => {
+    const refusingAll = countingLimiter(0);
+    const limited = { ...env, KEYLESS_MCP_LIMITER: refusingAll };
+    const issued = await server.fetch("/admin/keys", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ email: "owner@example.org" }),
+    });
+    const { key } = (await issued.json()) as { key: string };
+
+    const keyed = await initialize(limited, {
+      authorization: `Bearer ${key}`,
+      "cf-connecting-ip": "203.0.113.126",
+    });
+    expect(keyed.status).toBe(200);
+    expect(refusingAll.keys).toStrictEqual([]);
+
+    const keyless = await initialize(limited, {
+      "cf-connecting-ip": "203.0.113.126",
+    });
+    expect(keyless.status).toBe(429);
+    expect(keyless.headers.get("retry-after")).toBe("60");
+    expect(await keyless.json()).toMatchObject({
+      code: "per_minute_limit_exceeded",
+    });
+    expect(refusingAll.keys).toHaveLength(1);
+  });
 });

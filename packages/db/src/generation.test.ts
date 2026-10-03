@@ -3,16 +3,20 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, test } from "vitest";
 import {
   claimSlotSql,
-  DATA_TABLES,
+  fenceSql,
   flipActiveSlotSql,
+  isServable,
+  NEVER_BUILT,
   otherSlot,
   READ_ACTIVE_SLOT_SQL,
+  READ_CLAIM_SQL,
   READ_DATA_META_SQL,
   rebuildSearchIndexSql,
   releaseClaimSql,
   resetGenerationSql,
   sealGenerationSql,
 } from "./index.ts";
+import { DATA_TABLES } from "./schema.ts";
 
 function dataDb(): DatabaseSync {
   return new DatabaseSync(":memory:");
@@ -126,6 +130,7 @@ describe("a sealed generation", () => {
     "DELETE FROM programs WHERE rank = 1",
     "UPDATE data_meta SET state = 'building'",
     "DELETE FROM data_meta",
+    "INSERT OR REPLACE INTO data_meta (id, slot, build_id, state) VALUES (1, 'a', 'build-x', 'building')",
   ];
 
   function sealed(): DatabaseSync {
@@ -147,6 +152,22 @@ describe("a sealed generation", () => {
     ]);
   });
 
+  test("keeps its search index whole through a rebuild", () => {
+    const db = dataDb();
+    db.exec(resetGenerationSql("a", "build-1"));
+    db.exec(FILL);
+    db.exec(rebuildSearchIndexSql("build-1"));
+    db.prepare(sealGenerationSql("build-1")).all();
+
+    db.exec(rebuildSearchIndexSql("build-2"));
+
+    expect(
+      db
+        .prepare("SELECT rowid FROM orgs_fts WHERE orgs_fts MATCH 'red cross'")
+        .all(),
+    ).toEqual([{ rowid: 530196605 }]);
+  });
+
   test("takes writes again once reset", () => {
     const db = sealed();
 
@@ -160,6 +181,56 @@ describe("a sealed generation", () => {
         "DELETE FROM programs WHERE rank = 1",
       ]),
     ).toEqual(["written", "written", "written"]);
+  });
+});
+
+describe("fenceSql", () => {
+  const LOAD = "INSERT INTO orgs (ein) VALUES ('131624100');";
+
+  function orgCount(db: DatabaseSync): number {
+    return (db.prepare("SELECT count(*) AS n FROM orgs").get() as { n: number })
+      .n;
+  }
+
+  test("lets a load through into the slot its build is filling", () => {
+    const db = dataDb();
+    db.exec(resetGenerationSql("b", "build-1"));
+
+    db.exec(`${fenceSql("build-1")}\n${LOAD}`);
+
+    expect(orgCount(db)).toBe(1);
+    expect(db.prepare(READ_DATA_META_SQL).all()).toEqual([
+      { slot: "b", build_id: "build-1", state: "building" },
+    ]);
+  });
+
+  test("aborts a load whose slot a newer build has reset, before it writes", () => {
+    const db = dataDb();
+    db.exec(resetGenerationSql("b", "build-2"));
+
+    expect(() => db.exec(`${fenceSql("build-1")}\n${LOAD}`)).toThrow(
+      "load refused: this slot is not building the load's build",
+    );
+    expect(orgCount(db)).toBe(0);
+  });
+
+  test("aborts a load into its own build's generation once sealed", () => {
+    const db = dataDb();
+    db.exec(resetGenerationSql("b", "build-1"));
+    db.prepare(sealGenerationSql("build-1")).all();
+
+    expect(() => db.exec(`${fenceSql("build-1")}\n${LOAD}`)).toThrow();
+    expect(orgCount(db)).toBe(0);
+  });
+
+  test("aborts a load into a database no reset has made a generation", () => {
+    const db = dataDb();
+
+    expect(() => db.exec(fenceSql("build-1"))).toThrow("no such table");
+  });
+
+  test("is one line, so a `;`-at-line-end splitter keeps it whole", () => {
+    expect(fenceSql("build-1").trimEnd().split("\n")).toHaveLength(1);
   });
 });
 
@@ -201,6 +272,16 @@ describe("the active-slot pointer", () => {
     ]);
     expect(claimOf(db)).toEqual(NO_CLAIM);
   });
+
+  test.each([
+    "UPDATE data_generation SET flipped_at = 'yesterday'",
+    "UPDATE data_generation SET claim_slot = 'b', claim_build_id = 'x', claimed_at = 'soon', claim_expires_at = '2026-10-03T13:00:00Z'",
+    "UPDATE data_generation SET claim_slot = 'b', claim_build_id = 'x', claimed_at = '2026-10-03T05:00:00Z', claim_expires_at = 'in 8 h'",
+  ])("refuses a time SQLite can't read: %s", async (sql) => {
+    const db = await appDb();
+
+    expect(() => db.exec(sql)).toThrow("CHECK constraint failed");
+  });
 });
 
 const NO_CLAIM = {
@@ -218,48 +299,70 @@ function claimOf(db: DatabaseSync): unknown {
     .get();
 }
 
+/** An ISO timestamp, to the second, within 5 s of this machine's clock: the database's own `now`. */
+function expectDatabaseNow(iso: unknown): void {
+  expect(iso).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+  expect(Math.abs(Date.parse(iso as string) - Date.now())).toBeLessThan(5_000);
+}
+
+/** Moves `column` of the pointer row `seconds` before the database's clock, as time passing would. */
+function backdate(db: DatabaseSync, column: string, seconds: number): void {
+  db.exec(
+    `UPDATE data_generation SET ${column} = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-${seconds} seconds')`,
+  );
+}
+
+const NINE_HOURS_AHEAD = new Date(Date.now() + 9 * 3600_000).toISOString();
+
 describe("claimSlotSql", () => {
-  test("claims the inactive slot for a build, for an 8 h lease", async () => {
+  test("claims the inactive slot for a build, stamped by the database's clock, for an 8 h lease", async () => {
     const db = await appDb();
 
-    const claimed = db
-      .prepare(claimSlotSql("b", "build-1", "2026-10-03T05:00:00Z"))
-      .all();
+    const [claimed] = db.prepare(claimSlotSql("b", "build-1")).all() as {
+      claim_slot: string;
+      claim_build_id: string;
+      claimed_at: string;
+      claim_expires_at: string;
+    }[];
 
-    expect(claimed).toEqual([
-      {
-        claim_slot: "b",
-        claim_build_id: "build-1",
-        claimed_at: "2026-10-03T05:00:00Z",
-        claim_expires_at: "2026-10-03T13:00:00Z",
-      },
-    ]);
+    expect(claimed).toMatchObject({
+      claim_slot: "b",
+      claim_build_id: "build-1",
+    });
+    expectDatabaseNow(claimed?.claimed_at);
+    expect(
+      Date.parse(claimed?.claim_expires_at ?? "") -
+        Date.parse(claimed?.claimed_at ?? ""),
+    ).toBe(8 * 3600_000);
   });
 
   test("refuses the active slot", async () => {
     const db = await appDb();
 
-    expect(
-      db.prepare(claimSlotSql("a", "build-1", "2026-10-03T05:00:00Z")).all(),
-    ).toEqual([]);
+    expect(db.prepare(claimSlotSql("a", "build-1")).all()).toEqual([]);
     expect(claimOf(db)).toEqual(NO_CLAIM);
   });
 
-  test("refuses while another build's lease runs, and claims once it has run out", async () => {
+  test("refuses while another build's lease runs, whatever the claiming runner's clock says", async () => {
     const db = await appDb();
-    db.prepare(
-      claimSlotSql("b", "build-1", "2026-10-03T05:00:00Z", 3600),
-    ).all();
+    db.prepare(claimSlotSql("b", "build-1")).all();
 
-    const during = db
-      .prepare(claimSlotSql("b", "build-2", "2026-10-03T05:59:59Z"))
-      .all();
-    const after = db
-      .prepare(claimSlotSql("b", "build-2", "2026-10-03T06:00:00Z"))
+    const skewed = db
+      .prepare(claimSlotSql("b", "build-2", NINE_HOURS_AHEAD))
       .all();
 
-    expect(during).toEqual([]);
-    expect(after).toMatchObject([{ claim_build_id: "build-2" }]);
+    expect(skewed).toEqual([]);
+    expect(claimOf(db)).toMatchObject({ claim_build_id: "build-1" });
+  });
+
+  test("claims once another build's lease has run out by the database's clock", async () => {
+    const db = await appDb();
+    db.prepare(claimSlotSql("b", "build-1", undefined, 3600)).all();
+    backdate(db, "claim_expires_at", 1);
+
+    expect(db.prepare(claimSlotSql("b", "build-2")).all()).toMatchObject([
+      { claim_build_id: "build-2" },
+    ]);
   });
 });
 
@@ -267,34 +370,33 @@ describe("claimSlotSql after a flip", () => {
   /** An app DB whose last flip, to b, was `secondsAgo` before the database's own clock. */
   async function flippedAgo(secondsAgo: number): Promise<DatabaseSync> {
     const db = await appDb();
-    db.prepare(claimSlotSql("b", "build-1", "2026-10-03T05:00:00Z")).all();
-    const at = new Date(Date.now() - secondsAgo * 1000).toISOString();
-    db.prepare(flipActiveSlotSql("a", "build-1", at)).all();
+    db.prepare(claimSlotSql("b", "build-1")).all();
+    db.prepare(flipActiveSlotSql("a", "build-1")).all();
+    backdate(db, "flipped_at", secondsAgo);
     return db;
   }
-
-  // the claim's own `at` says the flip is long past: the database's clock decides
-  const LATER = "2099-01-01T00:00:00Z";
 
   test("refuses the slot the flip left while Workers may still serve it", async () => {
     const db = await flippedAgo(50);
 
-    expect(db.prepare(claimSlotSql("a", "build-2", LATER)).all()).toEqual([]);
+    expect(
+      db.prepare(claimSlotSql("a", "build-2", NINE_HOURS_AHEAD)).all(),
+    ).toEqual([]);
   });
 
   test("claims the slot the flip left once 60 s have passed", async () => {
     const db = await flippedAgo(70);
 
-    expect(db.prepare(claimSlotSql("a", "build-2", LATER)).all()).toMatchObject(
-      [{ claim_slot: "a", claim_build_id: "build-2" }],
-    );
+    expect(db.prepare(claimSlotSql("a", "build-2")).all()).toMatchObject([
+      { claim_slot: "a", claim_build_id: "build-2" },
+    ]);
   });
 });
 
 describe("releaseClaimSql", () => {
   test("frees the claim only for the build holding it", async () => {
     const db = await appDb();
-    db.prepare(claimSlotSql("b", "build-1", "2026-10-03T05:00:00Z")).all();
+    db.prepare(claimSlotSql("b", "build-1")).all();
 
     const other = db.prepare(releaseClaimSql("build-2")).all();
     const own = db.prepare(releaseClaimSql("build-1")).all();
@@ -306,33 +408,26 @@ describe("releaseClaimSql", () => {
 });
 
 describe("flipActiveSlotSql", () => {
-  test("flips to the slot the build claimed and clears the claim", async () => {
+  test("flips to the slot the build claimed, stamped by the database's clock, and clears the claim", async () => {
     const db = await appDb();
-    db.prepare(claimSlotSql("b", "build-1", "2026-10-03T05:00:00Z")).all();
+    db.prepare(claimSlotSql("b", "build-1")).all();
 
-    const flipped = db
-      .prepare(flipActiveSlotSql("a", "build-1", "2026-10-03T06:00:00Z"))
-      .all();
+    const [flipped] = db
+      .prepare(flipActiveSlotSql("a", "build-1", "2000-01-01T00:00:00Z"))
+      .all() as { active: string; build_id: string; flipped_at: string }[];
 
-    expect(flipped).toEqual([
-      { active: "b", build_id: "build-1", flipped_at: "2026-10-03T06:00:00Z" },
-    ]);
-    expect(db.prepare(READ_ACTIVE_SLOT_SQL).all()).toEqual([
-      { active: "b", build_id: "build-1", flipped_at: "2026-10-03T06:00:00Z" },
-    ]);
+    expect(flipped).toMatchObject({ active: "b", build_id: "build-1" });
+    expectDatabaseNow(flipped?.flipped_at);
+    expect(db.prepare(READ_ACTIVE_SLOT_SQL).all()).toEqual([flipped]);
     expect(claimOf(db)).toEqual(NO_CLAIM);
   });
 
   test("refuses a build that holds no claim", async () => {
     const db = await appDb();
-    const unclaimed = db
-      .prepare(flipActiveSlotSql("a", "build-1", "2026-10-03T06:00:00Z"))
-      .all();
-    db.prepare(claimSlotSql("b", "build-2", "2026-10-03T05:00:00Z")).all();
+    const unclaimed = db.prepare(flipActiveSlotSql("a", "build-1")).all();
+    db.prepare(claimSlotSql("b", "build-2")).all();
 
-    const anothers = db
-      .prepare(flipActiveSlotSql("a", "build-1", "2026-10-03T06:00:00Z"))
-      .all();
+    const anothers = db.prepare(flipActiveSlotSql("a", "build-1")).all();
 
     expect([unclaimed, anothers]).toEqual([[], []]);
     expect(db.prepare(READ_ACTIVE_SLOT_SQL).all()).toEqual([
@@ -342,18 +437,61 @@ describe("flipActiveSlotSql", () => {
 
   test("refuses a flip from a slot that is no longer active", async () => {
     const db = await appDb();
-    db.prepare(claimSlotSql("b", "build-1", "2026-10-03T05:00:00Z")).all();
-    db.prepare(flipActiveSlotSql("a", "build-1", "2026-10-03T06:00:00Z")).all();
-    db.prepare(claimSlotSql("a", "build-2", "2026-10-03T07:00:00Z")).all();
+    db.prepare(claimSlotSql("b", "build-1")).all();
+    db.prepare(flipActiveSlotSql("a", "build-1")).all();
+    backdate(db, "flipped_at", 70);
+    db.prepare(claimSlotSql("a", "build-2")).all();
 
-    const stale = db
-      .prepare(flipActiveSlotSql("a", "build-2", "2026-10-03T08:00:00Z"))
-      .all();
+    const stale = db.prepare(flipActiveSlotSql("a", "build-2")).all();
 
     expect(stale).toEqual([]);
-    expect(db.prepare(READ_ACTIVE_SLOT_SQL).all()).toEqual([
-      { active: "b", build_id: "build-1", flipped_at: "2026-10-03T06:00:00Z" },
+    expect(db.prepare(READ_ACTIVE_SLOT_SQL).all()).toMatchObject([
+      { active: "b", build_id: "build-1" },
     ]);
+  });
+});
+
+describe("isServable", () => {
+  const POINTER = {
+    active: "b",
+    build_id: "build-1",
+    flipped_at: "2026-10-03T06:00:00Z",
+  } as const;
+
+  test("serves the slot the pointer names once its data_meta is that slot, sealed for the pointer's build", () => {
+    expect(
+      isServable(POINTER, {
+        slot: "b",
+        build_id: "build-1",
+        state: "complete",
+      }),
+    ).toBe(true);
+  });
+
+  test.each([
+    ["no data_meta row", undefined],
+    [
+      "another slot's data_meta",
+      { slot: "a", build_id: "build-1", state: "complete" },
+    ],
+    ["another build", { slot: "b", build_id: "build-2", state: "complete" }],
+    [
+      "a build still loading",
+      { slot: "b", build_id: "build-1", state: "building" },
+    ],
+  ] as const)("refuses %s", (_, meta) => {
+    expect(isServable(POINTER, meta)).toBe(false);
+  });
+});
+
+describe("the protocol's reads", () => {
+  test("a fresh app DB's pointer names the never-built build and no claim", async () => {
+    const db = await appDb();
+
+    expect(db.prepare(READ_ACTIVE_SLOT_SQL).get()).toMatchObject({
+      build_id: NEVER_BUILT,
+    });
+    expect(db.prepare(READ_CLAIM_SQL).all()).toEqual([NO_CLAIM]);
   });
 });
 

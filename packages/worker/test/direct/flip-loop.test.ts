@@ -41,9 +41,7 @@ beforeAll(async () => {
   await env.APP_DB.prepare(
     "UPDATE data_generation SET build_id = 'build-a'",
   ).run();
-  await env.APP_DB.prepare(
-    claimSlotSql("b", "build-b", "2026-10-03T11:00:00Z"),
-  ).run();
+  await env.APP_DB.prepare(claimSlotSql("b", "build-b")).run();
   await build("b", "build-b", "SLOT B");
 });
 
@@ -54,34 +52,37 @@ afterAll(async () => {
 const T0 = Date.parse("2026-10-03T12:00:00Z");
 
 /**
- * Flips from `from` to the other slot, sealed for `buildId`, stamped
- * `flippedAt`. The rollback from b claims a first; b was claimed when it was built.
+ * Flips from `from` to the other slot, sealed for `buildId`, then moves the
+ * flip `secondsAgo` back by the database's clock. The rollback from b claims a
+ * first; b was claimed when it was built.
  */
 async function flip(
   from: DataSlot,
   to: DataSlot,
   buildId: string,
-  flippedAt: Date,
+  secondsAgo = 0,
 ) {
-  const at = flippedAt.toISOString();
   if (from === "b") {
-    await env.APP_DB.prepare(claimSlotSql(to, buildId, at)).run();
+    await env.APP_DB.prepare(claimSlotSql(to, buildId)).run();
   }
   const { results } = await env.APP_DB.prepare(
-    flipActiveSlotSql(from, buildId, at),
+    flipActiveSlotSql(from, buildId),
   ).all();
   expect(results).toHaveLength(1);
+  await env.APP_DB.prepare(
+    "UPDATE data_generation SET flipped_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1)",
+  )
+    .bind(`-${secondsAgo} seconds`)
+    .run();
 }
 
 test("a lookup a second across a flip and a rollback: never a failure, every flip served within 30 s", async () => {
   const served: string[] = [];
   // the rollback's claim is checked against the database's clock, 60 s after
-  // the flip it undoes, so that flip is stamped 2 min back in real time
+  // the flip it undoes, so that flip is moved 2 min back
   for (let second = 0; second < 120; second++) {
-    if (second === 20) {
-      await flip("a", "b", "build-b", new Date(Date.now() - 120_000));
-    }
-    if (second === 70) await flip("b", "a", "build-a", new Date());
+    if (second === 20) await flip("a", "b", "build-b", 120);
+    if (second === 70) await flip("b", "a", "build-a");
     const caller: Caller = {
       env,
       now: new Date(T0 + second * 1000),
@@ -108,4 +109,4 @@ test("a lookup a second across a flip and a rollback: never a failure, every fli
     ...Array(backToA - toB).fill("SLOT B"),
     ...Array(120 - backToA).fill("SLOT A"),
   ]);
-}, 60_000);
+});

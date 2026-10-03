@@ -3,10 +3,15 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
+  type Claim,
   claimSlotSql,
   DATA_DB_BINDING,
+  type DataMeta,
   type DataSlot,
   flipActiveSlotSql,
+  type Pointer,
+  READ_ACTIVE_SLOT_SQL,
+  READ_CLAIM_SQL,
   READ_DATA_META_SQL,
   rebuildSearchIndexSql,
   releaseClaimSql,
@@ -23,9 +28,9 @@ type Command = (typeof COMMANDS)[number];
  */
 const LOCAL_CLAIM_LEASE_SECONDS = 10 * 60;
 
-/** Whole seconds: the claim's expiry is stored to the second. */
-function now(): string {
-  return new Date().toISOString().replace(/\.\d+Z$/, "Z");
+/** A local build's id: when it was reset, to the second. */
+function newBuildId(): string {
+  return `local-${new Date().toISOString().replace(/\.\d+Z$/, "Z")}`;
 }
 
 function wrangler(args: string[]): string {
@@ -59,28 +64,26 @@ function query<T>(binding: string, sql: string): T[] {
   return (JSON.parse(out) as { results: T[] }[]).at(-1)?.results ?? [];
 }
 
-interface Pointer {
-  active: DataSlot;
-  claim_slot: DataSlot | null;
-  claim_build_id: string | null;
+function one<T>(binding: string, sql: string, missing: string): T {
+  const [row] = query<T>(binding, sql);
+  if (row === undefined) throw new Error(missing);
+  return row;
 }
 
 function pointer(): Pointer {
-  const [row] = query<Pointer>(
-    "APP_DB",
-    "SELECT active, claim_slot, claim_build_id FROM data_generation WHERE id = 1",
-  );
-  if (row === undefined) throw new Error("data_generation has no row");
-  return row;
+  return one("APP_DB", READ_ACTIVE_SLOT_SQL, "data_generation has no row");
 }
 
-function meta(slot: DataSlot): { build_id: string; state: string } {
-  const [row] = query<{ build_id: string; state: string }>(
+function claim(): Claim {
+  return one("APP_DB", READ_CLAIM_SQL, "data_generation has no row");
+}
+
+function meta(slot: DataSlot): DataMeta {
+  return one(
     DATA_DB_BINDING[slot],
     READ_DATA_META_SQL,
+    `slot ${slot} has no data_meta row`,
   );
-  if (row === undefined) throw new Error(`slot ${slot} has no data_meta row`);
-  return row;
 }
 
 /**
@@ -89,16 +92,15 @@ function meta(slot: DataSlot): { build_id: string; state: string } {
  * released rather than waited out.
  */
 function reset(slot: DataSlot): void {
-  const at = now();
-  const buildId = `local-${at}`;
-  const { claim_slot, claim_build_id } = pointer();
+  const buildId = newBuildId();
+  const { claim_slot, claim_build_id } = claim();
   if (claim_slot === slot && claim_build_id !== null) {
     query("APP_DB", releaseClaimSql(claim_build_id));
     console.log(`released the earlier claim of build ${claim_build_id}`);
   }
   const claimed = query(
     "APP_DB",
-    claimSlotSql(slot, buildId, at, LOCAL_CLAIM_LEASE_SECONDS),
+    claimSlotSql(slot, buildId, undefined, LOCAL_CLAIM_LEASE_SECONDS),
   );
   if (claimed.length === 0) {
     throw new Error(
@@ -133,21 +135,22 @@ function flip(slot: DataSlot): void {
       `slot ${slot} isn't sealed, so the Worker won't serve it: pnpm db:seal:local ${slot}`,
     );
   }
-  const { active, claim_build_id } = pointer();
+  const { active } = pointer();
   if (active === slot) {
     console.log(`already serving slot ${slot}`);
     return;
   }
+  const { claim_build_id } = claim();
   if (
     claim_build_id !== build_id &&
     query(
       "APP_DB",
-      claimSlotSql(slot, build_id, now(), LOCAL_CLAIM_LEASE_SECONDS),
+      claimSlotSql(slot, build_id, undefined, LOCAL_CLAIM_LEASE_SECONDS),
     ).length === 0
   ) {
     throw new Error(`build ${claim_build_id} holds slot ${slot}`);
   }
-  const flipped = query("APP_DB", flipActiveSlotSql(active, build_id, now()));
+  const flipped = query("APP_DB", flipActiveSlotSql(active, build_id));
   if (flipped.length === 0)
     throw new Error("the pointer moved during the flip");
   console.log(`serving slot ${slot} (build ${build_id})`);
@@ -163,7 +166,11 @@ function run(command: Command, slot: DataSlot): void {
       executeFile(binding, "fixtures/seed.sql");
       return;
     case "search-index":
-      executeSql(binding, `search-index-${slot}`, rebuildSearchIndexSql(""));
+      executeSql(
+        binding,
+        `search-index-${slot}`,
+        rebuildSearchIndexSql(meta(slot).build_id),
+      );
       return;
     case "seal":
       seal(slot);

@@ -6,13 +6,13 @@ CREATE TABLE data_generation (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   active TEXT NOT NULL CHECK (active IN ('a', 'b')),
   build_id TEXT NOT NULL,
-  flipped_at TEXT NOT NULL,
+  flipped_at TEXT NOT NULL CHECK (julianday(flipped_at) IS NOT NULL),
   -- the build holding the inactive slot, until it flips, releases, or its lease
   -- runs out; all four null when no build holds it
   claim_slot TEXT CHECK (claim_slot IN ('a', 'b')),
   claim_build_id TEXT,
-  claimed_at TEXT,
-  claim_expires_at TEXT,
+  claimed_at TEXT CHECK (claimed_at IS NULL OR julianday(claimed_at) IS NOT NULL),
+  claim_expires_at TEXT CHECK (claim_expires_at IS NULL OR julianday(claim_expires_at) IS NOT NULL),
   CHECK (claim_slot IS NULL OR claim_slot != active),
   CHECK (
     (claim_slot IS NULL) = (claim_build_id IS NULL)

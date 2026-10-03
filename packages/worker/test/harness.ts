@@ -52,6 +52,15 @@ export async function testEnv(server: Harness): Promise<TestEnv> {
   return (await server.getWorker().getEnv()) as unknown as TestEnv;
 }
 
+/**
+ * `WITH RECURSIVE n(i)` numbering `count` rows from 0, ahead of an
+ * `INSERT … SELECT … FROM n`: a bound statement per filler row takes seconds
+ * in D1, one statement over the series takes milliseconds.
+ */
+export function series(count: number): string {
+  return `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < ${count - 1})`;
+}
+
 /** Rows a test writes into a data DB before it is sealed. */
 export type Fill = (db: TestD1) => Promise<void>;
 
@@ -80,7 +89,7 @@ export async function buildDataSlot(
   const db = (await testEnv(server))[DATA_DB_BINDING[slot]];
   await runSql(db, resetGenerationSql(slot, buildId));
   await fill?.(db);
-  await runSql(db, rebuildSearchIndexSql(""));
+  await runSql(db, rebuildSearchIndexSql(buildId));
   await db.prepare(sealGenerationSql(buildId)).all();
 }
 
@@ -99,6 +108,16 @@ export async function serveDataSlot(
   await APP_DB.prepare("UPDATE data_generation SET active = ?1, build_id = ?2")
     .bind(slot, buildId)
     .all();
+}
+
+/**
+ * Reloads the Worker with its storage kept: a fresh isolate reads the pointer
+ * on its first data request, as every isolate does within `POINTER_TTL_MS` of
+ * a flip. A test that rebuilds the served slot in place needs it before the
+ * Worker sees the new build.
+ */
+export async function reloadWorker(server: Harness): Promise<void> {
+  await server.update((options) => options);
 }
 
 /**
@@ -160,7 +179,7 @@ export async function issueWhitelistedKey(server: Harness): Promise<IssuedKey> {
       authorization: ADMIN_AUTHORIZATION,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ daily: 100_000, perMinute: 10_000 }),
+    body: JSON.stringify({ daily: 100_000, perMinute: 600 }),
   });
   if (response.status !== 200) {
     throw new Error(

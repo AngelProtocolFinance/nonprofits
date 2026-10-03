@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { createTestHarness } from "wrangler";
 import { lookup, search } from "../../src/handlers.ts";
+import {
+  virtualAt,
+  virtualDay,
+  virtualMidnightAfter,
+} from "../virtual-clock.ts";
 import { emptyServedData } from "./empty-data.ts";
 import { noBurstLimit } from "./limiters.ts";
 import { noCaches } from "./no-cache.ts";
@@ -50,6 +55,17 @@ async function issueKey(): Promise<{ id: string; key: string }> {
     email: "owner@example.org",
   });
   return (await response.json()) as { id: string; key: string };
+}
+
+/** `key_usage` as `requests` admitted requests would leave `subject`'s day, without sending them. */
+async function seedUsage(subject: string, day: string, requests: number) {
+  await env.APP_DB.prepare(
+    `INSERT INTO key_usage (subject, day, requests, minute, minute_requests)
+     VALUES (?1, ?2, ?3, 0, 0)
+     ON CONFLICT (subject, day) DO UPDATE SET requests = excluded.requests`,
+  )
+    .bind(subject, day, requests)
+    .run();
 }
 
 /** The harness D1, summing `meta.rows_written` over every statement run through it. */
@@ -113,36 +129,36 @@ async function lookupAt(key: string, now: string, db = env.APP_DB) {
 test("a fresh key gets 50 requests a UTC day; the 51st is 429 saying when it resets, and the next day opens again", async () => {
   const { key } = await issueKey();
 
+  const lateOnDayOne = virtualAt(1, "23:58:30");
+
   for (let i = 1; i <= 50; i++) {
-    expect(
-      await lookupAt(key, "2026-10-03T23:58:30Z"),
-      `request ${i}`,
-    ).toMatchObject({
+    expect(await lookupAt(key, lateOnDayOne), `request ${i}`).toMatchObject({
       code: "not_found",
     });
   }
-  expect(await lookupAt(key, "2026-10-03T23:58:30Z")).toStrictEqual({
+  expect(await lookupAt(key, lateOnDayOne)).toStrictEqual({
     code: "daily_quota_exceeded",
-    message:
-      "This key's daily quota of 50 requests is used up. It resets at 2026-10-04T00:00:00Z (UTC midnight).",
+    message: `This key's daily quota of 50 requests is used up. It resets at ${virtualMidnightAfter(1)} (UTC midnight).`,
     retryAfterSeconds: 90,
   });
-  expect(await lookupAt(key, "2026-10-04T00:00:05Z")).toMatchObject({
+  expect(await lookupAt(key, virtualAt(2, "00:00:05"))).toMatchObject({
     code: "not_found",
   });
-}, 30_000);
+});
 
 test("a default-key request writes exactly two D1 rows: its usage counter and the service's", async () => {
   const { key } = await issueKey();
   const first = measuredD1();
   const later = measuredD1();
 
-  expect(await lookupAt(key, "2026-10-05T12:00:00Z", first.db)).toMatchObject({
+  expect(await lookupAt(key, virtualAt(3), first.db)).toMatchObject({
     code: "not_found",
   });
-  expect(await lookupAt(key, "2026-10-05T12:00:01Z", later.db)).toMatchObject({
-    code: "not_found",
-  });
+  expect(await lookupAt(key, virtualAt(3, "12:00:01"), later.db)).toMatchObject(
+    {
+      code: "not_found",
+    },
+  );
 
   // the day's first request inserts the counter row; later ones update it
   expect(first.tally).toStrictEqual({ rowsWritten: 2, unmeasured: [] });
@@ -150,8 +166,8 @@ test("a default-key request writes exactly two D1 rows: its usage counter and th
 });
 
 test("lookup and search count against the same daily quota", async () => {
-  const { key } = await issueKey();
-  const now = new Date("2026-10-06T08:00:00Z");
+  const { id, key } = await issueKey();
+  const now = new Date(virtualAt(4, "08:00:00"));
   const searchAt = async () => {
     const result = await search(
       { query: "red cross" },
@@ -170,23 +186,24 @@ test("lookup and search count against the same daily quota", async () => {
     return result.ok ? "ok" : result.error.code;
   };
 
-  for (let i = 1; i <= 25; i++) {
-    expect(await lookupAt(key, now.toISOString())).toMatchObject({
-      code: "not_found",
-    });
-    expect(await searchAt()).toBe("ok");
-  }
+  // 48 of the day's 50 used: a lookup and a search take the last two
+  await seedUsage(id, virtualDay(4), 48);
+
+  expect(await lookupAt(key, now.toISOString())).toMatchObject({
+    code: "not_found",
+  });
+  expect(await searchAt()).toBe("ok");
 
   expect(await searchAt()).toBe("daily_quota_exceeded");
   expect(await lookupAt(key, now.toISOString())).toMatchObject({
     code: "daily_quota_exceeded",
   });
-}, 30_000);
+});
 
 test("a revoked key over its quota is refused as revoked (401), not as over quota", async () => {
   const { id, key } = await issueKey();
-  const now = "2026-10-07T08:00:00Z";
-  for (let i = 1; i <= 50; i++) await lookupAt(key, now);
+  const now = virtualAt(5, "08:00:00");
+  await seedUsage(id, virtualDay(5), 50);
   expect(await lookupAt(key, now)).toMatchObject({
     code: "daily_quota_exceeded",
   });
@@ -194,7 +211,7 @@ test("a revoked key over its quota is refused as revoked (401), not as over quot
   await adminFetch("POST", `/admin/keys/${id}/revoke`);
 
   expect(await lookupAt(key, now)).toMatchObject({ code: "revoked_api_key" });
-}, 30_000);
+});
 
 test("raising one key's limits lets it past request 51 while a default key still stops at 51", async () => {
   const raised = await issueKey();
@@ -211,20 +228,17 @@ test("raising one key's limits lets it past request 51 while a default key still
     perMinute: 60,
   });
 
-  // one request a minute keeps the raised key under its per-minute limit
-  const at = (i: number) => new Date(Date.UTC(2026, 9, 8, 1, i)).toISOString();
-  for (let i = 1; i <= 50; i++) {
-    await lookupAt(raised.key, at(i));
-    await lookupAt(untouched.key, at(i));
-  }
+  // both have sent the 50 a default key may
+  const day = virtualDay(6);
+  await seedUsage(raised.id, day, 50);
+  await seedUsage(untouched.id, day, 50);
+  const now = virtualAt(6);
 
-  expect(await lookupAt(raised.key, at(51))).toMatchObject({
-    code: "not_found",
-  });
-  expect(await lookupAt(untouched.key, at(51))).toMatchObject({
+  expect(await lookupAt(raised.key, now)).toMatchObject({ code: "not_found" });
+  expect(await lookupAt(untouched.key, now)).toMatchObject({
     code: "daily_quota_exceeded",
   });
-}, 60_000);
+});
 
 async function whitelistedKey(daily: number, perMinute: number) {
   const issued = await issueKey();
@@ -240,31 +254,29 @@ test("a whitelisted key's 61st request inside one minute is 429 until the next m
 
   for (let i = 1; i <= 60; i++) {
     expect(
-      await lookupAt(key, "2026-10-09T10:00:05Z"),
+      await lookupAt(key, virtualAt(7, "10:00:05")),
       `request ${i}`,
     ).toMatchObject({
       code: "not_found",
     });
   }
-  expect(await lookupAt(key, "2026-10-09T10:00:58.500Z")).toStrictEqual({
+  expect(await lookupAt(key, virtualAt(7, "10:00:58.500"))).toStrictEqual({
     code: "per_minute_limit_exceeded",
-    message:
-      "This key's limit of 60 requests per minute is reached. Retry at 2026-10-09T10:01:00Z.",
+    message: `This key's limit of 60 requests per minute is reached. Retry at ${virtualAt(7, "10:01:00")}.`,
     retryAfterSeconds: 2,
   });
-  expect(await lookupAt(key, "2026-10-09T10:01:00Z")).toMatchObject({
+  expect(await lookupAt(key, virtualAt(7, "10:01:00"))).toMatchObject({
     code: "not_found",
   });
-}, 30_000);
+});
 
 test("a whitelisted key over its own daily quota is refused as daily, not per-minute", async () => {
   const { key } = await whitelistedKey(3, 60);
-  for (let i = 1; i <= 3; i++) await lookupAt(key, "2026-10-09T11:00:00Z");
+  for (let i = 1; i <= 3; i++) await lookupAt(key, virtualAt(8, "11:00:00"));
 
-  expect(await lookupAt(key, "2026-10-09T11:00:00Z")).toMatchObject({
+  expect(await lookupAt(key, virtualAt(8, "11:00:00"))).toMatchObject({
     code: "daily_quota_exceeded",
-    message:
-      "This key's daily quota of 3 requests is used up. It resets at 2026-10-10T00:00:00Z (UTC midnight).",
+    message: `This key's daily quota of 3 requests is used up. It resets at ${virtualMidnightAfter(8)} (UTC midnight).`,
   });
 });
 
@@ -273,21 +285,19 @@ test("a whitelisted request writes one D1 row, and a refused one writes none", a
   const admitted = measuredD1();
   const refused = measuredD1();
 
-  await lookupAt(key, "2026-10-09T12:00:00Z", admitted.db);
-  expect(await lookupAt(key, "2026-10-09T12:00:00Z", refused.db)).toMatchObject(
-    {
-      code: "daily_quota_exceeded",
-    },
-  );
+  await lookupAt(key, virtualAt(9), admitted.db);
+  expect(await lookupAt(key, virtualAt(9), refused.db)).toMatchObject({
+    code: "daily_quota_exceeded",
+  });
 
   expect(admitted.tally).toStrictEqual({ rowsWritten: 1, unmeasured: [] });
   expect(refused.tally).toStrictEqual({ rowsWritten: 0, unmeasured: [] });
 });
 
 test("a default key's last request of the day writes both rows, and the refused one after it writes none", async () => {
-  const { key } = await issueKey();
-  const now = "2026-10-10T09:00:00Z";
-  for (let i = 1; i <= 49; i++) await lookupAt(key, now);
+  const { id, key } = await issueKey();
+  const now = virtualAt(10, "09:00:00");
+  await seedUsage(id, virtualDay(10), 49);
   const last = measuredD1();
   const refused = measuredD1();
 
@@ -300,10 +310,10 @@ test("a default key's last request of the day writes both rows, and the refused 
 
   expect(last.tally).toStrictEqual({ rowsWritten: 2, unmeasured: [] });
   expect(refused.tally).toStrictEqual({ rowsWritten: 0, unmeasured: [] });
-}, 30_000);
+});
 
 test("a keyless request writes at most two D1 rows, its IP's counter and the service's, and a refused one writes none", async () => {
-  const now = new Date("2026-10-11T09:00:00Z");
+  const now = new Date(virtualAt(11, "09:00:00"));
   const keyless = async (db: D1Database) => {
     const result = await lookup("530196605", {
       env: { ...env, APP_DB: db, KEYLESS_BURST_LIMITER: noBurstLimit },

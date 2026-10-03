@@ -4,7 +4,7 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { startOfMinuteWindow } from "./clock-windows.ts";
+import { startOfBurstWindow } from "./clock-windows.ts";
 import {
   createWorkerHarness,
   type Harness,
@@ -16,7 +16,15 @@ const server = createWorkerHarness();
 let authorization: string;
 
 beforeAll(async () => {
-  await listenSeeded(server);
+  await listenSeeded(server, async (db) => {
+    // a name with no address on record, for a search match that has no place
+    await db
+      .prepare(
+        "INSERT INTO orgs (ein, name, name_run_id) VALUES ('581771391', 'RED CROSS CIVITANS', 1)",
+      )
+      .bind()
+      .all();
+  });
   authorization = `Bearer ${(await issueWhitelistedKey(server)).key}`;
 });
 
@@ -113,7 +121,17 @@ describe("/mcp before the handshake", () => {
 });
 
 describe("/mcp transport", () => {
-  test("refuses a request a page on another site sent: 403 for a foreign Origin", async () => {
+  test("refuses a request a page on another site sent: 403 for a foreign Origin, while the server's own Origin is served", async () => {
+    // the harness serves on 127.0.0.1: the host the request's own URL names
+    const own = await post(INITIALIZE, {
+      authorization,
+      origin: "http://127.0.0.1",
+    });
+    expect(own.status).toBe(200);
+    expect(await rpcResult(own)).toMatchObject({
+      serverInfo: { name: "nonprofits" },
+    });
+
     const response = await post(INITIALIZE, {
       authorization,
       origin: "https://evil.example",
@@ -217,6 +235,86 @@ describe("/mcp with a key", () => {
     },
   );
 
+  test.each([
+    {
+      ein: "530196605",
+      text: [
+        "AMERICAN NATIONAL RED CROSS, EIN 530196605, WASHINGTON, DC",
+        "501(c)(3): yes. Tax-deductible (Pub 78): yes. Revoked: no.",
+        "Mission: The American Red Cross prevents and alleviates human suffering in the face of emergencies by mobilizing the power of volunteers and the generosity of donors.",
+        "Website: https://www.redcross.org",
+      ],
+    },
+    {
+      // a 990-N filer: no mission on record, and a note saying why
+      ein: "271234567",
+      text: [
+        "SUNNYSIDE YOUTH SOCCER LEAGUE, EIN 271234567, BOISE, ID",
+        "501(c)(3): yes. Tax-deductible (Pub 78): yes. Revoked: no.",
+        "Mission: none on record",
+        "Website: sunnysidesoccer.example",
+        "Notes: 990-N filer: no mission on record",
+      ],
+    },
+    {
+      // revoked and gone from the BMF: its 501(c)(3) status is unknown
+      ein: "311234567",
+      text: [
+        "DEFUNCT ARTS COUNCIL, EIN 311234567, TOLEDO, OH",
+        "501(c)(3): unknown. Tax-deductible (Pub 78): no. Revoked: yes.",
+        "Mission: none on record",
+        "Notes: revoked; not in the current BMF; no e-filed 990 in the last 3 release years; no website on record",
+      ],
+    },
+  ])(
+    "lookup_nonprofit tells $ein in text for a client that reads only text, then the JSON",
+    async ({ ein, text }) => {
+      const rest = await restJson(`/v1/orgs/${ein}`);
+      const client = await connect({ authorization });
+
+      const result = await client.callTool({
+        name: "lookup_nonprofit",
+        arguments: { ein },
+      });
+
+      expect(result.content).toStrictEqual([
+        { type: "text", text: text.join("\n") },
+        { type: "text", text: JSON.stringify(rest) },
+      ]);
+      await client.close();
+    },
+  );
+
+  test.each([
+    {
+      query: "red cross",
+      text: [
+        'Matches for "red cross", best first:',
+        "1. AMERICAN NATIONAL RED CROSS, EIN 530196605, WASHINGTON, DC",
+        // no address on record: no place after the EIN
+        "2. RED CROSS CIVITANS, EIN 581771391",
+      ],
+    },
+    { query: "zzzz qqqq", text: ['No matches for "zzzz qqqq".'] },
+  ])(
+    "search_nonprofits tells the matches for $query in text, then the JSON",
+    async ({ query, text }) => {
+      const rest = await restJson(`/v1/search?q=${encodeURIComponent(query)}`);
+      const client = await connect({ authorization });
+
+      const result = await client.callTool({
+        name: "search_nonprofits",
+        arguments: { query },
+      });
+
+      expect(result.content).toStrictEqual([
+        { type: "text", text: text.join("\n") },
+        { type: "text", text: JSON.stringify(rest) },
+      ]);
+      await client.close();
+    },
+  );
+
   test('search_nonprofits answers "red cross" with the same matches as GET /v1/search?q=red cross', async () => {
     const rest = await restJson<{ results: unknown[] }>(
       "/v1/search?q=red%20cross",
@@ -282,7 +380,6 @@ describe("/mcp without a key", () => {
   test("serves a keyless client: the handshake is not counted, and a tool call answers like REST", async () => {
     const ip = { "cf-connecting-ip": "198.51.100.10" };
     const rest = await restJson("/v1/orgs/530196605");
-    await startOfMinuteWindow();
     const client = await connect(ip);
     await client.listTools();
 
@@ -294,46 +391,16 @@ describe("/mcp without a key", () => {
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toStrictEqual(rest);
     await client.close();
-  }, 30_000);
-
-  test("shares an IP's per-minute limit with REST: after a REST lookup, the tool call is a 429 tool error with its retry seconds", async () => {
-    const ip = { "cf-connecting-ip": "198.51.100.11" };
-    await startOfMinuteWindow();
-    expect(
-      (await server.fetch("/v1/orgs/530196605", { headers: ip })).status,
-    ).toBe(200);
-    const client = await connect(ip);
-
-    const result = await client.callTool({
-      name: "search_nonprofits",
-      arguments: { query: "red cross" },
-    });
-
-    const message =
-      "Requests without an API key are limited to 1 request per minute per IP address. Retry in 60 seconds. An API key lifts this limit: ask the operator for one.";
-    expect(result.isError).toBe(true);
-    expect(result.structuredContent).toStrictEqual({
-      type: "about:blank",
-      title: "Too Many Requests",
-      status: 429,
-      code: "per_minute_limit_exceeded",
-      detail: message,
-      retryAfterSeconds: 60,
-    });
-    expect(result.content).toStrictEqual([
-      {
-        type: "text",
-        text: `per_minute_limit_exceeded: ${message}`,
-      },
-    ]);
-    await client.close();
-  }, 30_000);
+  });
 });
 
 describe("/mcp protocol traffic", () => {
   test("is bounded per client without a key: past 60 requests in a minute the next is a 429 problem before any MCP message is read", async () => {
     const ip = { "cf-connecting-ip": "198.51.100.12" };
-    await startOfMinuteWindow();
+    // the one test of the real binding; the refusal and the keyed exemption are in direct/mcp.test.ts
+    await startOfBurstWindow(61, () =>
+      post(INITIALIZE, { "cf-connecting-ip": "198.51.100.14" }),
+    );
     for (let i = 1; i <= 60; i++) {
       expect((await post(INITIALIZE, ip)).status, `request ${i}`).toBe(200);
     }
@@ -350,17 +417,5 @@ describe("/mcp protocol traffic", () => {
       detail:
         "HTTP requests to /mcp without an API key are limited to 60 per minute per IP address, whatever MCP messages each carries. Retry in 60 seconds. An API key lifts this limit: ask the operator for one.",
     });
-  }, 30_000);
-
-  test("with a key, a client past 60 requests in a minute is still served: the keyless cap is not the keyed one", async () => {
-    const keyed = { authorization, "cf-connecting-ip": "198.51.100.13" };
-    await startOfMinuteWindow();
-    for (let i = 1; i <= 60; i++) {
-      expect((await post(INITIALIZE, keyed)).status, `request ${i}`).toBe(200);
-    }
-
-    const response = await post(INITIALIZE, keyed);
-
-    expect(response.status).toBe(200);
-  }, 30_000);
+  });
 });

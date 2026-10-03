@@ -1,10 +1,11 @@
 import type { OrgResponse } from "@nonprofits/core";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import {
   createWorkerHarness,
   issueWhitelistedKey,
   listenSeeded,
   seeded,
+  series,
   serveDataSlot,
 } from "./harness.ts";
 
@@ -288,39 +289,32 @@ describe("GET /v1/orgs/:ein", () => {
   });
 
   test("reads a bounded number of rows however many orgs and runs are stored", async () => {
-    const filler = Array.from({ length: 300 }, (_, i) => String(900000000 + i));
     // the served slot is sealed: rebuild it with the fillers in
     await serveDataSlot(
       server,
       "a",
       "seed-a",
       seeded(async (db) => {
-        const laterBmfRuns = Array.from({ length: 200 }, (_, i) =>
-          db
-            .prepare(
-              "INSERT INTO import_runs (id, source, file_url, released_at, fetched_at, row_count) VALUES (?1, ?2, 'https://example.invalid/bmf', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 0)",
-            )
-            .bind(100 + i, "bmf"),
-        );
         await db.batch([
-          ...laterBmfRuns,
-          ...filler.flatMap((ein) => [
-            db
-              .prepare(
-                "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id) VALUES (?1, 'FILLER', 1, '03', 1)",
-              )
-              .bind(ein),
-            db
-              .prepare(
-                "INSERT INTO filings (ein, object_id, form_type, tax_period, tax_year, run_id) VALUES (?1, ?1, '990', '2024-12', 2024, 5)",
-              )
-              .bind(ein),
-            db
-              .prepare(
-                "INSERT INTO programs (ein, object_id, rank, expense) VALUES (?1, ?1, 1, 1), (?1, ?1, 2, 1), (?1, ?1, 3, 1)",
-              )
-              .bind(ein),
-          ]),
+          // 200 later BMF runs, 300 orgs each with a filing and 3 programs
+          db.prepare(
+            `${series(200)} INSERT INTO import_runs (id, source, file_url, released_at, fetched_at, row_count)
+             SELECT 100 + i, 'bmf', 'https://example.invalid/bmf', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 0 FROM n`,
+          ),
+          db.prepare(
+            `${series(300)} INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id)
+             SELECT printf('%09d', 900000000 + i), 'FILLER', 1, '03', 1 FROM n`,
+          ),
+          db.prepare(
+            `INSERT INTO filings (ein, object_id, form_type, tax_period, tax_year, run_id)
+             SELECT ein, ein, '990', '2024-12', 2024, 5 FROM orgs WHERE name = 'FILLER'`,
+          ),
+          db.prepare(
+            `INSERT INTO programs (ein, object_id, rank, expense)
+             SELECT ein, ein, rank, 1
+             FROM orgs, (SELECT 1 AS rank UNION ALL SELECT 2 UNION ALL SELECT 3)
+             WHERE name = 'FILLER'`,
+          ),
         ]);
       }),
     );
@@ -328,15 +322,16 @@ describe("GET /v1/orgs/:ein", () => {
 
     await fetchWithKey("/v1/orgs/530196605");
 
-    const lookups = server
-      .getLogs()
-      .flatMap((log) =>
-        log.message.startsWith("{") ? [JSON.parse(log.message)] : [],
-      )
-      .filter((entry) => entry.event === "org_lookup");
-    expect(lookups).toHaveLength(1);
-    expect(lookups[0].rowsRead).toBeGreaterThan(0);
-    expect(lookups[0].rowsRead).toBeLessThanOrEqual(24);
-    // the filler insert alone takes seconds; slower beside the other harness suites
-  }, 30_000);
+    // the harness has no flush barrier: wait for the line the lookup logs
+    const lookups = () =>
+      server
+        .getLogs()
+        .flatMap((log) =>
+          log.message.startsWith("{") ? [JSON.parse(log.message)] : [],
+        )
+        .filter((entry) => entry.event === "org_lookup");
+    await vi.waitFor(() => expect(lookups()).toHaveLength(1));
+    expect(lookups()[0].rowsRead).toBeGreaterThan(0);
+    expect(lookups()[0].rowsRead).toBeLessThanOrEqual(24);
+  });
 });

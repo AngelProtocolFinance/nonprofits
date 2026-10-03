@@ -1,12 +1,20 @@
 export {
+  type Claim,
   claimSlotSql,
   DATA_DB_BINDING,
   type DataDbBinding,
+  type DataMeta,
   type DataSlot,
+  FLIP_SETTLE_MS,
+  fenceSql,
   flipActiveSlotSql,
+  isServable,
+  NEVER_BUILT,
   otherSlot,
   POINTER_TTL_MS,
+  type Pointer,
   READ_ACTIVE_SLOT_SQL,
+  READ_CLAIM_SQL,
   READ_DATA_META_SQL,
   releaseClaimSql,
   resetGenerationSql,
@@ -14,10 +22,7 @@ export {
 } from "./generation.ts";
 export {
   COLUMNS,
-  DATA_TABLES,
   type DataTable,
-  dataTablesDdl,
-  IMPORT_SOURCES,
   type ImportSource,
 } from "./schema.ts";
-export { rebuildSearchIndexSql, searchIndexDdl } from "./search-index.ts";
+export { rebuildSearchIndexSql } from "./search-index.ts";

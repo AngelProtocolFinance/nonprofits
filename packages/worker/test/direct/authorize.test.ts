@@ -7,6 +7,7 @@ import {
   clientRequestOf,
   lookup,
 } from "../../src/handlers.ts";
+import worker from "../../src/index.ts";
 import { emptyServedData } from "./empty-data.ts";
 import { failingD1 } from "./failing-d1.ts";
 
@@ -52,6 +53,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 afterAll(async () => {
@@ -190,6 +192,71 @@ test("a key past its expiresAt is refused as invalid", async () => {
   });
 });
 
+test("a key stored as the plugin hashes it today authorizes: SHA-256, base64url, unpadded", async () => {
+  // pinned: a plugin bump that hashes differently orphans every issued key, and goes red here
+  const key = `npk_${"PinnedTestVector".repeat(4)}`;
+  const storedHash = "Ac25xHNwCrIyozxh2F9Hp0KRq9B64pbTHVjOfwPoKIs";
+  const now = new Date().toISOString();
+  await env.APP_DB.prepare(
+    `INSERT INTO apikey (id, configId, referenceId, key, enabled, rateLimitEnabled, requestCount, createdAt, updatedAt)
+     VALUES ('pinned-key', 'default', 'pinned-owner', ?1, 1, 0, 0, ?2, ?2)`,
+  )
+    .bind(storedHash, now)
+    .run();
+
+  const result = await authorize(
+    { credential: key, clientIp: null, cfWorker: null },
+    env,
+  );
+
+  expect(result).toMatchObject({ ok: true, value: { subject: "pinned-key" } });
+});
+
+test.each([
+  ["a usage allowance", "remaining = 5", ["remaining"]],
+  [
+    "a refill schedule",
+    "refillAmount = 10, refillInterval = 60000",
+    ["refillAmount", "refillInterval"],
+  ],
+  [
+    "the plugin's own rate limit on",
+    "rateLimitEnabled = 1",
+    ["rateLimitEnabled"],
+  ],
+  ["permissions", `permissions = '{"orgs":["read"]}'`, ["permissions"]],
+  ["another plugin configuration", "configId = 'other'", ["configId"]],
+])(
+  "a key row carrying %s, which this guard doesn't enforce, is refused as invalid and logged by key id",
+  async (_, assignment, fields) => {
+    const issued = await issueKey();
+    await env.APP_DB.prepare(`UPDATE apikey SET ${assignment} WHERE id = ?1`)
+      .bind(issued.id)
+      .run();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await authorize(
+      { credential: issued.key, clientIp: null, cfWorker: null },
+      env,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "invalid_api_key",
+        message: expect.stringMatching(
+          /^API key can't be used here: ask the operator for a new one\./,
+        ),
+      },
+    });
+    expect(
+      errors.mock.calls.map(([line]) => JSON.parse(String(line))),
+    ).toStrictEqual([
+      { event: "api_key_unsupported_fields", keyId: issued.id, fields },
+    ]);
+  },
+);
+
 test("answers auth_unavailable, not invalid_api_key, when D1 is unreachable", async () => {
   const issued = await issueKey();
 
@@ -279,3 +346,94 @@ test("an admin call that fails in storage answers a problem 500, not a bare one"
   expect(response.headers.get("content-type")).toBe("application/problem+json");
   expect(await response.json()).toMatchObject({ code: "internal_error" });
 });
+
+test.each([
+  ["unset", undefined],
+  ["shorter than 32 characters", "too-short"],
+  ["the public placeholder", "replace-with-32-plus-random-characters"],
+])(
+  "with BETTER_AUTH_SECRET %s, admin endpoints stay shut: 503 admin_disabled, never better-auth's built-in secret",
+  async (_, secret) => {
+    const response = await admin(
+      adminRequest("/admin/keys", { email: "owner@example.org" }),
+      { ...env, BETTER_AUTH_SECRET: secret as string },
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      code: "admin_disabled",
+      detail:
+        "Admin endpoints are off: set the BETTER_AUTH_SECRET secret to at least 32 random characters.",
+    });
+  },
+);
+
+/** A request through the Worker's `fetch`, which a request built here reaches without Cloudflare's `cf` properties the handlers never read. */
+function viaWorker(
+  path: string,
+  workerEnv: Env,
+  init: RequestInit = {},
+): Promise<Response> {
+  const request = new Request(`http://localhost${path}`, init);
+  return worker.fetch(request as Parameters<typeof worker.fetch>[0], workerEnv);
+}
+
+const KEYLESS_UNAVAILABLE =
+  "Requests without an API key can't be served right now. Retry later, or send an API key.";
+const KEY_CHECK_UNAVAILABLE =
+  "The key check is unavailable right now; nothing is wrong with your key. Retry shortly.";
+
+test.each([
+  {
+    name: "a keyless REST request with IP_HASH_SECRET unset",
+    path: "/v1/orgs/530196605",
+    init: { headers: { "cf-connecting-ip": "203.0.113.23" } },
+    broken: (): Partial<Env> => ({
+      IP_HASH_SECRET: undefined as unknown as string,
+    }),
+    detail: KEYLESS_UNAVAILABLE,
+  },
+  {
+    name: "a keyless MCP request with IP_HASH_SECRET unset",
+    path: "/mcp",
+    init: {
+      method: "POST",
+      headers: { "cf-connecting-ip": "203.0.113.24" },
+    },
+    broken: (): Partial<Env> => ({
+      IP_HASH_SECRET: undefined as unknown as string,
+    }),
+    detail: KEYLESS_UNAVAILABLE,
+  },
+  {
+    name: "a REST request with a key while the key store can't be read",
+    path: "/v1/orgs/530196605",
+    init: { headers: { authorization: `Bearer npk_${"Q".repeat(64)}` } },
+    broken: (): Partial<Env> => ({ APP_DB: failingD1(env.APP_DB, /./) }),
+    detail: KEY_CHECK_UNAVAILABLE,
+  },
+])(
+  "$name is a 503 auth_unavailable problem over HTTP, with no challenge and no Retry-After, and logs its cause",
+  async ({ path, init, broken, detail }) => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await viaWorker(path, { ...env, ...broken() }, init);
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("content-type")).toBe(
+      "application/problem+json",
+    );
+    expect(response.headers.get("www-authenticate")).toBeNull();
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toStrictEqual({
+      type: "about:blank",
+      title: "Service Unavailable",
+      status: 503,
+      code: "auth_unavailable",
+      detail,
+    });
+    expect(errors.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual(
+      [expect.objectContaining({ event: "auth_unavailable" })],
+    );
+  },
+);

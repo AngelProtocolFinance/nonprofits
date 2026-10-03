@@ -28,9 +28,7 @@ describe("with the pointer flipped to slot b", () => {
   beforeAll(async () => {
     await listenSeeded(server);
     const { APP_DB } = await testEnv(server);
-    await APP_DB.prepare(
-      claimSlotSql("b", "build-b", "2026-10-03T04:00:00Z"),
-    ).all();
+    await APP_DB.prepare(claimSlotSql("b", "build-b")).all();
     await buildDataSlot(
       server,
       "b",
@@ -42,9 +40,7 @@ describe("with the pointer flipped to slot b", () => {
           .all();
       }),
     );
-    await APP_DB.prepare(
-      flipActiveSlotSql("a", "build-b", "2026-10-03T05:00:00Z"),
-    ).all();
+    await APP_DB.prepare(flipActiveSlotSql("a", "build-b")).all();
     authorization = `Bearer ${(await issueWhitelistedKey(server)).key}`;
   });
 
@@ -166,7 +162,8 @@ describe("before the first import is served", () => {
       server.fetch(`/v1/orgs/${RED_CROSS}`, {
         headers: { "cf-connecting-ip": "203.0.113.140" },
       });
-    await startOfMinuteWindow();
+    // the requests that count straddle building a slot: a margin for that, too
+    await startOfMinuteWindow(25_000);
 
     const unloaded = await lookup();
 
@@ -182,5 +179,5 @@ describe("before the first import is served", () => {
     await serveDataSlot(server, "a", "seed-a", seeded());
     expect((await lookup()).status).toBe(200);
     expect((await lookup()).status).toBe(429);
-  }, 30_000);
+  });
 });

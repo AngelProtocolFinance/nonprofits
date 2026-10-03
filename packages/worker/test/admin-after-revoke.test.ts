@@ -35,4 +35,4 @@ test("admin calls after a revoke still answer", async () => {
   });
 
   expect(created.status).toBe(201);
-}, 10_000);
+});

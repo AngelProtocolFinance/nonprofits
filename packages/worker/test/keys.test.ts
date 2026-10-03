@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { startOfMinuteWindow } from "./clock-windows.ts";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { clearOfUtcMidnight, startOfMinuteWindow } from "./clock-windows.ts";
 import {
   ADMIN_AUTHORIZATION,
   createWorkerHarness,
@@ -139,7 +139,7 @@ describe("admin key endpoints", () => {
     const revoked = await issueKey(server);
     await postAdmin(server, `/admin/keys/${revoked.id}/revoke`);
     const unknown = `npk_${"Z".repeat(64)}`;
-    const before = server.getLogs().length;
+    server.clearLogs();
 
     for (const key of [unknown, revoked.key]) {
       await server.fetch("/v1/orgs/530196605", {
@@ -147,11 +147,14 @@ describe("admin key endpoints", () => {
       });
     }
 
-    const refusals = server
-      .getLogs()
-      .slice(before)
-      .map(({ level, message }) => ({ level, message }));
-    expect(refusals).toStrictEqual([
+    // the harness has no flush barrier: wait for the lines these two requests log
+    const refusals = () =>
+      server
+        .getLogs()
+        .filter(({ message }) => message.startsWith("api key refused:"))
+        .map(({ level, message }) => ({ level, message }));
+    await vi.waitFor(() => expect(refusals()).toHaveLength(2));
+    expect(refusals()).toStrictEqual([
       { level: "info", message: "api key refused: invalid_api_key" },
       { level: "info", message: "api key refused: revoked_api_key" },
     ]);
@@ -234,6 +237,31 @@ describe("admin key endpoints", () => {
       );
     },
   );
+
+  test("a per-minute limit past the 600-a-minute cap on keyed requests per client is 400 naming the cap; 600 itself is set", async () => {
+    const issued = await issueKey(server);
+    const put = (perMinute: number) =>
+      server.fetch(`/admin/keys/${issued.id}/limits`, {
+        method: "PUT",
+        headers: {
+          authorization: ADMIN_AUTHORIZATION,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ daily: 100_000, perMinute }),
+      });
+
+    const over = await put(601);
+    expect(over.status).toBe(400);
+    expect(await over.json()).toMatchObject({
+      code: "invalid_request",
+      detail:
+        "`perMinute` can be at most 600: every client is capped at 600 requests a minute carrying an API key, before the key is read, so a higher limit is never reached.",
+    });
+
+    const atCap = await put(600);
+    expect(atCap.status).toBe(200);
+    expect(await atCap.json()).toMatchObject({ perMinute: 600 });
+  });
 });
 
 describe("quota on /v1", () => {
@@ -252,7 +280,7 @@ describe("quota on /v1", () => {
     expect(await response.json()).toMatchObject({
       code: "per_minute_limit_exceeded",
     });
-  }, 30_000);
+  });
 
   test("without a key, an IP's 2nd request inside a minute gets 429 with Retry-After, and another IP is still served", async () => {
     const from = (ip: string) =>
@@ -270,49 +298,11 @@ describe("quota on /v1", () => {
       code: "per_minute_limit_exceeded",
     });
     expect((await from("203.0.113.82")).status).toBe(200);
-  }, 30_000);
-
-  test("without a key, requests from Cloudflare's cross-zone Worker address sent by two zones' Workers get a minute each", async () => {
-    const via = (zone: string) =>
-      server.fetch("/v1/orgs/530196605", {
-        headers: {
-          "cf-connecting-ip": "2a06:98c0:3600::103",
-          "cf-worker": zone,
-        },
-      });
-    await startOfMinuteWindow();
-
-    expect((await via("zone-a.example")).status).toBe(200);
-    expect((await via("zone-b.example")).status).toBe(200);
-    expect((await via("zone-a.example")).status).toBe(429);
-  }, 30_000);
-
-  test("without a key, a client rotating its CF-Worker header shares its IP's minute: the 2nd request is 429", async () => {
-    const claiming = (zone: string) =>
-      server.fetch("/v1/orgs/530196605", {
-        headers: { "cf-connecting-ip": "203.0.113.84", "cf-worker": zone },
-      });
-    await startOfMinuteWindow();
-
-    expect((await claiming("spoofed-a.example")).status).toBe(200);
-    expect((await claiming("spoofed-b.example")).status).toBe(429);
-  }, 30_000);
-
-  test("without a key, an invalid EIN or search isn't counted: the IP's one request a minute is still served after them", async () => {
-    const from = (path: string) =>
-      server.fetch(path, { headers: { "cf-connecting-ip": "203.0.113.86" } });
-    await startOfMinuteWindow();
-
-    expect((await from("/v1/orgs/12")).status).toBe(400);
-    expect((await from("/v1/search?q=x")).status).toBe(400);
-    expect((await from("/v1/search?q=red&limit=0")).status).toBe(400);
-
-    expect((await from("/v1/orgs/530196605")).status).toBe(200);
-    expect((await from("/v1/orgs/530196605")).status).toBe(429);
-  }, 30_000);
+  });
 
   test("a key over its daily quota gets 429 problem details with Retry-After up to UTC midnight", async () => {
     const issued = await issueKey(server);
+    await clearOfUtcMidnight();
     const limits = await server.fetch(`/admin/keys/${issued.id}/limits`, {
       method: "PUT",
       headers: {
@@ -327,19 +317,22 @@ describe("quota on /v1", () => {
       200,
     );
 
+    const sentAt = Date.now();
     const response = await server.fetch("/v1/search?q=red", { headers });
+    const answeredAt = Date.now();
 
     expect(response.status).toBe(429);
     expect(response.headers.get("content-type")).toBe(
       "application/problem+json",
     );
-    const midnight = new Date();
+    const midnight = new Date(sentAt);
     midnight.setUTCHours(24, 0, 0, 0);
+    // the seconds left at some moment between the request's send and its answer
+    const secondsLeftAt = (at: number) =>
+      Math.ceil((midnight.getTime() - at) / 1000);
     const retryAfter = Number(response.headers.get("retry-after"));
-    expect(retryAfter).toBeGreaterThan(0);
-    expect(retryAfter).toBeLessThanOrEqual(
-      Math.ceil((midnight.getTime() - Date.now()) / 1000) + 1,
-    );
+    expect(retryAfter).toBeGreaterThanOrEqual(secondsLeftAt(answeredAt));
+    expect(retryAfter).toBeLessThanOrEqual(secondsLeftAt(sentAt));
     expect(await response.json()).toStrictEqual({
       type: "about:blank",
       title: "Too Many Requests",

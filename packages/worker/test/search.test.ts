@@ -1,12 +1,14 @@
 import type { OrgSearchResponse } from "@nonprofits/core";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { startOfMinuteWindow } from "./clock-windows.ts";
 import {
   createWorkerHarness,
   type Fill,
   issueWhitelistedKey,
   listenSeeded,
+  reloadWorker,
   seeded,
+  series,
   serveDataSlot,
 } from "./harness.ts";
 
@@ -58,18 +60,26 @@ afterAll(async () => {
   await server.close();
 });
 
-/** The `org_search` metrics lines logged since the last `clearLogs`. */
-function searchLogs(): {
-  outcome: string;
-  rowsRead: number;
-  cached: boolean;
-}[] {
-  return server
-    .getLogs()
-    .flatMap((log) =>
-      log.message.startsWith("{") ? [JSON.parse(log.message)] : [],
-    )
-    .filter((entry) => entry.event === "org_search");
+/**
+ * The `org_search` metrics lines logged since the last `clearLogs`, once
+ * `count` have arrived: the harness has no flush barrier.
+ */
+async function searchLogs(count: number): Promise<
+  {
+    outcome: string;
+    rowsRead: number;
+    cached: boolean;
+  }[]
+> {
+  const logged = () =>
+    server
+      .getLogs()
+      .flatMap((log) =>
+        log.message.startsWith("{") ? [JSON.parse(log.message)] : [],
+      )
+      .filter((entry) => entry.event === "org_search");
+  await vi.waitFor(() => expect(logged()).toHaveLength(count));
+  return logged();
 }
 
 function search(query: string, method = "GET") {
@@ -261,7 +271,6 @@ describe("GET /v1/search", () => {
   });
 
   test("reads only the names holding every word, not every name holding one", async () => {
-    const filler = Array.from({ length: 300 }, (_, i) => String(900000000 + i));
     // the served slot is sealed: rebuild it with the fillers beside the near misses
     await serveDataSlot(
       server,
@@ -269,17 +278,16 @@ describe("GET /v1/search", () => {
       "seed-a-fillers",
       seeded(async (db) => {
         await nearMisses(db);
-        await db.batch(
-          filler.map((ein) =>
-            db
-              .prepare(
-                "INSERT INTO orgs (ein, name, name_run_id) VALUES (?1, 'FILLER FOUNDATION OF THE CROSS ROADS', 1)",
-              )
-              .bind(ein),
-          ),
-        );
+        await db
+          .prepare(
+            `${series(300)} INSERT INTO orgs (ein, name, name_run_id)
+             SELECT printf('%09d', 900000000 + i), 'FILLER FOUNDATION OF THE CROSS ROADS', 1 FROM n`,
+          )
+          .bind()
+          .all();
       }),
     );
+    await reloadWorker(server);
     server.clearLogs();
 
     const fillers = await search("q=filler&limit=50");
@@ -291,17 +299,17 @@ describe("GET /v1/search", () => {
     expect(
       ((await named.json()) as OrgSearchResponse).results.map((r) => r.ein),
     ).toEqual(RED_CROSS_ORDER);
-    const [fillerSearch, namedSearch] = searchLogs();
+    const [fillerSearch, namedSearch] = await searchLogs(2);
     // ranking all 300 fillers reads at least a row each: the metric sees index reads
     expect(fillerSearch?.rowsRead).toBeGreaterThanOrEqual(300);
     // every filler holds CROSS, yet only the names holding RED as well are read
     expect(namedSearch?.rowsRead).toBeGreaterThan(0);
     expect(namedSearch?.rowsRead).toBeLessThanOrEqual(20);
-  }, 30_000);
+  });
 });
 
 describe("the search cache", () => {
-  test("answers a repeated search from the cache, reading only the build it was cached for", async () => {
+  test("answers a repeated search from the cache, reading no rows", async () => {
     const first = await search("q=cross%20red&limit=3");
     server.clearLogs();
 
@@ -313,8 +321,8 @@ describe("the search cache", () => {
     expect(body.results).toStrictEqual(
       ((await first.json()) as OrgSearchResponse).results,
     );
-    expect(searchLogs()).toStrictEqual([
-      { event: "org_search", outcome: "ok", rowsRead: 1, cached: true },
+    expect(await searchLogs(1)).toStrictEqual([
+      { event: "org_search", outcome: "ok", rowsRead: 0, cached: true },
     ]);
   });
 
@@ -328,9 +336,9 @@ describe("the search cache", () => {
     server.clearLogs();
 
     expect((await keyless()).status).toBe(200);
-    expect(searchLogs()[0]?.cached).toBe(true);
+    expect((await searchLogs(1))[0]?.cached).toBe(true);
     expect((await keyless()).status).toBe(429);
-  }, 30_000);
+  });
 
   test("misses once a new build is served: a search reads the new build's names", async () => {
     const chapter = "900000001";
@@ -349,6 +357,7 @@ describe("the search cache", () => {
           .all();
       }),
     );
+    await reloadWorker(server);
 
     const response = await search("q=red%20cross");
 

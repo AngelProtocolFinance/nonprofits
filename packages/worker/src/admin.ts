@@ -3,6 +3,7 @@ import { type Auth, createAuth, MAX_KEY_NAME_LENGTH } from "./auth.ts";
 import { problem } from "./problem.ts";
 import {
   DEFAULT_LIMITS,
+  KEYED_REQUESTS_PER_MINUTE,
   type KeyTier,
   type Limits,
   limitsOf,
@@ -179,6 +180,13 @@ async function setLimits(
       "Send JSON with `daily` and `perMinute`, each a positive integer.",
     );
   }
+  if (perMinute > KEYED_REQUESTS_PER_MINUTE) {
+    return problem(
+      400,
+      "invalid_request",
+      `\`perMinute\` can be at most ${KEYED_REQUESTS_PER_MINUTE}: every client is capped at ${KEYED_REQUESTS_PER_MINUTE} requests a minute carrying an API key, before the key is read, so a higher limit is never reached.`,
+    );
+  }
   const { results } = await env.APP_DB.prepare(SET_LIMITS_SQL)
     .bind(keyId, daily, perMinute)
     .all();
@@ -250,12 +258,16 @@ export async function admin(request: Request, env: Env): Promise<Response> {
   }
 }
 
+/** The secrets admin needs, checked in this order; outside production, better-auth signs with a public built-in secret when its own is unset. */
+const ADMIN_SECRETS = ["ADMIN_TOKEN", "BETTER_AUTH_SECRET"] as const;
+
 async function route(request: Request, env: Env): Promise<Response> {
-  if (!isSecretSet(env.ADMIN_TOKEN)) {
+  const unset = ADMIN_SECRETS.find((name) => !isSecretSet(env[name]));
+  if (unset !== undefined) {
     return problem(
       503,
       "admin_disabled",
-      `Admin endpoints are off: set the ADMIN_TOKEN secret to at least ${MIN_SECRET_LENGTH} random characters.`,
+      `Admin endpoints are off: set the ${unset} secret to at least ${MIN_SECRET_LENGTH} random characters.`,
     );
   }
   if (!(await isAdmin(request, env))) {

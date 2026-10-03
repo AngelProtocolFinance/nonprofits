@@ -13,10 +13,12 @@ const USAGE = `Usage:
   keys set-limit <key-id> --daily <n> --per-minute <n>
   keys set-limit <key-id> --default
 
-Calls the Worker at NONPROFITS_URL (default http://localhost:8787) with ADMIN_TOKEN.
+Calls the Worker at NONPROFITS_URL (default http://localhost:8787) with ADMIN_TOKEN;
+NONPROFITS_URL must be https:// unless it is localhost, 127.0.0.1 or [::1].
 `;
 
 const DEFAULT_URL = "http://localhost:8787";
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 const SET_LIMIT_USAGE =
   "set-limit takes <key-id> and either --daily <n> --per-minute <n> (positive integers) or --default";
@@ -131,6 +133,55 @@ function adminCall(command: string | undefined, rest: string[]): AdminCall {
   }
 }
 
+function isLoopback(url: URL): boolean {
+  return LOOPBACK_HOSTS.has(url.hostname);
+}
+
+/** NONPROFITS_URL, parsed; throws when ADMIN_TOKEN can't be sent there safely. */
+function workerUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`NONPROFITS_URL is not a URL: ${raw}`);
+  }
+  if (url.protocol === "https:") return url;
+  if (url.protocol !== "http:") {
+    throw new Error(`NONPROFITS_URL must be an https:// URL: ${raw}`);
+  }
+  if (isLoopback(url)) return url;
+  throw new Error(
+    `NONPROFITS_URL must be https:// (http:// only for localhost, 127.0.0.1 or [::1]): ADMIN_TOKEN would cross the network in the clear to ${raw}`,
+  );
+}
+
+/** An admin path under the Worker URL, keeping any path prefix it has. */
+function adminUrl(base: URL, path: string): URL {
+  const url = new URL(base);
+  url.pathname = `${base.pathname.replace(/\/+$/, "")}${path}`;
+  url.search = "";
+  url.hash = "";
+  return url;
+}
+
+/**
+ * Why fetch got no response, from the innermost cause: "fetch failed" alone
+ * hides it (`connect ECONNREFUSED …`, `getaddrinfo ENOTFOUND …`, a TLS or
+ * proxy refusal, `unexpected redirect`).
+ */
+function unreachableReason(error: unknown): string {
+  let innermost = error as {
+    cause?: unknown;
+    message?: unknown;
+    code?: unknown;
+  };
+  while (typeof innermost.cause === "object" && innermost.cause !== null) {
+    innermost = innermost.cause as typeof innermost;
+  }
+  // an AggregateError (every address refused) has an empty message and a code
+  return String(innermost.message || innermost.code || "fetch failed");
+}
+
 /** Columns padded to their widest cell, two spaces apart. */
 function table(rows: string[][]): string {
   const widths = rows[0]?.map((_, i) =>
@@ -150,7 +201,6 @@ function table(rows: string[][]): string {
 /** Runs one CLI command; returns the process exit code. */
 export async function run(args: string[], io: Io): Promise<number> {
   const adminToken = io.env.ADMIN_TOKEN;
-  const baseUrl = io.env.NONPROFITS_URL ?? DEFAULT_URL;
   const [command, ...rest] = args;
 
   let call: AdminCall;
@@ -164,11 +214,20 @@ export async function run(args: string[], io: Io): Promise<number> {
     io.stderr("Set ADMIN_TOKEN to the Worker's ADMIN_TOKEN secret.\n");
     return 2;
   }
+  let base: URL;
+  try {
+    base = workerUrl(io.env.NONPROFITS_URL ?? DEFAULT_URL);
+  } catch (error) {
+    io.stderr(`${(error as Error).message}\n`);
+    return 2;
+  }
 
   let response: Response;
   try {
-    response = await fetch(new URL(call.path, baseUrl), {
+    response = await fetch(adminUrl(base, call.path), {
       method: call.method,
+      // a redirect would carry ADMIN_TOKEN to wherever it points
+      redirect: "error",
       headers: {
         authorization: `Bearer ${adminToken}`,
         ...(call.body === undefined
@@ -177,10 +236,13 @@ export async function run(args: string[], io: Io): Promise<number> {
       },
       ...(call.body === undefined ? {} : { body: JSON.stringify(call.body) }),
     });
-  } catch {
-    // fetch rejects only when no HTTP response came back: refused, DNS, TLS
+  } catch (error) {
+    // fetch rejects only when no usable HTTP response came back: refused, DNS, TLS, a redirect
+    const hint = isLoopback(base)
+      ? " Start it locally with `pnpm --filter @nonprofits/worker dev` (wrangler dev), or point NONPROFITS_URL at the deployed Worker."
+      : "";
     io.stderr(
-      `Can't reach the Worker at ${baseUrl} (NONPROFITS_URL). Start it locally with \`pnpm --filter @nonprofits/worker dev\` (wrangler dev), or point NONPROFITS_URL at the deployed Worker.\n`,
+      `Can't reach the Worker at ${base.href} (NONPROFITS_URL): ${unreachableReason(error)}.${hint}\n`,
     );
     return 1;
   }
