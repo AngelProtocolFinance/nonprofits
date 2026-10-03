@@ -1,13 +1,11 @@
 import {
   DATA_DB_BINDING,
   type DataSlot,
+  POINTER_TTL_MS,
   READ_ACTIVE_SLOT_SQL,
   READ_DATA_META_SQL,
 } from "@nonprofits/db";
 import { logFailure } from "./log.ts";
-
-/** How long an isolate serves the slot it read before reading the pointer again. */
-const POINTER_TTL_MS = 30_000;
 
 interface Pointer {
   active: DataSlot;

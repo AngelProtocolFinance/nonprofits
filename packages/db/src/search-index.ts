@@ -5,8 +5,9 @@
  * with it, so a suffixed index swaps in like the tables it was built from.
  */
 export function searchIndexDdl(suffix: string): string {
-  return `-- Org names for search; rowid is the EIN as an integer. Rebuilt after each
--- load (rebuildSearchIndexSql), never written row by row.
+  return `-- Org names for search; rowid is the EIN as an integer. Rebuilt whole once
+-- per refresh, or after a local load run (rebuildSearchIndexSql); never written
+-- row by row.
 CREATE VIRTUAL TABLE orgs_fts${suffix} USING fts5 (
   name,
   content = '',

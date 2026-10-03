@@ -3,7 +3,12 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { DATA_DB_BINDING, resetGenerationSql } from "@nonprofits/db";
-import { type D1Target, localD1, wrangler } from "./wrangler.ts";
+import {
+  type D1Target,
+  localD1,
+  QUERY_TIMEOUT_MS,
+  wrangler,
+} from "./wrangler.ts";
 
 /** A body served whole, or a handler that writes the response itself. */
 export type Route = string | Uint8Array | ((res: ServerResponse) => void);
@@ -50,13 +55,16 @@ export function query<T>(persistTo: string, sql: string): Promise<T[]> {
 
 /** Applies the app migrations to the local `APP_DB` under `persistTo`, seeding the pointer at slot a, build `empty`. */
 export async function migrateAppDb(persistTo: string): Promise<void> {
-  await wrangler([
-    "d1",
-    "migrations",
-    "apply",
-    "APP_DB",
-    "--local",
-    "--persist-to",
-    persistTo,
-  ]);
+  await wrangler(
+    [
+      "d1",
+      "migrations",
+      "apply",
+      "APP_DB",
+      "--local",
+      "--persist-to",
+      persistTo,
+    ],
+    QUERY_TIMEOUT_MS,
+  );
 }

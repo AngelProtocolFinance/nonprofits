@@ -1,30 +1,53 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { DATA_DB_BINDING, type DataSlot, otherSlot } from "@nonprofits/db";
+import {
+  DATA_DB_BINDING,
+  type DataSlot,
+  otherSlot,
+  releaseClaimSql,
+} from "@nonprofits/db";
 import {
   readPointer,
   rebuildSearchIndex,
   refresh,
+  releaseClaim,
   rollback,
+  TABLE_FLOORS,
 } from "./generation.ts";
-import { irsSources, isSource, loadSource, type Source } from "./sources.ts";
-import { type D1Ops, localD1, remoteD1 } from "./wrangler.ts";
+import {
+  irsSources,
+  isSource,
+  loadSource,
+  SOURCES,
+  type Source,
+} from "./sources.ts";
+import { type D1Ops, localD1, remoteD1, stopWrangler } from "./wrangler.ts";
 
 /** What `all` loads, in order. Not efile: a full 990 run downloads ~10 GB and takes about an hour, so it is asked for by name. */
-const ALL: readonly Source[] = ["bmf", "pub78", "revocation", "epostcard"];
+const ALL = SOURCES.filter((source) => source !== "efile");
 
 const USAGE = `usage: node src/cli.ts <command>
   refresh [--remote] [--efile-batch <XML_BATCH_ID>]...
       build the data slot not served from every IRS source, verify it, seal it
       and serve it; --efile-batch (local only) loads just those e-file batches
   rollback [--remote]
-      serve the other data slot again, while it still holds a complete build
-  <bmf|pub78|revocation|epostcard|efile|all> [--slot a|b] [--force-active] [--batch <XML_BATCH_ID>]...
-      dev, local only: load into a reset slot (default: the one not served),
+      serve the other data slot again, while it holds a complete build that was served before
+  release [--remote] [--build <BUILD_ID>]
+      clear the claim a stopped build left on the slot not served (only that build's, with --build)
+  <bmf|pub78|revocation|epostcard|efile|all> [--slot a|b] [--batch <XML_BATCH_ID>]...
+      dev, local only: load into a slot reset for it (default: the one not served),
       then rebuild its search index; all = ${ALL.join(", ")}
-      --force-active  allow --slot to name the served slot
-      --batch         efile only: load just the filings in this batch`;
+      --batch  efile only: load just the filings in this batch
+  --persist-to <dir>  local D1 state under <dir> instead of wrangler's default`;
+
+/** The flags each command takes, beside --persist-to. */
+const FLAGS = {
+  refresh: ["remote", "efile-batch"],
+  rollback: ["remote"],
+  release: ["remote", "build"],
+  load: ["slot", "batch"],
+} as const;
 
 function repoPath(path: string): string {
   return fileURLToPath(new URL(`../../../${path}`, import.meta.url));
@@ -39,11 +62,12 @@ function args() {
   try {
     return parseArgs({
       options: {
-        remote: { type: "boolean", default: false },
+        remote: { type: "boolean" },
+        "persist-to": { type: "string" },
         batch: { type: "string", multiple: true },
         "efile-batch": { type: "string", multiple: true },
         slot: { type: "string" },
-        "force-active": { type: "boolean", default: false },
+        build: { type: "string" },
       },
       allowPositionals: true,
     });
@@ -55,30 +79,46 @@ function args() {
   }
 }
 
+/** Set by a SIGINT or SIGTERM, so the run's own failure isn't reported over it. */
+let interrupted = false;
+
 async function main(): Promise<void> {
   const { values, positionals } = args();
   const [command, ...rest] = positionals;
   if (command === undefined || rest.length > 0) throw new UsageError();
-  const sourceFlags =
-    values.slot !== undefined ||
-    values["force-active"] ||
-    values.batch !== undefined;
-  const ops: D1Ops = values.remote ? remoteD1() : localD1();
-  const where = values.remote ? "remote" : "local";
+  const flags =
+    command === "refresh" || command === "rollback" || command === "release"
+      ? FLAGS[command]
+      : FLAGS.load;
+  const given = Object.entries(values)
+    .filter(([name, value]) => value !== undefined && name !== "persist-to")
+    .map(([name]) => name);
+  const unexpected = given.filter(
+    (name) => !(flags as readonly string[]).includes(name),
+  );
+  if (unexpected.length > 0) {
+    throw new UsageError(`${command} takes no --${unexpected.join(", --")}`);
+  }
+  const remote = values.remote === true;
+  if (remote && values["persist-to"] !== undefined) {
+    throw new UsageError("--persist-to is for local D1 state only");
+  }
+  const ops: D1Ops = remote ? remoteD1() : localD1(values["persist-to"]);
+  const where = remote ? "remote" : "local";
 
   if (command === "refresh") {
     const batches = values["efile-batch"];
-    if (sourceFlags || (batches !== undefined && values.remote)) {
-      throw new UsageError();
-    }
+    const claims = releaseOnSignal(ops);
     console.log(`refresh: ${where} D1`);
     const report = await refresh(ops, {
       sources: irsSources({
         workDir: EFILE_WORK_DIR,
         ...(batches === undefined ? {} : { batches }),
       }),
+      floors: TABLE_FLOORS,
       loadDir: LOAD_DIR,
-      log: (line) => console.log(line),
+      log,
+      onClaim: (buildId) => claims.push(buildId),
     });
     const counts = Object.entries(report.counts)
       .map(([table, n]) => `${n} ${table}`)
@@ -90,37 +130,105 @@ async function main(): Promise<void> {
   }
 
   if (command === "rollback") {
-    if (sourceFlags || values["efile-batch"] !== undefined) {
-      throw new UsageError();
-    }
-    const { from, to, buildId } = await rollback(ops);
+    const claims = releaseOnSignal(ops);
+    const { from, to, buildId } = await rollback(ops, {
+      log,
+      onClaim: (buildId) => claims.push(buildId),
+    });
     console.log(
       `rollback: ${where} D1 serving slot ${to} (build ${buildId}) instead of slot ${from}`,
     );
     return;
   }
 
-  const slot = values.slot;
+  if (command === "release") {
+    const claim = await releaseClaim(ops, values.build);
+    if (claim === null) {
+      console.log(
+        values.build === undefined
+          ? `release: ${where} D1 has no claim to release`
+          : `release: build ${values.build} holds no claim in ${where} D1`,
+      );
+      if (values.build !== undefined) process.exitCode = 1;
+      return;
+    }
+    console.log(
+      `release: cleared build ${claim.claim_build_id}'s claim on slot ${claim.claim_slot} (claimed ${claim.claimed_at}, lease to ${claim.claim_expires_at})`,
+    );
+    return;
+  }
+
   const sources =
     command === "all" ? ALL : isSource(command) ? [command] : undefined;
+  const slot = values.slot;
   if (
     sources === undefined ||
-    values["efile-batch"] !== undefined ||
     (values.batch !== undefined && command !== "efile") ||
     (slot !== undefined && !isSlot(slot))
   ) {
     throw new UsageError();
   }
-  if (values.remote) {
+  if (remote) {
     throw new UsageError(
       "a single-source load is local only: remote data changes go through irs refresh",
     );
   }
-  await loadSources(ops, sources, slot, values["force-active"], values.batch);
+  await loadSources(ops, sources, slot, values.batch);
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** The run's own lines; quiet once a signal is stopping it, as its failures are the stop's. */
+function log(line: string): void {
+  if (!interrupted) console.log(line);
 }
 
 function isSlot(name: string): name is DataSlot {
   return name === "a" || name === "b";
+}
+
+/**
+ * On SIGINT or SIGTERM: stops wrangler (the running command and every later
+ * one the run starts), releases every claim the run asked for (a claim it
+ * never got releases nothing), reports what the pointer serves, and exits 130
+ * or 143. Returns the list the run adds each build id to as it claims.
+ */
+function releaseOnSignal(ops: D1Ops): string[] {
+  const claims: string[] = [];
+  const stop = async (signal: NodeJS.Signals, code: number) => {
+    interrupted = true;
+    console.error(`${signal}: stopping`);
+    await stopWrangler(async () => {
+      for (const buildId of claims) {
+        try {
+          const released = await ops.query("APP_DB", releaseClaimSql(buildId));
+          console.error(
+            released.length === 1
+              ? `released build ${buildId}'s claim`
+              : `build ${buildId} holds no claim`,
+          );
+        } catch (error) {
+          console.error(
+            `could not release build ${buildId}'s claim (${message(error)}); irs release --build ${buildId} clears it`,
+          );
+        }
+      }
+      try {
+        const pointer = await readPointer(ops);
+        console.error(
+          `serving slot ${pointer.active} (build ${pointer.build_id})`,
+        );
+      } catch (error) {
+        console.error(`could not read the pointer back (${message(error)})`);
+      }
+    });
+    process.exit(code);
+  };
+  process.once("SIGINT", (signal) => void stop(signal, 130));
+  process.once("SIGTERM", (signal) => void stop(signal, 143));
+  return claims;
 }
 
 /** Each source commits on its own, so one failing in `all` still lets the rest load. */
@@ -128,15 +236,12 @@ async function loadSources(
   ops: D1Ops,
   sources: readonly Source[],
   named: DataSlot | undefined,
-  forceActive: boolean,
   batches: readonly string[] | undefined,
 ): Promise<void> {
   const { active } = await readPointer(ops);
   const slot = named ?? otherSlot(active);
-  if (slot === active && !forceActive) {
-    throw new UsageError(
-      `slot ${slot} is the one served; pass --force-active to load into it`,
-    );
+  if (slot === active) {
+    throw new UsageError(`slot ${slot} is the one served`);
   }
   const binding = DATA_DB_BINDING[slot];
   const config = irsSources({
@@ -172,6 +277,7 @@ async function loadSources(
 }
 
 main().catch((error: unknown) => {
+  if (interrupted) return;
   if (error instanceof UsageError) {
     if (error.message) console.error(error.message);
     console.error(USAGE);

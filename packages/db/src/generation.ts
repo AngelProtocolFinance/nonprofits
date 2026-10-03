@@ -85,14 +85,36 @@ RETURNING slot, build_id, state;`;
 /** A claim outlives the monthly import job (6 h) so it can't lapse mid-build. */
 const CLAIM_LEASE_SECONDS = 8 * 60 * 60;
 
+/** How long a Worker isolate serves the slot it read before reading the pointer again. */
+export const POINTER_TTL_MS = 30_000;
+
+/** Twice the pointer cache: every isolate has reread the pointer since the last flip. */
+const FLIP_SETTLE_SECONDS = (2 * POINTER_TTL_MS) / 1000;
+
 const CLAIM_COLUMNS =
   "claim_slot, claim_build_id, claimed_at, claim_expires_at";
 
 /**
  * Against `APP_DB`: claims `target` for `buildId` before it is reset. Succeeds
- * only while `target` is not the active slot and no other build's lease is
- * running; returns the claim, or no row when refused. A reset without a claim
- * can drop the slot another run just flipped live.
+ * only while `target` is not the active slot, no other build's lease is
+ * running, and the last flip is at least 60 s old; returns the claim, or no
+ * row when refused. A reset without a claim can drop the slot another run just
+ * flipped live; one inside the 60 s can drop the slot a flip just left, which
+ * isolates still caching the old pointer serve.
+ *
+ * The 60 s is measured by the database's clock, not `at`, so a claiming
+ * runner's skewed clock can't shorten it. `flipped_at` is the flipping
+ * runner's `at`, though: a flipping runner whose clock runs behind the
+ * database's shortens the 60 s by that skew.
+ *
+ * The 60 s doesn't bound one case: an isolate whose pointer reread fails keeps
+ * the slot it last served (`activeDataDb`), so one that served the old slot
+ * before the flip and failed every reread since serves it past the 60 s. That
+ * takes the pointer read failing on each 30 s reread while the same requests'
+ * key and quota reads and writes on `APP_DB` succeed, since a request that
+ * fails those never reaches the data. The first reread that succeeds moves the
+ * isolate to the new slot, so this is a narrow window of stale or 503 answers
+ * from a slot being reset, never a lasting one.
  */
 export function claimSlotSql(
   target: DataSlot,
@@ -104,6 +126,7 @@ export function claimSlotSql(
   claim_expires_at = strftime('%Y-%m-%dT%H:%M:%SZ', ${literal(at)}, '+${Math.trunc(leaseSeconds)} seconds')
 WHERE id = 1 AND active != ${literal(target)}
   AND (claim_build_id IS NULL OR julianday(claim_expires_at) <= julianday(${literal(at)}))
+  AND (julianday('now') - julianday(flipped_at)) * 86400 >= ${FLIP_SETTLE_SECONDS}
 RETURNING ${CLAIM_COLUMNS};`;
 }
 
@@ -136,7 +159,7 @@ RETURNING active, build_id, flipped_at;`;
 
 /** Against `APP_DB`: the slot the Worker serves. */
 export const READ_ACTIVE_SLOT_SQL =
-  "SELECT active, build_id FROM data_generation WHERE id = 1";
+  "SELECT active, build_id, flipped_at FROM data_generation WHERE id = 1";
 
 /** Against a data database: which slot it is, and its build's state. */
 export const READ_DATA_META_SQL =

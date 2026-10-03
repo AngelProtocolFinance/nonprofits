@@ -37,9 +37,9 @@ pnpm db:flip:local b             # serve it
 pnpm dev
 ```
 
-The Worker reads IRS data from one of two data databases, `DATA_DB_A` or `DATA_DB_B` (slots `a` and `b`), whichever the one-row `data_generation` table in `APP_DB` names. Keys and usage live in `APP_DB`, so resetting a data slot never touches them. A data DB has no migrations: `db:reset:local <slot>` claims the slot in `data_generation` and drops and rebuilds its tables empty. The served slot can't be claimed, so a build always goes into the other one. `db:seal:local <slot>` marks the build complete, after which the slot refuses every write until its next reset. `db:flip:local <slot>` serves a sealed slot, and flipping back to the previous slot is a rollback, for as long as nothing has reset it. Each Worker isolate rereads the pointer at most every 30 s, and it switches only to a slot whose own `data_meta` is sealed for the build the pointer names; until then it keeps serving the slot it had. A flip therefore reaches every request within 30 s, and each lookup or search is answered whole from one slot or the other.
+The Worker reads IRS data from one of two data databases, `DATA_DB_A` or `DATA_DB_B` (slots `a` and `b`), whichever the one-row `data_generation` table in `APP_DB` names. Keys and usage live in `APP_DB`, so resetting a data slot never touches them. A data DB has no migrations: `db:reset:local <slot>` claims the slot in `data_generation` and drops and rebuilds its tables empty. The served slot can't be claimed, so a build always goes into the other one, and neither can the slot a flip left, for 60 s, while Workers may still serve it. A local reset's claim lapses after 10 minutes if the build is abandoned. `db:seal:local <slot>` marks the build complete, after which the slot refuses every write until its next reset. `db:flip:local <slot>` serves a sealed slot, and flipping back to the previous slot is a rollback, for as long as nothing has reset it. Each Worker isolate rereads the pointer at most every 30 s, and it switches only to a slot whose own `data_meta` is sealed for the build the pointer names; until then it keeps serving the slot it had. A flip therefore reaches every request within 30 s, and each lookup or search is answered whole from one slot or the other.
 
-`/v1/search` reads a full-text index that a reset creates empty and every load rebuilds. After seeding a slot that holds orgs, rebuild its index with `pnpm db:search-index:local <slot>` before sealing it.
+`/v1/search` reads a full-text index that a reset creates empty and `irs refresh` rebuilds once, after its last load; a local load run rebuilds it too. After seeding a slot that holds orgs, rebuild its index with `pnpm db:search-index:local <slot>` before sealing it.
 
 A request with no `Authorization` header is served keyless: 5 requests per UTC day and 1 per minute per client. A client is its IP from `CF-Connecting-IP` (an IPv6 address counts as its /64), plus the `CF-Worker` zone when another zone's Worker sent the request. It is stored only as an HMAC keyed by the `IP_HASH_SECRET` secret, never the raw IP. Worker-hosted integrators should use a key: requests from other zones' Workers may all reach us from one Cloudflare IP. A key lifts the keyless limits, sent as `Authorization: Bearer <key>`; a malformed, unknown or revoked key is a 401, never served keyless. Keys are issued and revoked through the Worker's admin endpoints, with `ADMIN_TOKEN` read from `.dev.vars`:
 
@@ -90,28 +90,42 @@ npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp --method too
 
 ## Import
 
-`irs refresh` builds a whole new generation of the IRS data into the data DB the Worker isn't serving, checks it, and serves it; `irs rollback` serves the previous one again. Local by default, `--remote` for the deployed databases:
+`irs refresh` builds a whole new generation of the IRS data into the data DB the Worker isn't serving, checks it, and serves it; `irs rollback` serves the previous one again. Local by default, `--remote` for the deployed databases, `--persist-to <dir>` for local D1 state outside wrangler's default:
 
 ```sh
 pnpm --filter @nonprofits/import irs refresh             # every source: ~10 GB of downloads, about an hour
 pnpm --filter @nonprofits/import irs refresh --efile-batch 2026_TEOS_XML_03A   # local only: e-file from these batches alone
 pnpm --filter @nonprofits/import irs rollback
+pnpm --filter @nonprofits/import irs release [--build <id>]   # clear a claim a dead build left
 ```
 
 A refresh logs one line per step, with its time:
 
-1. Claim the slot not served in `APP_DB`'s `data_generation`; refused while another build's claim runs.
-2. Reset that slot's database empty (`resetGenerationSql`), its `data_meta` saying `building`. Within 60 s of the last flip it waits first: Worker isolates cache the pointer for 30 s, so the slot a flip left may still be served.
-3. Load bmf, pub78, revocation, epostcard and efile (the full run), in that order. Each streams into its own SQL file under `load/` and is applied with one `wrangler d1 execute --file`, holding its own floors first: a drifted layout or a short count aborts before the apply.
-4. Rebuild the search index, once.
-5. Verify: `data_meta` names this slot and build; orgs, filings and programs each within ±10% of the served generation (skipped while none is served yet); Red Cross (530196605) present with a mission; one search index row per named org; no row without an EIN.
-6. Seal the slot (read-only until its next reset), then flip the pointer to it, a compare-and-set that fails if the pointer moved during the run. Each Worker isolate picks it up within 30 s.
+1. Wait until the last flip is 60 s old: Worker isolates cache the pointer for 30 s, so the slot a flip left may still be served until then, and `APP_DB` refuses a claim on it sooner.
+2. Claim the slot not served in `APP_DB`'s `data_generation`; refused while another build's claim runs.
+3. Reset that slot's database empty (`resetGenerationSql`), its `data_meta` saying `building`.
+4. Load bmf, pub78, revocation, epostcard and efile (the full run), in that order. Each streams into its own SQL file under `load/` and is applied with one `wrangler d1 execute --file`, holding its own floors first: a drifted layout or a short count aborts before the apply.
+5. Rebuild the search index, once.
+6. Verify, one query per check, each logged with its time:
+   - `data_meta` names this slot and build;
+   - each table holds at least its floor: 2,948,000 orgs (90% of the October 2026 build), 684,000 filings (90% of the 760,592 latest filings a full run selects) and 750,000 programs (80% of ~939,500, extrapolated from batch 2026_TEOS_XML_03A). These are what a first build, with nothing served to compare, is held to;
+   - orgs, filings and programs each within ±10% of the served generation, skipped while none is served yet;
+   - Red Cross (530196605) present with a mission;
+   - one search index row per named org;
+   - no row without an EIN.
+7. Seal the slot (read-only until its next reset), then flip the pointer to it, a compare-and-set that fails if the pointer moved during the run. Each Worker isolate picks it up within 30 s. A flip whose answer is lost is read back from the pointer before it is reported either way.
 
-Any failure exits 1 with the pointer unchanged and the claim released, leaving the slot as it stopped (`building`) for inspection; the Worker keeps serving the previous generation. `APP_DB` only ever gets `--command`: `--file` goes through D1's import API, which blocks its database for the whole import.
+Any failure exits 1 with the pointer unchanged and the claim released; the Worker keeps serving the previous generation. The slot stays as the failure left it, for inspection until the next refresh resets it: `building` when the run stopped before the seal, or sealed `complete` but never served when the flip itself failed. `APP_DB` only ever gets `--command`: `--file` goes through D1's import API, which blocks its database for the whole import. Each wrangler command is killed after 10 min (a query) or 2 h (a load file). SIGINT or SIGTERM kills the running command, releases the claim, prints what the pointer serves, and exits 130 or 143.
 
-`irs rollback` flips back to the other slot while it still holds a complete generation, that is until the next refresh resets it. After that it exits 1 and prints the `wrangler d1 time-travel restore` for that slot's database, which brings back the generation from before the reset; run `irs rollback` again once restored. Exit codes: 0 done, 1 failed, 2 usage.
+`--efile-batch` builds a partial generation: it skips the filings and programs floors, and passes the ±10% check only against a served build made from the same batches. `refresh` refuses it with `--remote`.
 
-One source at a time is for development, local only, into a slot reset for it (the served slot only with `--force-active`); a sealed slot refuses every write. The search index is rebuilt after the run:
+`irs rollback` flips back to the other slot while it holds a complete generation that was served before: a build sealed after the pointer last moved never was, and rollback refuses it. Like a refresh, it waits until the last flip is 60 s old before claiming. Once a refresh has reset that slot, rollback exits 1 and prints the `wrangler d1 time-travel restore` for that slot's database, which brings back the generation from before the reset; run `irs rollback` again once restored.
+
+A build that died without releasing its claim (a killed runner) blocks every refresh until its lease runs out. `irs release` clears the claim and prints whose it was; `--build <id>` clears only that build's, and exits 1 when that build holds none. Release only a build that is no longer running: a running one would lose its flip while another build reset its slot.
+
+Exit codes: 0 done, 1 failed, 2 usage, 130/143 interrupted.
+
+One source at a time is for development, local only, into a slot reset for it, never the one served; a sealed slot refuses every write. The search index is rebuilt after the run:
 
 ```sh
 pnpm --filter @nonprofits/worker db:reset:local b       # claims slot b (it must not be the one served) and empties it

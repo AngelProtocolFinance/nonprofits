@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   claimSlotSql,
-  READ_ACTIVE_SLOT_SQL,
+  flipActiveSlotSql,
   READ_DATA_META_SQL,
   releaseClaimSql,
   resetGenerationSql,
@@ -12,7 +12,13 @@ import {
 import { type Zippable, zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { EFILE_FLOORS } from "./efile.ts";
-import { refresh, rollback } from "./generation.ts";
+import {
+  FLIP_SETTLE_MS,
+  refresh,
+  releaseClaim,
+  rollback,
+  type TableFloors,
+} from "./generation.ts";
 import type { SourceConfig } from "./sources.ts";
 import { migrateAppDb, type Route, serve } from "./test-support.ts";
 import { type D1Ops, localD1 } from "./wrangler.ts";
@@ -65,17 +71,38 @@ function sources(bmf: readonly string[] = BMF_FILES): SourceConfig {
   };
 }
 
-function run(options: { bmf?: readonly string[]; via?: D1Ops } = {}) {
+/** Floors the fixtures clear. */
+const FIXTURE_FLOORS: TableFloors = { orgs: 1, filings: 1, programs: 1 };
+
+function run(
+  options: { bmf?: readonly string[]; floors?: TableFloors; via?: D1Ops } = {},
+) {
   return refresh(options.via ?? ops, {
     sources: sources(options.bmf),
+    floors: options.floors ?? FIXTURE_FLOORS,
     loadDir: join(work, "load"),
     log: () => {},
   });
 }
 
+/** `ops`, but `onQuery` sees each query first and may answer it instead. */
+function intercepting(
+  onQuery: (sql: string) => Promise<unknown[] | undefined>,
+): D1Ops {
+  return {
+    remote: false,
+    applyFile: (binding, file) => ops.applyFile(binding, file),
+    async query<T>(binding: Parameters<D1Ops["query"]>[0], sql: string) {
+      const answer = await onQuery(sql);
+      return (answer as T[] | undefined) ?? ops.query<T>(binding, sql);
+    },
+  };
+}
+
 /** `ops`, keeping the text of every SQL file it applies in `applied`. */
 function recording(applied: string[]): D1Ops {
   return {
+    remote: false,
     async applyFile(binding, file) {
       applied.push(await readFile(file, "utf8"));
       await ops.applyFile(binding, file);
@@ -84,18 +111,36 @@ function recording(applied: string[]): D1Ops {
   };
 }
 
-/** Dates the last flip; a long-past one lets a refresh reset the slot it left straight away. */
-const setFlippedAt = (at: string) =>
+const isFlip = (sql: string) =>
+  sql.startsWith("UPDATE data_generation SET active");
+const isClaim = (sql: string) =>
+  sql.startsWith("UPDATE data_generation SET claim_slot =");
+
+/** Dates the last flip `ms` ago. */
+const setFlippedAgo = (ms: number) =>
   ops.query(
     "APP_DB",
-    `UPDATE data_generation SET flipped_at = '${at}' WHERE id = 1`,
+    `UPDATE data_generation SET flipped_at = '${new Date(Date.now() - ms).toISOString()}' WHERE id = 1`,
   );
-const LONG_AGO = "2000-01-01T00:00:00Z";
+/** Dates the last flip just past the settle, so a claim needn't wait for it. */
+const settleLastFlip = () => setFlippedAgo(FLIP_SETTLE_MS + 1_000);
 
 const pointer = () =>
   ops.query<{ active: string; build_id: string }>(
     "APP_DB",
-    READ_ACTIVE_SLOT_SQL,
+    "SELECT active, build_id FROM data_generation WHERE id = 1",
+  );
+const claimHolder = async () =>
+  (
+    await ops.query<{ claim_build_id: string | null }>(
+      "APP_DB",
+      "SELECT claim_build_id FROM data_generation WHERE id = 1",
+    )
+  )[0]?.claim_build_id;
+const meta = (binding: "DATA_DB_A" | "DATA_DB_B") =>
+  ops.query<{ slot: string; build_id: string; state: string }>(
+    binding,
+    READ_DATA_META_SQL,
   );
 
 beforeAll(async () => {
@@ -143,6 +188,17 @@ afterAll(async () => {
 describe("refresh and rollback", { timeout: 180_000 }, () => {
   const firstBuild: string[] = [];
 
+  test("a first build, with no served counts to compare, is held to the table floors", async () => {
+    await expect(
+      run({ floors: { orgs: 1_000_000, filings: 1, programs: 1 } }),
+    ).rejects.toThrow(
+      /verify failed.*orgs floor \(orgs: \d+, floor 1000000\)/s,
+    );
+
+    expect(await pointer()).toStrictEqual([{ active: "a", build_id: "empty" }]);
+    expect(await claimHolder()).toBeNull();
+  });
+
   test("refresh builds the inactive slot and points the Worker at it", async () => {
     const report = await run({ via: recording(firstBuild) });
 
@@ -150,7 +206,7 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
     expect(await pointer()).toStrictEqual([
       { active: "b", build_id: report.buildId },
     ]);
-    expect(await ops.query("DATA_DB_B", READ_DATA_META_SQL)).toStrictEqual([
+    expect(await meta("DATA_DB_B")).toStrictEqual([
       { slot: "b", build_id: report.buildId, state: "complete" },
     ]);
     expect(await ops.query("DATA_DB_B", RED_CROSS)).toStrictEqual([
@@ -189,28 +245,26 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
   });
 
   test("a refresh that fails verify leaves the pointer and the served Red Cross unchanged", async () => {
-    await setFlippedAt(LONG_AGO);
+    await settleLastFlip();
     const before = await pointer();
     const served = await ops.query("DATA_DB_B", RED_CROSS);
 
-    // three of the four BMF regions: far fewer orgs than the generation served
+    // the first of the four BMF region files only: far fewer orgs than the generation served
     await expect(run({ bmf: ["eo1.csv"] })).rejects.toThrow(
-      /verify failed.*orgs: \d+, served \d+/s,
+      /verify failed.*orgs vs served \(orgs: \d+, served \d+\)/s,
     );
 
     expect(await pointer()).toStrictEqual(before);
     expect(await ops.query("DATA_DB_B", RED_CROSS)).toStrictEqual(served);
-    expect(await ops.query("DATA_DB_A", READ_DATA_META_SQL)).toMatchObject([
+    expect(await meta("DATA_DB_A")).toMatchObject([
       { slot: "a", state: "building" },
     ]);
+    expect(await claimHolder()).toBeNull();
   });
 
   test("rollback refuses a slot whose build never completed, naming the Time Travel restore", async () => {
     const before = await pointer();
-    const [failed] = await ops.query<{ build_id: string }>(
-      "DATA_DB_A",
-      READ_DATA_META_SQL,
-    );
+    const [failed] = await meta("DATA_DB_A");
 
     await expect(rollback(ops)).rejects.toThrow(
       `wrangler d1 time-travel restore DATA_DB_A --timestamp=${failed?.build_id}`,
@@ -227,9 +281,10 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
 
     await expect(run()).rejects.toThrow("DATA_DB_A holds slot b's generation");
     expect(await pointer()).toStrictEqual(before);
-    expect(await ops.query("DATA_DB_A", READ_DATA_META_SQL)).toStrictEqual([
+    expect(await meta("DATA_DB_A")).toStrictEqual([
       { slot: "b", build_id: "served", state: "building" },
     ]);
+    expect(await claimHolder()).toBeNull();
   });
 
   test("a refresh refuses to start while another build holds the claim", async () => {
@@ -239,40 +294,62 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
     );
 
     await expect(run()).rejects.toThrow("another build holds its claim");
-    expect(await ops.query("DATA_DB_A", READ_DATA_META_SQL)).toStrictEqual([
+    expect(await meta("DATA_DB_A")).toStrictEqual([
       { slot: "b", build_id: "served", state: "building" },
     ]);
+    expect(await claimHolder()).toBe("elsewhere");
     await ops.query("APP_DB", releaseClaimSql("elsewhere"));
   });
 
-  test("a refresh resets the slot a flip left only after the Workers' 30 s pointer cache", async () => {
+  test("a claim whose answer is lost is released when the run fails", async () => {
+    const lost = intercepting(async (sql) => {
+      if (!isClaim(sql)) return undefined;
+      await ops.query("APP_DB", sql);
+      throw new Error("connection reset");
+    });
+
+    await expect(run({ via: lost })).rejects.toThrow("connection reset");
+    expect(await claimHolder()).toBeNull();
+  });
+
+  test("a refresh claims the slot a flip left only once FLIP_SETTLE_MS (60 s) have passed", async () => {
     // A back to what a failed build leaves, for the refresh to take
     const failed = join(work, "failed-a.sql");
     await writeFile(failed, resetGenerationSql("a", "failed"));
     await ops.applyFile("DATA_DB_A", failed);
-    const flippedAt = Date.now() - 5_000;
-    await setFlippedAt(new Date(flippedAt).toISOString());
-    let resetAt: number | undefined;
-    const timing: D1Ops = {
-      applyFile(binding, file) {
-        resetAt ??= Date.now();
-        return ops.applyFile(binding, file);
-      },
-      query: (binding, sql) => ops.query(binding, sql),
-    };
+    // 10 s short of the settle, so the refresh has to wait those out
+    const flippedAt = Date.now() - (FLIP_SETTLE_MS - 10_000);
+    await setFlippedAgo(FLIP_SETTLE_MS - 10_000);
+    let claimedAt: number | undefined;
+    const timing = intercepting(async (sql) => {
+      if (isClaim(sql)) claimedAt ??= Date.now();
+      return undefined;
+    });
 
     expect(await run({ via: timing })).toMatchObject({
       slot: "a",
       previous: "b",
     });
-    expect((resetAt ?? 0) - flippedAt).toBeGreaterThanOrEqual(30_000);
+    expect((claimedAt ?? 0) - flippedAt).toBeGreaterThanOrEqual(FLIP_SETTLE_MS);
+  });
+
+  test("a rollback whose flip fails releases its claim and leaves the pointer", async () => {
+    await settleLastFlip();
+    const before = await pointer();
+    const failing = intercepting(async (sql) => {
+      if (isFlip(sql)) throw new Error("connection reset");
+      return undefined;
+    });
+
+    await expect(rollback(failing)).rejects.toThrow(
+      /flip failed: connection reset; the pointer serves slot a/,
+    );
+    expect(await pointer()).toStrictEqual(before);
+    expect(await claimHolder()).toBeNull();
   });
 
   test("rollback flips back to the previous complete generation", async () => {
-    const [b] = await ops.query<{ build_id: string }>(
-      "DATA_DB_B",
-      READ_DATA_META_SQL,
-    );
+    const [b] = await meta("DATA_DB_B");
 
     expect(await rollback(ops)).toStrictEqual({
       from: "a",
@@ -284,26 +361,101 @@ describe("refresh and rollback", { timeout: 180_000 }, () => {
     ]);
   });
 
+  test("a flip whose answer is lost still reports the build served", async () => {
+    await settleLastFlip();
+    const lost = intercepting(async (sql) => {
+      if (!isFlip(sql)) return undefined;
+      await ops.query("APP_DB", sql);
+      throw new Error("connection reset");
+    });
+
+    const report = await run({ via: lost });
+
+    expect(await pointer()).toStrictEqual([
+      { active: "a", build_id: report.buildId },
+    ]);
+    expect(await claimHolder()).toBeNull();
+  });
+
+  test("a failed flip leaves the sealed build unserved, and rollback won't serve it", async () => {
+    await settleLastFlip();
+    const before = await pointer();
+    let buildId: string | undefined;
+    const failing = intercepting(async (sql) => {
+      if (isFlip(sql)) {
+        buildId = /build_id = '([^']+)'/.exec(sql)?.[1];
+        throw new Error("connection reset");
+      }
+      return undefined;
+    });
+
+    await expect(run({ via: failing })).rejects.toThrow(
+      /flip failed: connection reset; the pointer serves slot a/,
+    );
+    expect(await pointer()).toStrictEqual(before);
+    expect(await claimHolder()).toBeNull();
+    expect(await meta("DATA_DB_B")).toStrictEqual([
+      { slot: "b", build_id: buildId, state: "complete" },
+    ]);
+    await expect(rollback(ops)).rejects.toThrow(
+      `slot b's build ${buildId} was sealed`,
+    );
+    expect(await pointer()).toStrictEqual(before);
+  });
+
   test("the flip fails when the pointer moved during the run", async () => {
-    await setFlippedAt(LONG_AGO);
-    const interloping: D1Ops = {
-      applyFile: (binding, file) => ops.applyFile(binding, file),
-      async query(binding, sql) {
-        if (sql.startsWith("UPDATE data_meta SET state = 'complete'")) {
-          await ops.query(
-            "APP_DB",
-            `UPDATE data_generation SET active = 'a', build_id = 'elsewhere', claim_slot = NULL, claim_build_id = NULL, claimed_at = NULL, claim_expires_at = NULL WHERE id = 1`,
-          );
-        }
-        return ops.query(binding, sql);
-      },
-    };
+    await settleLastFlip();
+    const interloping = intercepting(async (sql) => {
+      if (sql.startsWith("UPDATE data_meta SET state = 'complete'")) {
+        // another run's flip lands first
+        await ops.query(
+          "APP_DB",
+          "UPDATE data_generation SET active = 'b', build_id = 'elsewhere', claim_slot = NULL, claim_build_id = NULL, claimed_at = NULL, claim_expires_at = NULL WHERE id = 1",
+        );
+      }
+      return undefined;
+    });
 
     await expect(run({ via: interloping })).rejects.toThrow(
-      "the pointer moved off slot b",
+      "the pointer moved off slot a",
     );
     expect(await pointer()).toStrictEqual([
-      { active: "a", build_id: "elsewhere" },
+      { active: "b", build_id: "elsewhere" },
     ]);
+  });
+
+  test("release clears a stuck claim, only the named build's when one is named", async () => {
+    await settleLastFlip();
+    await ops.query(
+      "APP_DB",
+      claimSlotSql("a", "stuck", new Date().toISOString()),
+    );
+
+    expect(await releaseClaim(ops, "other")).toBeNull();
+    expect(await claimHolder()).toBe("stuck");
+    expect(await releaseClaim(ops)).toMatchObject({
+      claim_slot: "a",
+      claim_build_id: "stuck",
+    });
+    expect(await claimHolder()).toBeNull();
+    expect(await releaseClaim(ops)).toBeNull();
+  });
+
+  test("a remote refresh refuses an e-file batch run before touching D1", async () => {
+    const untouched: D1Ops = {
+      remote: true,
+      applyFile: () => Promise.reject(new Error("applied a file")),
+      query: () => Promise.reject(new Error("ran a query")),
+    };
+    const partial = sources();
+    partial.efile.batches = ["2026_TEOS_XML_03A"];
+
+    await expect(
+      refresh(untouched, {
+        sources: partial,
+        floors: FIXTURE_FLOORS,
+        loadDir: join(work, "load"),
+      }),
+    ).rejects.toThrow("partial generation, which is local only");
   });
 });

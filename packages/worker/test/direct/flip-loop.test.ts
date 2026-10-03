@@ -53,9 +53,17 @@ afterAll(async () => {
 
 const T0 = Date.parse("2026-10-03T12:00:00Z");
 
-/** Flips from `from` to the other slot, sealed for `buildId`. The rollback from b claims a first; b was claimed when it was built. */
-async function flip(from: DataSlot, to: DataSlot, buildId: string) {
-  const at = new Date().toISOString();
+/**
+ * Flips from `from` to the other slot, sealed for `buildId`, stamped
+ * `flippedAt`. The rollback from b claims a first; b was claimed when it was built.
+ */
+async function flip(
+  from: DataSlot,
+  to: DataSlot,
+  buildId: string,
+  flippedAt: Date,
+) {
+  const at = flippedAt.toISOString();
   if (from === "b") {
     await env.APP_DB.prepare(claimSlotSql(to, buildId, at)).run();
   }
@@ -67,9 +75,13 @@ async function flip(from: DataSlot, to: DataSlot, buildId: string) {
 
 test("a lookup a second across a flip and a rollback: never a failure, every flip served within 30 s", async () => {
   const served: string[] = [];
+  // the rollback's claim is checked against the database's clock, 60 s after
+  // the flip it undoes, so that flip is stamped 2 min back in real time
   for (let second = 0; second < 120; second++) {
-    if (second === 20) await flip("a", "b", "build-b");
-    if (second === 70) await flip("b", "a", "build-a");
+    if (second === 20) {
+      await flip("a", "b", "build-b", new Date(Date.now() - 120_000));
+    }
+    if (second === 70) await flip("b", "a", "build-a", new Date());
     const caller: Caller = {
       env,
       now: new Date(T0 + second * 1000),

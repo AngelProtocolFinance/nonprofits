@@ -197,7 +197,7 @@ describe("the active-slot pointer", () => {
     const db = await appDb();
 
     expect(db.prepare(READ_ACTIVE_SLOT_SQL).all()).toEqual([
-      { active: "a", build_id: "empty" },
+      { active: "a", build_id: "empty", flipped_at: "1970-01-01T00:00:00Z" },
     ]);
     expect(claimOf(db)).toEqual(NO_CLAIM);
   });
@@ -263,6 +263,34 @@ describe("claimSlotSql", () => {
   });
 });
 
+describe("claimSlotSql after a flip", () => {
+  /** An app DB whose last flip, to b, was `secondsAgo` before the database's own clock. */
+  async function flippedAgo(secondsAgo: number): Promise<DatabaseSync> {
+    const db = await appDb();
+    db.prepare(claimSlotSql("b", "build-1", "2026-10-03T05:00:00Z")).all();
+    const at = new Date(Date.now() - secondsAgo * 1000).toISOString();
+    db.prepare(flipActiveSlotSql("a", "build-1", at)).all();
+    return db;
+  }
+
+  // the claim's own `at` says the flip is long past: the database's clock decides
+  const LATER = "2099-01-01T00:00:00Z";
+
+  test("refuses the slot the flip left while Workers may still serve it", async () => {
+    const db = await flippedAgo(50);
+
+    expect(db.prepare(claimSlotSql("a", "build-2", LATER)).all()).toEqual([]);
+  });
+
+  test("claims the slot the flip left once 60 s have passed", async () => {
+    const db = await flippedAgo(70);
+
+    expect(db.prepare(claimSlotSql("a", "build-2", LATER)).all()).toMatchObject(
+      [{ claim_slot: "a", claim_build_id: "build-2" }],
+    );
+  });
+});
+
 describe("releaseClaimSql", () => {
   test("frees the claim only for the build holding it", async () => {
     const db = await appDb();
@@ -290,7 +318,7 @@ describe("flipActiveSlotSql", () => {
       { active: "b", build_id: "build-1", flipped_at: "2026-10-03T06:00:00Z" },
     ]);
     expect(db.prepare(READ_ACTIVE_SLOT_SQL).all()).toEqual([
-      { active: "b", build_id: "build-1" },
+      { active: "b", build_id: "build-1", flipped_at: "2026-10-03T06:00:00Z" },
     ]);
     expect(claimOf(db)).toEqual(NO_CLAIM);
   });
@@ -308,7 +336,7 @@ describe("flipActiveSlotSql", () => {
 
     expect([unclaimed, anothers]).toEqual([[], []]);
     expect(db.prepare(READ_ACTIVE_SLOT_SQL).all()).toEqual([
-      { active: "a", build_id: "empty" },
+      { active: "a", build_id: "empty", flipped_at: "1970-01-01T00:00:00Z" },
     ]);
   });
 
@@ -324,7 +352,7 @@ describe("flipActiveSlotSql", () => {
 
     expect(stale).toEqual([]);
     expect(db.prepare(READ_ACTIVE_SLOT_SQL).all()).toEqual([
-      { active: "b", build_id: "build-1" },
+      { active: "b", build_id: "build-1", flipped_at: "2026-10-03T06:00:00Z" },
     ]);
   });
 });

@@ -1,4 +1,5 @@
-// Local data slots for `wrangler dev`: `node scripts/local-data.ts <command> <a|b>`.
+// Local data slots for `wrangler dev`:
+// `node scripts/local-data.ts <command> <a|b> [--persist-to <dir>]`.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
@@ -16,6 +17,17 @@ import {
 const COMMANDS = ["reset", "seed", "search-index", "seal", "flip"] as const;
 type Command = (typeof COMMANDS)[number];
 
+/**
+ * A local build is seconds of fixture rows, so an abandoned one's claim lapses
+ * soon instead of blocking a local `irs refresh` for the full lease.
+ */
+const LOCAL_CLAIM_LEASE_SECONDS = 10 * 60;
+
+/** Whole seconds: the claim's expiry is stored to the second. */
+function now(): string {
+  return new Date().toISOString().replace(/\.\d+Z$/, "Z");
+}
+
 function wrangler(args: string[]): string {
   return execFileSync("wrangler", args, {
     encoding: "utf8",
@@ -24,7 +36,7 @@ function wrangler(args: string[]): string {
 }
 
 function executeFile(binding: string, file: string): void {
-  wrangler(["d1", "execute", binding, "--local", "--file", file]);
+  wrangler(["d1", "execute", binding, ...local, "--file", file]);
 }
 
 function executeSql(binding: string, name: string, sql: string): void {
@@ -39,7 +51,7 @@ function query<T>(binding: string, sql: string): T[] {
     "d1",
     "execute",
     binding,
-    "--local",
+    ...local,
     "--json",
     "--command",
     sql,
@@ -77,7 +89,8 @@ function meta(slot: DataSlot): { build_id: string; state: string } {
  * released rather than waited out.
  */
 function reset(slot: DataSlot): void {
-  const buildId = `local-${new Date().toISOString()}`;
+  const at = now();
+  const buildId = `local-${at}`;
   const { claim_slot, claim_build_id } = pointer();
   if (claim_slot === slot && claim_build_id !== null) {
     query("APP_DB", releaseClaimSql(claim_build_id));
@@ -85,10 +98,12 @@ function reset(slot: DataSlot): void {
   }
   const claimed = query(
     "APP_DB",
-    claimSlotSql(slot, buildId, new Date().toISOString()),
+    claimSlotSql(slot, buildId, at, LOCAL_CLAIM_LEASE_SECONDS),
   );
   if (claimed.length === 0) {
-    throw new Error(`slot ${slot} is the one being served: reset the other`);
+    throw new Error(
+      `slot ${slot} can't be claimed: it is served, another build holds it, or a flip left it under 60 s ago`,
+    );
   }
   executeSql(
     DATA_DB_BINDING[slot],
@@ -125,15 +140,14 @@ function flip(slot: DataSlot): void {
   }
   if (
     claim_build_id !== build_id &&
-    query("APP_DB", claimSlotSql(slot, build_id, new Date().toISOString()))
-      .length === 0
+    query(
+      "APP_DB",
+      claimSlotSql(slot, build_id, now(), LOCAL_CLAIM_LEASE_SECONDS),
+    ).length === 0
   ) {
     throw new Error(`build ${claim_build_id} holds slot ${slot}`);
   }
-  const flipped = query(
-    "APP_DB",
-    flipActiveSlotSql(active, build_id, new Date().toISOString()),
-  );
+  const flipped = query("APP_DB", flipActiveSlotSql(active, build_id, now()));
   if (flipped.length === 0)
     throw new Error("the pointer moved during the flip");
   console.log(`serving slot ${slot} (build ${build_id})`);
@@ -160,11 +174,19 @@ function run(command: Command, slot: DataSlot): void {
   }
 }
 
-const [command, slot] = process.argv.slice(2);
-if (!COMMANDS.includes(command as Command) || (slot !== "a" && slot !== "b")) {
-  console.error(`usage: local-data.ts <${COMMANDS.join("|")}> <a|b>`);
+const [command, slot, ...options] = process.argv.slice(2);
+const persistTo = options[0] === "--persist-to" ? options[1] : undefined;
+if (
+  !COMMANDS.includes(command as Command) ||
+  (slot !== "a" && slot !== "b") ||
+  options.length !== (persistTo === undefined ? 0 : 2)
+) {
+  console.error(
+    `usage: local-data.ts <${COMMANDS.join("|")}> <a|b> [--persist-to <dir>]`,
+  );
   process.exit(2);
 }
+const local = ["--local", ...(persistTo ? ["--persist-to", persistTo] : [])];
 try {
   run(command as Command, slot);
 } catch (error) {

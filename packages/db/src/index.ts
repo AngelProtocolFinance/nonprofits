@@ -5,6 +5,7 @@ export {
   type DataSlot,
   flipActiveSlotSql,
   otherSlot,
+  POINTER_TTL_MS,
   READ_ACTIVE_SLOT_SQL,
   READ_DATA_META_SQL,
   releaseClaimSql,
