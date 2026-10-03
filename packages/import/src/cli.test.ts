@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,6 +56,28 @@ function irs(
   });
 }
 
+const pointer = () =>
+  ops.query<{ active: string; build_id: string; flipped_at: string }>(
+    "APP_DB",
+    "SELECT active, build_id, flipped_at FROM data_generation WHERE id = 1",
+  );
+
+/** The command lines of the processes running now. */
+function processes(): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    execFile("ps", ["-eo", "args="], (error, stdout) =>
+      error === null ? resolve(stdout.split("\n")) : reject(error),
+    );
+  });
+}
+
+/** Wrangler commands of this file's state that are running the rollback's flip. */
+async function runningFlips(): Promise<string[]> {
+  return (await processes()).filter(
+    (args) => args.includes(persistTo) && args.includes("SET active ="),
+  );
+}
+
 const claimHolder = async () =>
   (
     await ops.query<{ claim_build_id: string | null }>(
@@ -104,7 +126,9 @@ describe("irs", { timeout: 90_000 }, () => {
     );
   });
 
-  test("SIGINT after the claim stops the run, releases the claim and exits 130", async () => {
+  test("SIGINT after the claim stops the run, releases the claim, leaves the pointer and the flip dead, and exits 130", async () => {
+    const before = await pointer();
+
     const exit = await irs(["rollback"], "claimed slot");
 
     expect(exit.code).toBe(130);
@@ -114,14 +138,13 @@ describe("irs", { timeout: 90_000 }, () => {
       /serving slot [ab] \(build|stop cut off after 7 s/,
     );
     expect(await claimHolder()).toBeNull();
+    // the flip was under way when the signal came: killed, it never landed
+    expect(await runningFlips()).toStrictEqual([]);
+    expect(await pointer()).toStrictEqual(before);
   });
 
   test("a SIGTERM a second into the SIGINT's cleanup waits for it: the claim is released, exit 130", async () => {
-    // serving slot a again, whether or not the interrupted rollback flipped
-    await ops.query(
-      "APP_DB",
-      "UPDATE data_generation SET active = 'a', build_id = 'empty', flipped_at = '2000-01-03T00:00:00Z' WHERE id = 1",
-    );
+    const before = await pointer();
 
     const exit = await irs(["rollback"], "claimed slot", 1_000);
 
@@ -129,14 +152,11 @@ describe("irs", { timeout: 90_000 }, () => {
     expect(exit.stderr).toContain("released build old's claim");
     expect(exit.stderr).not.toContain("could not release");
     expect(await claimHolder()).toBeNull();
+    expect(await runningFlips()).toStrictEqual([]);
+    expect(await pointer()).toStrictEqual(before);
   });
 
   test("release clears a stuck claim and says whose", async () => {
-    // the interrupted rollback may have flipped; date that flip past the settle
-    await ops.query(
-      "APP_DB",
-      "UPDATE data_generation SET flipped_at = '2000-01-03T00:00:00Z' WHERE id = 1",
-    );
     const [{ active } = { active: "a" }] = await ops.query<{ active: string }>(
       "APP_DB",
       "SELECT active FROM data_generation WHERE id = 1",

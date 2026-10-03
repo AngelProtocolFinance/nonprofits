@@ -29,4 +29,5 @@ Worker tests come in two tiers:
 - `server.getLogs()` has no flush barrier: wrap log assertions in `vi.waitFor` and filter by `event`.
 - Wrangler prints a proxy warning on stderr in this environment, so never assert on the whole of stderr.
 - `scripts/local-data.ts` writes `.wrangler/<name>.sql` under the worker package, so its tests live in one file to avoid racing on it.
-- The import's refresh tests spawn real `wrangler d1 execute --local` many times each; the remote path is tested through the injectable runner (`localD1` / `remoteD1` take a `run`).
+- The import's refresh and verify tests run on in-memory SQLite through `sqliteWrangler()` (`packages/import/src/test-support.ts`), which stands in for the wrangler process only; one real-wrangler refresh and rollback stay. Process behaviour (timeouts, kills, argv, JSON output) is tested against `fixtures/fake-wrangler.mjs` behind a mocked `execFile`.
+- A refresh's build id is its start time to the second, so a test that runs two builds fakes `Date`.

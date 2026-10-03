@@ -19,6 +19,13 @@ const FIXTURE_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
 const FIXTURE_ROWS = [62, 61, 60, 62];
 const FIXTURE_ORGS = 245;
 const RELEASED = "Mon, 07 Sep 2026 04:11:46 GMT";
+/** Each region file's own Last-Modified, as the IRS stamps them as it publishes them one by one. */
+const RELEASES = [
+  "Mon, 07 Sep 2026 04:11:46 GMT",
+  "Mon, 07 Sep 2026 04:13:02 GMT",
+  "Tue, 08 Sep 2026 05:20:10 GMT",
+  "Wed, 09 Sep 2026 06:31:55 GMT",
+];
 const LATEST_BMF_RUNS =
   "SELECT id FROM import_runs WHERE source = 'bmf' ORDER BY id DESC LIMIT 4";
 
@@ -79,8 +86,11 @@ function query<T>(sql: string): Promise<T[]> {
 
 beforeAll(async () => {
   const routes = new Map<string, Route>();
-  for (const name of FIXTURE_FILES) {
-    routes.set(`/${name}`, await readFile(new URL(name, FIXTURES), "utf8"));
+  for (const [i, name] of FIXTURE_FILES.entries()) {
+    routes.set(`/${name}`, {
+      body: await readFile(new URL(name, FIXTURES), "utf8"),
+      lastModified: RELEASES[i] ?? RELEASED,
+    });
   }
   const eo4 = await readFile(new URL("eo4.csv", FIXTURES), "utf8");
   routes.set("/drift/eo4.csv", eo4.replace(",NTEE_CD,", ",NTEE_CODE,"));
@@ -107,6 +117,7 @@ beforeAll(async () => {
     if (requests.flaky === 1) res.writeHead(503).end();
     else res.writeHead(200, { "last-modified": RELEASED }).end(eo4);
   });
+  routes.set("/undated/eo4.csv", { body: eo4, lastModified: null });
   routes.set("/forbidden/eo4.csv", (res) => {
     requests.forbidden++;
     res.writeHead(403).end();
@@ -157,7 +168,7 @@ describe("importBmf", { timeout: 60_000 }, () => {
     expect(rows).toStrictEqual([{ city: "COTE D'IVOIRE" }]);
   });
 
-  test("records one bmf run per file, released at its Last-Modified, owning its orgs", async () => {
+  test("records one bmf run per file, released at that file's own Last-Modified, owning its orgs", async () => {
     const rows = await query(
       `SELECT r.source, r.file_url, r.released_at, r.row_count,
         (SELECT count(*) FROM orgs WHERE bmf_run_id = r.id) AS orgs
@@ -167,7 +178,7 @@ describe("importBmf", { timeout: 60_000 }, () => {
       FIXTURE_ROWS.map((count, i) => ({
         source: "bmf",
         file_url: urls(FIXTURE_FILES)[i],
-        released_at: "2026-09-07T04:11:46.000Z",
+        released_at: new Date(RELEASES[i] ?? "").toISOString(),
         row_count: count,
         orgs: count,
       })),
@@ -236,6 +247,20 @@ describe("importBmf", { timeout: 60_000 }, () => {
       `BMF download failed: ${base}/forbidden/eo4.csv: HTTP 403`,
     );
     expect(requests.forbidden).toBe(1);
+    expect(await counts()).toStrictEqual(before);
+  });
+
+  test("aborts on a file answered without a Last-Modified, loading nothing", async () => {
+    const before = await counts();
+
+    await expect(
+      importFixture(
+        ["eo1.csv", "eo2.csv", "eo3.csv", "undated/eo4.csv"],
+        "undated.load.sql",
+      ),
+    ).rejects.toThrow(
+      `BMF download failed: ${base}/undated/eo4.csv: no Last-Modified header`,
+    );
     expect(await counts()).toStrictEqual(before);
   });
 

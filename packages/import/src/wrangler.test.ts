@@ -4,8 +4,11 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { quickRetry } from "./test-support.ts";
 import {
+  APPLY_TIMEOUT_MS,
+  ImportMayBeRunning,
+  localD1,
+  QUERY_TIMEOUT_MS,
   remoteD1,
-  stopWrangler,
   type WranglerRun,
   wrangler,
 } from "./wrangler.ts";
@@ -31,19 +34,22 @@ afterAll(async () => {
   if (persistTo) await rm(persistTo, { recursive: true, force: true });
 });
 
-/** A runner answering each call from `outputs` in turn, recording the args it was given. */
+/** A runner answering each call from `outputs` in turn, recording the args and timeout it was given. */
 function scripted(...outputs: (string | Error)[]): WranglerRun & {
   calls: string[][];
+  timeouts: number[];
 } {
   const calls: string[][] = [];
-  const run = async (args: readonly string[]) => {
+  const timeouts: number[] = [];
+  const run = async (args: readonly string[], timeoutMs: number) => {
     calls.push([...args]);
+    timeouts.push(timeoutMs);
     const next = outputs.shift();
     if (next === undefined) throw new Error("no output scripted");
     if (next instanceof Error) throw next;
     return next;
   };
-  return Object.assign(run, { calls });
+  return Object.assign(run, { calls, timeouts });
 }
 
 const ROWS = JSON.stringify([{ results: [{ n: 1 }], success: true }]);
@@ -72,6 +78,68 @@ describe("remoteD1", () => {
         "SELECT n FROM t",
       ],
     ]);
+    expect(run.timeouts).toStrictEqual([QUERY_TIMEOUT_MS]);
+  });
+
+  test("applies a file with --file, under the apply timeout", async () => {
+    const run = scripted("applied");
+
+    await remoteD1({ run }).applyFile("DATA_DB_B", "/load/efile.load.sql");
+
+    expect(run.calls).toStrictEqual([
+      [
+        "d1",
+        "execute",
+        "DATA_DB_B",
+        "--remote",
+        "--yes",
+        "--file",
+        "/load/efile.load.sql",
+      ],
+    ]);
+    expect(run.timeouts).toStrictEqual([APPLY_TIMEOUT_MS]);
+  });
+
+  test.each([
+    ["timed out", "wrangler d1 execute timed out after 7200000 ms"],
+    ["was stopped", "wrangler d1 execute stopped"],
+    [
+      "lost its API polling",
+      "wrangler d1 execute failed:\n✘ [ERROR] A request to the Cloudflare API (/accounts/x/d1/database/y/import) failed.",
+    ],
+    ["lost the network", "wrangler d1 execute failed:\n✘ [ERROR] fetch failed"],
+  ])("an apply that %s may still be importing", async (_, failure) => {
+    const run = scripted(new Error(failure));
+
+    const error = await remoteD1({ run })
+      .applyFile("DATA_DB_A", "x.sql")
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ImportMayBeRunning);
+    expect(error).toMatchObject({ binding: "DATA_DB_A", message: failure });
+  });
+
+  test("an apply whose SQL failed has ended, and fails as wrangler said", async () => {
+    const failure =
+      "wrangler d1 execute failed: UNIQUE constraint failed: orgs.ein: SQLITE_CONSTRAINT";
+    const run = scripted(new Error(failure));
+
+    const error = await remoteD1({ run })
+      .applyFile("DATA_DB_A", "x.sql")
+      .catch((e: unknown) => e);
+
+    expect(error).not.toBeInstanceOf(ImportMayBeRunning);
+    expect(error).toMatchObject({ message: failure });
+  });
+
+  test("a local apply that lost the network is not a remote import still running", async () => {
+    const run = scripted(new Error("wrangler d1 execute failed: fetch failed"));
+
+    const error = await localD1("/state", { run })
+      .applyFile("DATA_DB_A", "x.sql")
+      .catch((e: unknown) => e);
+
+    expect(error).not.toBeInstanceOf(ImportMayBeRunning);
   });
 
   test("retries a read that failed transiently, saying so", async () => {
@@ -142,15 +210,47 @@ describe("remoteD1", () => {
   });
 });
 
+describe("localD1", () => {
+  test("queries the state under persistTo, as JSON", async () => {
+    const run = scripted(ROWS);
+
+    await localD1("/state", { run }).query("APP_DB", "SELECT 1");
+
+    expect(run.calls).toStrictEqual([
+      [
+        "d1",
+        "execute",
+        "APP_DB",
+        "--local",
+        "--persist-to",
+        "/state",
+        "--json",
+        "--command",
+        "SELECT 1",
+      ],
+    ]);
+  });
+
+  test("reads wrangler's default state without a persistTo", async () => {
+    const run = scripted(ROWS);
+
+    await localD1(undefined, { run }).query("APP_DB", "SELECT 1");
+
+    expect(run.calls[0]).toStrictEqual([
+      "d1",
+      "execute",
+      "APP_DB",
+      "--local",
+      "--json",
+      "--command",
+      "SELECT 1",
+    ]);
+  });
+});
+
 describe("wrangler", { timeout: 60_000 }, () => {
   test("runs a command to its output", async () => {
     expect(await wrangler(select(), 60_000)).toContain('"1": 1');
-  });
-
-  test("kills a command that outlives its timeout", async () => {
-    await expect(wrangler(select(), 200)).rejects.toThrow(
-      "wrangler d1 execute timed out after 200 ms",
-    );
   });
 
   test("a failure names the JSON error first, then stderr and stdout", async () => {
@@ -169,26 +269,5 @@ describe("wrangler", { timeout: 60_000 }, () => {
     } finally {
       vi.unstubAllEnvs();
     }
-  });
-
-  // last: a stop leaves the module refusing every call but its cleanup's
-  test("stopWrangler kills the running command, refuses the run's next one, then runs its cleanup alone", async () => {
-    const running = wrangler(select(), 60_000);
-    const stopped = expect(running).rejects.toThrow(
-      "wrangler d1 execute stopped",
-    );
-
-    let killed: readonly (readonly string[])[] = [];
-    const cleaned = await stopWrangler((commands) => {
-      killed = commands;
-      return wrangler(select(), 60_000);
-    });
-
-    await stopped;
-    expect(killed).toStrictEqual([select()]);
-    expect(cleaned).toContain('"1": 1');
-    await expect(wrangler(select(), 60_000)).rejects.toThrow(
-      "wrangler d1 execute stopped",
-    );
   });
 });

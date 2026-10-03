@@ -21,6 +21,12 @@ const BMF_FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
 const BMF_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
 const LIST_FIXTURES = new URL("../fixtures/lists/", import.meta.url);
 const RELEASED = "Thu, 10 Sep 2026 09:18:37 GMT";
+/** Each list's own Last-Modified: the IRS publishes the three files separately. */
+const RELEASES = {
+  pub78: RELEASED,
+  revocation: "Fri, 11 Sep 2026 07:02:15 GMT",
+  epostcard: "Sat, 12 Sep 2026 03:44:59 GMT",
+};
 /** Rows in each list fixture. */
 const FIXTURE_ROWS = { pub78: 122, revocation: 31, epostcard: 95 };
 /** EINs each list's second run drops: its first, one inside, and its last. */
@@ -54,7 +60,10 @@ beforeAll(async () => {
     routes.set(`/${name}`, await readFile(new URL(name, BMF_FIXTURES), "utf8"));
   }
   for (const list of ["pub78", "revocation", "epostcard"] as const) {
-    routes.set(`/${list}.zip`, zipped(list, await fixtureText(list)));
+    routes.set(`/${list}.zip`, {
+      body: zipped(list, await fixtureText(list)),
+      lastModified: RELEASES[list],
+    });
   }
   const revocation = await fixtureText("revocation");
   const [older = "", newer = ""] = revocation
@@ -85,6 +94,10 @@ beforeAll(async () => {
   routes.set("/cut/pub78.zip", (res) => {
     res.writeHead(200, { "last-modified": RELEASED });
     res.end(pub78.subarray(0, pub78.length / 2));
+  });
+  routes.set("/undated/pub78.zip", { body: pub78, lastModified: null });
+  routes.set("/forbidden/pub78.zip", (res) => {
+    res.writeHead(403).end();
   });
   routes.set(
     "/page/pub78.zip",
@@ -332,7 +345,7 @@ describe("after the BMF and all three lists are imported", {
       (["pub78", "revocation", "epostcard"] as const).map((list) => ({
         source: list,
         file_url: `${base}/${list}.zip`,
-        released_at: "2026-09-10T09:18:37.000Z",
+        released_at: new Date(RELEASES[list]).toISOString(),
         row_count: FIXTURE_ROWS[list],
       })),
     );
@@ -374,6 +387,28 @@ describe("after the BMF and all three lists are imported", {
       expect(await counts(d1)).toStrictEqual(before);
     },
   );
+
+  test("a file answered without a Last-Modified aborts, loading nothing", async () => {
+    const before = await counts(d1);
+    await expect(
+      loadList(d1, "pub78", { path: "/undated/pub78.zip" }),
+    ).rejects.toThrow(
+      `Pub 78 download failed: ${base}/undated/pub78.zip: no Last-Modified header`,
+    );
+    expect(await counts(d1)).toStrictEqual(before);
+  });
+
+  test("a file answered 403 aborts at once, without retrying, loading nothing", async () => {
+    const before = await counts(d1);
+    const retry = quickRetry();
+    await expect(
+      loadList(d1, "pub78", { path: "/forbidden/pub78.zip", retry }),
+    ).rejects.toThrow(
+      `Pub 78 download failed: ${base}/forbidden/pub78.zip: HTTP 403`,
+    );
+    expect(retry.lines).toStrictEqual([]);
+    expect(await counts(d1)).toStrictEqual(before);
+  });
 
   test("a row whose EIN isn't 9 digits aborts, loading nothing", async () => {
     const before = await counts(d1);

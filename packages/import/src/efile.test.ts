@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { access, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -234,6 +235,40 @@ beforeAll(async () => {
         : index,
     );
   }
+  // the Red Cross's return with a schedule after its form that is never closed and, incompressible, spans
+  // many of the zip's chunks: reading it through would reject the return as unreadable
+  const redCross = (await fixture(`xml/${RED_CROSS_990}_public.xml`)).toString(
+    "utf8",
+  );
+  const padded = redCross.replace(
+    "</IRS990>",
+    `</IRS990><IRS990ScheduleO><Explanation>${randomBytes(600_000).toString("base64")}`,
+  );
+  for (const year of YEARS) {
+    routes.set(
+      `/padded/${year}/index_${year}.csv`,
+      await fixture(`index_${year}.csv`),
+    );
+  }
+  routes.set(
+    "/padded/2026/2026_TEOS_XML_03A.zip",
+    zip({
+      [`${RED_CROSS_990}_public.xml`]: Buffer.from(padded),
+      [`${PF}_public.xml`]: await fixture(`xml/${PF}_public.xml`),
+    }),
+  );
+  // the 2026 index with one EIN cut to 8 digits; the 990-PF the index lists as a 990-EZ
+  for (const year of YEARS) {
+    const index = (await fixture(`index_${year}.csv`)).toString("utf8");
+    routes.set(
+      `/layout-drift/${year}/index_${year}.csv`,
+      year === 2026 ? index.replace(",203349625,", ",20334962,") : index,
+    );
+    routes.set(
+      `/form-mismatch/${year}/index_${year}.csv`,
+      index.replace(",990PF,93491013000136,", ",990EZ,93491013000136,"),
+    );
+  }
   const cents = (await fixture(`xml/${DELTA_TRITON_NEW}_public.xml`))
     .toString("utf8")
     .replace("<CYTotalRevenueAmt>42888<", "<CYTotalRevenueAmt>42888.50<");
@@ -244,6 +279,7 @@ beforeAll(async () => {
     const path = `${batch.slice(0, 4)}/${batch}.zip`;
     const zipped = await batchZip(objectIds);
     routes.set(`/version-drift/${path}`, zipped);
+    routes.set(`/form-mismatch/${path}`, zipped);
     routes.set(`/new-type/${path}`, zipped);
     routes.set(`/renamed-990/${path}`, zipped);
     routes.set(
@@ -596,14 +632,23 @@ describe("importing a batch holding a 990-EZ and a 990-PF", {
 describe("importing a filing whose mission only points to Schedule O", {
   timeout: 60_000,
 }, () => {
-  test("flags it, and not a filing stating its mission", async () => {
-    const d1 = await d1WithBmf("schedule-o");
-    await loadEfile(d1, {
-      baseUrl: `${base}/schedule-o/`,
-      batches: ["2026_TEOS_XML_01A"],
+  const scheduleO = () => ({
+    baseUrl: `${base}/schedule-o/`,
+    batches: ["2026_TEOS_XML_01A"],
+  });
+  let d1: string;
+  let summary: Awaited<ReturnType<typeof importEfile>>;
+
+  beforeAll(async () => {
+    d1 = await d1WithBmf("schedule-o");
+    summary = await loadEfile(d1, {
+      ...scheduleO(),
       // one of the two 990-EZs states no mission
       floors: floorsAt(0.5, { versionFrom: 200, rejects: 0.01 }),
     });
+  }, 60_000);
+
+  test("flags it, and not a filing stating its mission", async () => {
     expect(
       await query(
         d1,
@@ -617,6 +662,30 @@ describe("importing a filing whose mission only points to Schedule O", {
         mission_on_schedule_o: 0,
       },
     ]);
+  });
+
+  test("counts it as stating no mission: half the run's 990-EZs", () => {
+    expect(summary.returns["990-EZ"]).toBe(2);
+    expect(summary.yields["990-EZ"]?.mission).toBe(0.5);
+  });
+
+  test("aborts the run when the mission floor is above that share, loading nothing", async () => {
+    const empty = await d1WithBmf("schedule-o-floor");
+    const out = join(work, "schedule-o-floor.load.sql");
+    const floors: EfileFloors = {
+      ...floorsAt(0, { versionFrom: 200, rejects: 0.01 }),
+      "990-EZ": { mission: 0.6, finances: 0.5 },
+    };
+
+    await expect(
+      loadEfile(empty, { ...scheduleO(), floors, out }),
+    ).rejects.toThrow(
+      "990 import aborted: of 2 990-EZs, 50.0% state a mission and 100.0% total revenue, expenses and assets, below the floor of 60.0% and 50.0%; nothing was loaded",
+    );
+    expect(
+      await query(empty, "SELECT count(*) AS n FROM filings"),
+    ).toStrictEqual([{ n: 0 }]);
+    await expect(access(out)).rejects.toThrow();
   });
 });
 
@@ -706,6 +775,16 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
     ).toStrictEqual([{ filings: 0, runs: 0 }]);
     await expect(access(out)).rejects.toThrow();
   }
+
+  test("reads an index whose layout drifted, naming its row", async () => {
+    const out = join(work, "layout-drift.load.sql");
+    await expect(
+      loadEfile(d1, { baseUrl: `${base}/layout-drift/`, out }),
+    ).rejects.toThrow(
+      `990 index layout changed in ${base}/layout-drift/2026/index_2026.csv: row 3: EIN is "20334962"`,
+    );
+    await expectNothingLoaded(out);
+  });
 
   test("falls below the yield floor, naming the yields", async () => {
     const out = join(work, "drifted.load.sql");
@@ -864,6 +943,48 @@ describe("a full run with rejected returns", { timeout: 60_000 }, () => {
   test("counts a rejected 990-EZ against its form's floors", () => {
     expect(summary.returns["990-EZ"]).toBe(1);
     expect(summary.yields["990-EZ"]).toStrictEqual({ mission: 0, finances: 0 });
+  });
+});
+
+describe("a return whose form differs from the form its index row lists", {
+  timeout: 60_000,
+}, () => {
+  test("is rejected, and an EIN's other filings load beside it", async () => {
+    const d1 = await d1WithBmf("form-mismatch");
+
+    const summary = await loadEfile(d1, {
+      baseUrl: `${base}/form-mismatch/`,
+      batches: ["2026_TEOS_XML_01A"],
+      floors: {
+        ...floorsAt(0.5, { versionFrom: 200, rejects: 0.5 }),
+        "990-EZ": { mission: 0, finances: 0 },
+      },
+    });
+
+    // listed as a 990-EZ, the return itself is a 990-PF
+    expect(summary.rejects).toStrictEqual({ "form type mismatch": [PF_01A] });
+    const stored = await storedFilings(d1);
+    expect(stored).not.toHaveProperty("920372947");
+    expect(stored).toHaveProperty("316050644");
+  });
+});
+
+describe("a return followed by a schedule too large to read", {
+  timeout: 60_000,
+}, () => {
+  test("loads from its form alone, and the zip's next return after it", async () => {
+    const d1 = await d1WithBmf("padded");
+
+    const summary = await loadEfile(d1, {
+      baseUrl: `${base}/padded/`,
+      batches: ["2026_TEOS_XML_03A"],
+    });
+
+    expect(summary.rejects).toStrictEqual({});
+    expect(await storedFilings(d1)).toStrictEqual({
+      "530196605": [RED_CROSS_990, "2026_TEOS_XML_03A.zip"],
+      "934054155": [PF, "2026_TEOS_XML_03A.zip"],
+    });
   });
 });
 

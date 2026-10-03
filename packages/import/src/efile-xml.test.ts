@@ -1682,3 +1682,58 @@ describe("an unreadable return, rejected on its own", () => {
     });
   });
 });
+
+describe("a return with schedules after its form", () => {
+  const FORM_END = "</IRS990>";
+
+  test("is parsed from the bytes up to its form's end, the stream closed unread past it", async () => {
+    const xml = await readFile(new URL("202640829349300109_public.xml", XML));
+    const formEnd = xml.indexOf(FORM_END) + FORM_END.length;
+    let readPastForm = false;
+    let closed = false;
+    async function* streamed() {
+      try {
+        yield xml.subarray(0, formEnd);
+        readPastForm = true;
+        yield Buffer.from("<IRS990ScheduleO>");
+      } finally {
+        closed = true;
+      }
+    }
+
+    const parsed = await parseReturn(streamed());
+
+    expect(parsed).toMatchObject({
+      ein: "530196605",
+      mission: RED_CROSS_MISSION,
+      totalRevenue: 3_916_983_933,
+    });
+    expect(readPastForm).toBe(false);
+    expect(closed).toBe(true);
+  });
+
+  test("whose schedules never end is parsed without waiting for them", async () => {
+    const xml = await readFile(new URL("202640829349300109_public.xml", XML));
+    // the form and a schedule left open, in chunks the parser takes in turn
+    const padded = Buffer.concat([
+      xml.subarray(0, xml.indexOf(FORM_END) + FORM_END.length),
+      Buffer.from("<IRS990ScheduleO><Explanation>"),
+    ]);
+    let pulled = 0;
+    async function* endless() {
+      for (let at = 0; ; at += 4096) {
+        pulled++;
+        if (at >= padded.length) await new Promise(() => {});
+        yield padded.subarray(at, at + 4096);
+      }
+    }
+
+    const parsed = await parseReturn(endless());
+
+    expect(parsed.ein).toBe("530196605");
+    // 4 KiB chunks: it stopped in the chunk that held the form's end
+    expect(pulled).toBe(
+      Math.ceil((xml.indexOf(FORM_END) + FORM_END.length) / 4096),
+    );
+  });
+});
