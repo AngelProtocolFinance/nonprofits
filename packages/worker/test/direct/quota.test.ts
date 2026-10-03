@@ -99,6 +99,7 @@ async function lookupAt(key: string, now: string, db = env.DB) {
     },
     credential: key,
     clientIp: null,
+    cfWorker: null,
     now: new Date(now),
   });
   return result.ok ? "ok" : result.error;
@@ -157,6 +158,7 @@ test("lookup and search count against the same daily quota", async () => {
         },
         credential: key,
         clientIp: null,
+        cfWorker: null,
         now,
       },
     );
@@ -302,6 +304,7 @@ test("a keyless request writes at most two D1 rows, its IP's counter and the ser
       env: { ...env, DB: db, KEYLESS_BURST_LIMITER: noBurstLimit },
       credential: null,
       clientIp: "192.0.2.60",
+      cfWorker: null,
       now,
     });
     return result.ok ? "ok" : result.error.code;

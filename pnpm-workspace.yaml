@@ -8,6 +8,8 @@ allowBuilds:
 catalog:
   "@better-auth/api-key": 1.7.7
   "@biomejs/biome": 2.5.15
+  "@modelcontextprotocol/client": 2.2.0
+  "@modelcontextprotocol/server": 2.2.0
   "@types/node": ^24.0.0
   "@zip.js/zip.js": 2.18.2
   auth: 1.7.7
@@ -18,3 +20,4 @@ catalog:
   typescript: ^7.0.2
   vitest: ^5.0.3
   wrangler: 4.146.0
+  zod: 4.6.5

@@ -58,6 +58,7 @@ async function lookupWith(
     env,
     credential,
     clientIp: null,
+    cfWorker: null,
     now: new Date(now),
   });
   return result.ok ? "ok" : result.error;
@@ -243,6 +244,7 @@ test("without a key, search and lookup count against the same per-IP daily quota
         env: unlimitedBursts,
         credential: null,
         clientIp: "203.0.113.40",
+        cfWorker: null,
         now: new Date(now),
       },
     );
@@ -419,6 +421,7 @@ test("past 600 requests a minute carrying a key from one client, the next is 429
       env,
       credential: unknownKey,
       clientIp: "203.0.113.90",
+      cfWorker: null,
       now: new Date(),
     });
   await startOfMinuteWindow();

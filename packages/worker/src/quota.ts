@@ -58,6 +58,18 @@ export function keyedRequestRefusal(): QuotaError {
   };
 }
 
+/** `KEYLESS_MCP_LIMITER`'s limit in wrangler.jsonc: `/mcp` requests without a key, per client. */
+const KEYLESS_MCP_REQUESTS_PER_MINUTE = 60;
+
+/** A keyless client over `KEYLESS_MCP_LIMITER`, whatever MCP messages it sent. */
+export function keylessMcpRefusal(): QuotaError {
+  return {
+    code: "per_minute_limit_exceeded",
+    message: `MCP requests without an API key are limited to ${KEYLESS_MCP_REQUESTS_PER_MINUTE} per minute per IP address. Retry in ${BURST_PERIOD_SECONDS} seconds. ${KEY_LIFTS_LIMIT}`,
+    retryAfterSeconds: BURST_PERIOD_SECONDS,
+  };
+}
+
 /** A metered caller over its Rate Limiting binding's per-minute limit. */
 export function burstRefusal(tier: MeteredTier, perMinute: number): QuotaError {
   const retry = `Retry in ${BURST_PERIOD_SECONDS} seconds.`;

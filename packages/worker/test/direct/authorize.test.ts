@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import { createTestHarness } from "wrangler";
 import { admin } from "../../src/admin.ts";
 import { authorize, bearerCredential, lookup } from "../../src/handlers.ts";
+import { failingD1 } from "./failing-d1.ts";
 
 // typed against the Worker's globals, not node's: this file imports Worker source
 const ADMIN_TOKEN = "test-only-admin-token-0123456789abcdef";
@@ -72,21 +73,6 @@ async function issueKey(): Promise<{
   };
 }
 
-/** The harness D1, except statements matching `fails` throw as an outage would. */
-function failingD1(fails: RegExp): D1Database {
-  const outage = () => {
-    throw new Error("D1_ERROR: simulated storage outage");
-  };
-  return {
-    prepare: (sql: string) =>
-      fails.test(sql) ? outage() : env.DB.prepare(sql),
-    batch: (statements: D1PreparedStatement[]) => env.DB.batch(statements),
-    exec: (sql: string) => (fails.test(sql) ? outage() : env.DB.exec(sql)),
-    withSession: () => outage(),
-    dump: () => outage(),
-  } as D1Database;
-}
-
 test.each([
   ["unset", undefined],
   ["the public placeholder", "replace-with-32-plus-random-characters"],
@@ -97,6 +83,7 @@ test.each([
       env: { ...env, IP_HASH_SECRET: secret as string },
       credential: null,
       clientIp: "203.0.113.20",
+      cfWorker: null,
       now: new Date(),
     });
 
@@ -115,7 +102,7 @@ test("with IP_HASH_SECRET unset, a request with a key is refused unavailable too
   const issued = await issueKey();
 
   const result = await authorize(
-    { credential: issued.key, clientIp: "203.0.113.22" },
+    { credential: issued.key, clientIp: "203.0.113.22", cfWorker: null },
     { ...env, IP_HASH_SECRET: undefined as unknown as string },
   );
 
@@ -130,6 +117,7 @@ test("an empty Authorization header is refused as a malformed key, never served 
     env,
     credential: bearerCredential(""),
     clientIp: "203.0.113.21",
+    cfWorker: null,
     now: new Date(),
   });
 
@@ -145,7 +133,7 @@ test("a key issued today still authorizes 8 days later", async () => {
   vi.setSystemTime(Date.parse(issued.createdAt) + 8 * DAY_MS);
 
   const result = await authorize(
-    { credential: issued.key, clientIp: null },
+    { credential: issued.key, clientIp: null, cfWorker: null },
     env,
   );
 
@@ -166,7 +154,7 @@ test("a key past its expiresAt is refused as invalid", async () => {
     .run();
 
   const result = await authorize(
-    { credential: issued.key, clientIp: null },
+    { credential: issued.key, clientIp: null, cfWorker: null },
     env,
   );
 
@@ -183,10 +171,10 @@ test("answers auth_unavailable, not invalid_api_key, when D1 is unreachable", as
   const issued = await issueKey();
 
   const result = await authorize(
-    { credential: issued.key, clientIp: null },
+    { credential: issued.key, clientIp: null, cfWorker: null },
     {
       ...env,
-      DB: failingD1(/./),
+      DB: failingD1(env.DB, /./),
     },
   );
 
@@ -200,9 +188,10 @@ test("a request whose usage can't be counted answers auth_unavailable and is not
   const issued = await issueKey();
 
   const result = await lookup("530196605", {
-    env: { ...env, DB: failingD1(/insert into key_usage/i) },
+    env: { ...env, DB: failingD1(env.DB, /insert into key_usage/i) },
     credential: issued.key,
     clientIp: null,
+    cfWorker: null,
     now: new Date(),
   });
 
@@ -260,7 +249,7 @@ test("an issue that loses the race to create its owner reuses the winning owner"
 test("an admin call that fails in storage answers a problem 500, not a bare one", async () => {
   const response = await admin(
     adminRequest("/admin/keys", { email: "owner@example.org" }),
-    { ...env, DB: failingD1(/./) },
+    { ...env, DB: failingD1(env.DB, /./) },
   );
 
   expect(response.status).toBe(500);

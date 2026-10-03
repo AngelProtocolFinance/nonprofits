@@ -15,13 +15,16 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p test && tsc --noEmit -p test/direct"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "catalog:",
     "auth": "catalog:",
     "wrangler": "catalog:"
   },
   "dependencies": {
     "@better-auth/api-key": "catalog:",
+    "@modelcontextprotocol/server": "catalog:",
     "@nonprofits/core": "workspace:*",
     "@nonprofits/db": "workspace:*",
-    "better-auth": "catalog:"
+    "better-auth": "catalog:",
+    "zod": "catalog:"
   }
 }

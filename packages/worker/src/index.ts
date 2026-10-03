@@ -2,31 +2,18 @@ import type { Result } from "@nonprofits/core";
 import { admin } from "./admin.ts";
 import {
   bearerCredential,
-  challenge,
   type HandlerContext,
   type HandlerError,
   lookup,
   search,
 } from "./handlers.ts";
+import { mcp } from "./mcp.ts";
 import { problem } from "./problem.ts";
 import { pruneUsage } from "./quota.ts";
+import { refusalResponse } from "./refusal.ts";
 
 const ORG_PATH = /^\/v1\/orgs\/([^/]+)$/;
 const SEARCH_PATH = "/v1/search";
-
-const STATUS = {
-  invalid_ein: 400,
-  invalid_query: 400,
-  invalid_limit: 400,
-  invalid_api_key: 401,
-  revoked_api_key: 401,
-  not_found: 404,
-  daily_quota_exceeded: 429,
-  per_minute_limit_exceeded: 429,
-  service_daily_limit_reached: 429,
-  auth_unavailable: 503,
-  data_unavailable: 503,
-} as const satisfies Record<HandlerError["code"], number>;
 
 /** Digits only: `Number` would also take `1e1`, `0x10` and ` 5`. NaN is refused by core. */
 function limitOf(url: URL): number | undefined {
@@ -36,15 +23,9 @@ function limitOf(url: URL): number | undefined {
 }
 
 function respond(result: Result<unknown, HandlerError>): Response {
-  if (result.ok) return Response.json(result.value);
-  const { error } = result;
-  const headers: Record<string, string> = {};
-  const wwwAuthenticate = challenge(error);
-  if (wwwAuthenticate !== null) headers["www-authenticate"] = wwwAuthenticate;
-  if ("retryAfterSeconds" in error) {
-    headers["retry-after"] = String(error.retryAfterSeconds);
-  }
-  return problem(STATUS[error.code], error.code, error.message, headers);
+  return result.ok
+    ? Response.json(result.value)
+    : refusalResponse(result.error);
 }
 
 export default {
@@ -52,6 +33,7 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
     if (pathname.startsWith("/admin/")) return admin(request, env);
+    if (pathname === "/mcp") return mcp(request, env);
     const ein = ORG_PATH.exec(pathname)?.[1];
     if (ein === undefined && pathname !== SEARCH_PATH) {
       return problem(404, "route_not_found", `No route for ${pathname}.`);

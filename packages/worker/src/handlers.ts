@@ -18,6 +18,7 @@ import {
   countRequest,
   KEYLESS_LIMITS,
   keyedRequestRefusal,
+  keylessMcpRefusal,
   type Limits,
   limitsOf,
   type QuotaError,
@@ -25,7 +26,7 @@ import {
 } from "./quota.ts";
 import { isSecretSet } from "./secret.ts";
 
-/** What every transport (REST, MCP) hands a handler. */
+/** What a transport hands a handler that authorizes the request itself (REST). */
 export interface HandlerContext extends ClientRequest {
   env: Env;
   now: Date;
@@ -157,7 +158,7 @@ export interface ClientRequest {
    */
   clientIp: string | null;
   /** The `CF-Worker` header: the zone of the Worker that sent this request, if one did. */
-  cfWorker?: string | null;
+  cfWorker: string | null;
 }
 
 /** The request's client as a usage subject, or unavailable while the secret keying its hash is unset. */
@@ -173,7 +174,7 @@ async function subjectOf(
     );
   }
   const subject = await clientSubject(
-    { ip: request.clientIp, worker: request.cfWorker ?? null },
+    { ip: request.clientIp, worker: request.cfWorker },
     env.IP_HASH_SECRET,
   );
   return { ok: true, value: subject };
@@ -256,6 +257,28 @@ export async function authorize(
 }
 
 /**
+ * Caps a keyless client's MCP requests per minute: handshakes and tool
+ * listings aren't metered, and nothing else bounds them. A keyed client's are
+ * capped before its key is read (`limitKeyedRequests`).
+ */
+export async function limitKeylessMcpRequests(
+  principal: Principal,
+  env: Env,
+): Promise<Result<void, QuotaError | AuthUnavailable>> {
+  if (principal.tier !== "anonymous") return { ok: true, value: undefined };
+  try {
+    const { success } = await env.KEYLESS_MCP_LIMITER.limit({
+      key: principal.subject,
+    });
+    return success
+      ? { ok: true, value: undefined }
+      : { ok: false, error: keylessMcpRefusal() };
+  } catch (error) {
+    return unavailable(error, KEYLESS_UNAVAILABLE);
+  }
+}
+
+/**
  * A limit var as a count, or null when it is none. A var set as text arrives
  * as a string, and SQLite sorts every number below every string, so a limit
  * bound as text would never refuse.
@@ -266,18 +289,24 @@ function countOf(value: unknown): number | null {
 }
 
 /**
- * Gate, then quota: a refused credential is never counted, and an uncounted
- * request is never served. A metered request meets its Rate Limiting binding
- * before D1: the binding's count can't be taken back, and D1 must not count a
- * request the binding refuses.
+ * A request `authorize` accepted: who each of its calls is counted as. MCP
+ * authorizes once per HTTP request and runs its tool calls as this.
  */
-async function admit(
-  ctx: HandlerContext,
-): Promise<Result<Principal, HandlerError>> {
-  const { env, now } = ctx;
-  const authorized = await authorize(ctx, env);
-  if (!authorized.ok) return authorized;
-  const { subject, tier, limits } = authorized.value;
+export interface Caller {
+  env: Env;
+  now: Date;
+  principal: Principal;
+}
+
+/**
+ * Counts one call against the caller's quota; an uncounted call is never
+ * served. A metered request meets its Rate Limiting binding before D1: the
+ * binding's count can't be taken back, and D1 must not count a request the
+ * binding refuses.
+ */
+async function meter(caller: Caller): Promise<Result<void, HandlerError>> {
+  const { env, now } = caller;
+  const { subject, tier, limits } = caller.principal;
   let counted: Result<void, QuotaError>;
   try {
     if (tier === "whitelisted") {
@@ -315,7 +344,19 @@ async function admit(
       tier === "anonymous" ? KEYLESS_UNAVAILABLE : KEY_CHECK_UNAVAILABLE,
     );
   }
-  return counted.ok ? authorized : counted;
+  return counted;
+}
+
+/** The caller a request is, before any quota is read: a refused credential is never counted. */
+async function authorizeAs(
+  ctx: HandlerContext,
+): Promise<Result<Caller, HandlerError>> {
+  const authorized = await authorize(ctx, ctx.env);
+  if (!authorized.ok) return authorized;
+  return {
+    ok: true,
+    value: { env: ctx.env, now: ctx.now, principal: authorized.value },
+  };
 }
 
 function emit(metrics: { event: string; outcome: string; rowsRead: number }) {
@@ -345,11 +386,20 @@ export async function lookup(
   ein: string,
   ctx: HandlerContext,
 ): Promise<Result<OrgResponse, HandlerError>> {
-  const admitted = await admit(ctx);
-  if (!admitted.ok) return admitted;
+  const caller = await authorizeAs(ctx);
+  return caller.ok ? lookupAs(ein, caller.value) : caller;
+}
+
+/** `lookup` for a caller already authorized. */
+export async function lookupAs(
+  ein: string,
+  caller: Caller,
+): Promise<Result<OrgResponse, HandlerError>> {
+  const metered = await meter(caller);
+  if (!metered.ok) return metered;
 
   let rowsRead = 0;
-  const reader = new D1OrgReader(ctx.env.DB, (rows) => {
+  const reader = new D1OrgReader(caller.env.DB, (rows) => {
     rowsRead += rows;
   });
   const result = await readData(() => lookupOrg(ein, reader));
@@ -361,15 +411,26 @@ export async function lookup(
   return result;
 }
 
+export type SearchInput = { query: string; limit?: number | undefined };
+
 export async function search(
-  input: { query: string; limit?: number | undefined },
+  input: SearchInput,
   ctx: HandlerContext,
 ): Promise<Result<OrgSearchResponse, HandlerError>> {
-  const admitted = await admit(ctx);
-  if (!admitted.ok) return admitted;
+  const caller = await authorizeAs(ctx);
+  return caller.ok ? searchAs(input, caller.value) : caller;
+}
+
+/** `search` for a caller already authorized. */
+export async function searchAs(
+  input: SearchInput,
+  caller: Caller,
+): Promise<Result<OrgSearchResponse, HandlerError>> {
+  const metered = await meter(caller);
+  if (!metered.ok) return metered;
 
   let rowsRead = 0;
-  const searcher = new D1OrgSearcher(ctx.env.DB, (rows) => {
+  const searcher = new D1OrgSearcher(caller.env.DB, (rows) => {
     rowsRead += rows;
   });
   const result = await readData(() => searchOrgs(input, searcher));
