@@ -2,7 +2,7 @@ import type { OrgSearchResponse } from "@nonprofits/core";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createWorkerHarness,
-  issueKey,
+  issueWhitelistedKey,
   listenSeeded,
   rebuildSearchIndex,
   testEnv,
@@ -45,7 +45,7 @@ beforeAll(async () => {
     ),
   );
   await rebuildSearchIndex(server);
-  authorization = `Bearer ${(await issueKey(server)).key}`;
+  authorization = `Bearer ${(await issueWhitelistedKey(server)).key}`;
 });
 
 afterAll(async () => {
@@ -114,15 +114,13 @@ describe("GET /v1/search", () => {
     });
   });
 
-  test("refuses a request without a key before searching", async () => {
-    server.clearLogs();
-    const response = await server.fetch("/v1/search?q=red%20cross");
-    expect(response.status).toBe(401);
-    expect(response.headers.get("www-authenticate")).toBe(
-      'Bearer realm="nonprofits"',
-    );
-    expect(await response.json()).toMatchObject({ code: "missing_api_key" });
-    expect(searchLogs()).toEqual([]);
+  test("searches a request without a key on the keyless tier", async () => {
+    const response = await server.fetch("/v1/search?q=red%20cross", {
+      headers: { "cf-connecting-ip": "203.0.113.90" },
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as OrgSearchResponse;
+    expect(body.results[0]?.ein).toBe("530196605");
   });
 
   test.each(["q=", "q=%20%20", "q=a", "", "q=%22", "q=*"])(

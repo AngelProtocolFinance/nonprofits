@@ -9,6 +9,7 @@ import {
   search,
 } from "./handlers.ts";
 import { problem } from "./problem.ts";
+import { pruneUsage } from "./quota.ts";
 
 const ORG_PATH = /^\/v1\/orgs\/([^/]+)$/;
 const SEARCH_PATH = "/v1/search";
@@ -17,12 +18,12 @@ const STATUS = {
   invalid_ein: 400,
   invalid_query: 400,
   invalid_limit: 400,
-  missing_api_key: 401,
   invalid_api_key: 401,
   revoked_api_key: 401,
   not_found: 404,
   daily_quota_exceeded: 429,
   per_minute_limit_exceeded: 429,
+  service_daily_limit_reached: 429,
   auth_unavailable: 503,
   data_unavailable: 503,
 } as const satisfies Record<HandlerError["code"], number>;
@@ -62,6 +63,7 @@ export default {
     const ctx: HandlerContext = {
       env,
       credential: bearerCredential(request.headers.get("authorization")),
+      clientIp: request.headers.get("cf-connecting-ip"),
       now: new Date(),
     };
     if (ein !== undefined) return respond(await lookup(ein, ctx));
@@ -71,5 +73,9 @@ export default {
         ctx,
       ),
     );
+  },
+
+  async scheduled(controller, env): Promise<void> {
+    await pruneUsage(env.DB, new Date(controller.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;

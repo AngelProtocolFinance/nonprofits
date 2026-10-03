@@ -7,7 +7,28 @@
     "enabled": true,
     "traces": { "enabled": true }
   },
-  "secrets": { "required": ["BETTER_AUTH_SECRET", "ADMIN_TOKEN"] },
+  "vars": {
+    // requests a UTC day across default keys and keyless callers; whitelisted keys are exempt
+    "SERVICE_DAILY_LIMIT": 250000
+  },
+  "secrets": {
+    "required": ["BETTER_AUTH_SECRET", "ADMIN_TOKEN", "IP_HASH_SECRET"]
+  },
+  // prunes key_usage once a UTC day
+  "triggers": { "crons": ["17 3 * * *"] },
+  // namespace_id is account-wide: another binding with the same id shares its counters
+  "ratelimits": [
+    {
+      "name": "KEY_BURST_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    {
+      "name": "KEYLESS_BURST_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 1, "period": 60 }
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

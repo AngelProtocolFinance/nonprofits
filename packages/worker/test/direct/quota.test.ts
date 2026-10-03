@@ -11,6 +11,7 @@ const server = createTestHarness({
       secrets: {
         BETTER_AUTH_SECRET: "test-only-better-auth-secret-0123456789abcdef",
         ADMIN_TOKEN,
+        IP_HASH_SECRET: "test-only-ip-hash-secret-0123456789abcdef",
       },
     },
   ],
@@ -86,11 +87,15 @@ function measuredD1() {
   return { db, tally };
 }
 
+// a day's worth of requests runs in one real minute: past the burst binding, which limits.test.ts covers
+const noBurstLimit: RateLimit = { limit: async () => ({ success: true }) };
+
 /** The outcome code of a lookup at `now`; this D1 holds no orgs, so an admitted one is `not_found`. */
 async function lookupAt(key: string, now: string, db = env.DB) {
   const result = await lookup("530196605", {
-    env: { ...env, DB: db },
+    env: { ...env, DB: db, KEY_BURST_LIMITER: noBurstLimit },
     credential: key,
+    clientIp: null,
     now: new Date(now),
   });
   return result.ok ? "ok" : result.error;
@@ -118,7 +123,7 @@ test("a fresh key gets 50 requests a UTC day; the 51st is 429 saying when it res
   });
 }, 30_000);
 
-test("a default-key request writes exactly one D1 row: the usage counter", async () => {
+test("a default-key request writes exactly two D1 rows: its usage counter and the service's", async () => {
   const { key } = await issueKey();
   const first = measuredD1();
   const later = measuredD1();
@@ -131,8 +136,8 @@ test("a default-key request writes exactly one D1 row: the usage counter", async
   });
 
   // the day's first request inserts the counter row; later ones update it
-  expect(first.tally).toStrictEqual({ rowsWritten: 1, unmeasured: [] });
-  expect(later.tally).toStrictEqual({ rowsWritten: 1, unmeasured: [] });
+  expect(first.tally).toStrictEqual({ rowsWritten: 2, unmeasured: [] });
+  expect(later.tally).toStrictEqual({ rowsWritten: 2, unmeasured: [] });
 });
 
 test("lookup and search count against the same daily quota", async () => {
@@ -141,7 +146,12 @@ test("lookup and search count against the same daily quota", async () => {
   const searchAt = async () => {
     const result = await search(
       { query: "red cross" },
-      { env, credential: key, now },
+      {
+        env: { ...env, KEY_BURST_LIMITER: noBurstLimit },
+        credential: key,
+        clientIp: null,
+        now,
+      },
     );
     return result.ok ? "ok" : result.error.code;
   };
@@ -257,5 +267,48 @@ test("a whitelisted request writes one D1 row, and a refused one writes none", a
   );
 
   expect(admitted.tally).toStrictEqual({ rowsWritten: 1, unmeasured: [] });
+  expect(refused.tally).toStrictEqual({ rowsWritten: 0, unmeasured: [] });
+});
+
+test("a default key's last request of the day writes both rows, and the refused one after it writes none", async () => {
+  const { key } = await issueKey();
+  const now = "2026-10-10T09:00:00Z";
+  for (let i = 1; i <= 49; i++) await lookupAt(key, now);
+  const last = measuredD1();
+  const refused = measuredD1();
+
+  expect(await lookupAt(key, now, last.db)).toMatchObject({
+    code: "not_found",
+  });
+  expect(await lookupAt(key, now, refused.db)).toMatchObject({
+    code: "daily_quota_exceeded",
+  });
+
+  expect(last.tally).toStrictEqual({ rowsWritten: 2, unmeasured: [] });
+  expect(refused.tally).toStrictEqual({ rowsWritten: 0, unmeasured: [] });
+}, 30_000);
+
+test("a keyless request writes at most two D1 rows, its IP's counter and the service's, and a refused one writes none", async () => {
+  const now = new Date("2026-10-11T09:00:00Z");
+  const keyless = async (db: D1Database) => {
+    const result = await lookup("530196605", {
+      env: { ...env, DB: db, KEYLESS_BURST_LIMITER: noBurstLimit },
+      credential: null,
+      clientIp: "192.0.2.60",
+      now,
+    });
+    return result.ok ? "ok" : result.error.code;
+  };
+  const first = measuredD1();
+  const last = measuredD1();
+  const refused = measuredD1();
+
+  expect(await keyless(first.db)).toBe("not_found");
+  for (let i = 2; i <= 4; i++) await keyless(env.DB);
+  expect(await keyless(last.db)).toBe("not_found");
+  expect(await keyless(refused.db)).toBe("daily_quota_exceeded");
+
+  expect(first.tally).toStrictEqual({ rowsWritten: 2, unmeasured: [] });
+  expect(last.tally).toStrictEqual({ rowsWritten: 2, unmeasured: [] });
   expect(refused.tally).toStrictEqual({ rowsWritten: 0, unmeasured: [] });
 });

@@ -3,16 +3,13 @@ import { type Auth, createAuth, MAX_KEY_NAME_LENGTH } from "./auth.ts";
 import { problem } from "./problem.ts";
 import {
   DEFAULT_LIMITS,
+  type KeyTier,
   type Limits,
   limitsOf,
-  type Tier,
   utcDay,
 } from "./quota.ts";
+import { isSecretSet, MIN_SECRET_LENGTH } from "./secret.ts";
 
-// an unset secret reads as undefined; the floor also refuses a guessable one
-const MIN_ADMIN_TOKEN_LENGTH = 32;
-// `.dev.vars.example`'s value: long enough to pass the floor, and public
-const ADMIN_TOKEN_PLACEHOLDER = "replace-with-32-plus-random-characters";
 const KEY_PATH = /^\/admin\/keys\/([^/]+)\/(revoke|limits)$/;
 const EMAIL = /^[^\s@]+@[^\s@]+$/;
 
@@ -113,7 +110,7 @@ interface ListedKey extends Limits {
   name: string | null;
   ownerEmail: string;
   status: "active" | "revoked";
-  tier: Tier;
+  tier: KeyTier;
   usedToday: number;
 }
 
@@ -155,7 +152,7 @@ async function listKeys(env: Env): Promise<Response> {
 /** What `keys set-limit` prints: the key's tier and the limits it now has. */
 interface KeyLimits extends Limits {
   id: string;
-  tier: Tier;
+  tier: KeyTier;
 }
 
 const SET_LIMITS_SQL = `
@@ -254,14 +251,11 @@ export async function admin(request: Request, env: Env): Promise<Response> {
 }
 
 async function route(request: Request, env: Env): Promise<Response> {
-  if (
-    (env.ADMIN_TOKEN?.length ?? 0) < MIN_ADMIN_TOKEN_LENGTH ||
-    env.ADMIN_TOKEN === ADMIN_TOKEN_PLACEHOLDER
-  ) {
+  if (!isSecretSet(env.ADMIN_TOKEN)) {
     return problem(
       503,
       "admin_disabled",
-      `Admin endpoints are off: set the ADMIN_TOKEN secret to at least ${MIN_ADMIN_TOKEN_LENGTH} random characters.`,
+      `Admin endpoints are off: set the ADMIN_TOKEN secret to at least ${MIN_SECRET_LENGTH} random characters.`,
     );
   }
   if (!(await isAdmin(request, env))) {

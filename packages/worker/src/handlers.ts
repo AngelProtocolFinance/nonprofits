@@ -12,23 +12,30 @@ import { API_KEY_LETTERS, API_KEY_PREFIX } from "./auth.ts";
 import { D1OrgReader } from "./d1-org-reader.ts";
 import { D1OrgSearcher } from "./d1-org-searcher.ts";
 import {
+  burstRefusal,
+  countMeteredRequest,
   countRequest,
+  KEYLESS_LIMITS,
   type Limits,
   limitsOf,
   type QuotaError,
   type Tier,
 } from "./quota.ts";
+import { isSecretSet } from "./secret.ts";
 
 /** What every transport (REST, MCP) hands a handler. */
 export interface HandlerContext {
   env: Env;
+  /** null: no credential was sent at all, so the request is keyless. */
   credential: string | null;
+  /** The `CF-Connecting-IP` header; a keyless caller's identity. */
+  clientIp: string | null;
   now: Date;
 }
 
-/** Why a caller's credential was refused; each is a 401 on every transport. */
+/** Why a sent credential was refused; each is a 401 on every transport. */
 export type AuthError = {
-  code: "missing_api_key" | "invalid_api_key" | "revoked_api_key";
+  code: "invalid_api_key" | "revoked_api_key";
   message: string;
 };
 
@@ -47,9 +54,13 @@ export type HandlerError =
   | QuotaError
   | DataUnavailable;
 
-/** The caller a valid key stands for. A whitelisted key has its own limits, set by `keys set-limit`. */
+/**
+ * Who a request is counted as: a valid key (`subject` is its id; a whitelisted
+ * key has its own limits, set by `keys set-limit`), or with no key a client IP
+ * (`subject` is `ip:` and its keyed hash).
+ */
 export interface Principal {
-  keyId: string;
+  subject: string;
   tier: Tier;
   limits: Limits;
 }
@@ -80,7 +91,7 @@ const KEY_FORMAT = new RegExp(
 /**
  * The key in an `Authorization: Bearer <key>` header, for every transport.
  * Any other value is sent the wrong way, so it comes back as "", which
- * `authorize` refuses as malformed rather than missing.
+ * `authorize` refuses as malformed rather than serving it keyless.
  */
 export function bearerCredential(authorization: string | null): string | null {
   if (authorization === null) return null;
@@ -90,8 +101,6 @@ export function bearerCredential(authorization: string | null): string | null {
 /** The `WWW-Authenticate` value a key refusal carries; a sent-but-refused key is `invalid_token` (RFC 6750 §3.1). */
 export function challenge(error: HandlerError): string | null {
   switch (error.code) {
-    case "missing_api_key":
-      return 'Bearer realm="nonprofits"';
     case "invalid_api_key":
     case "revoked_api_key":
       return 'Bearer realm="nonprofits", error="invalid_token"';
@@ -100,18 +109,18 @@ export function challenge(error: HandlerError): string | null {
   }
 }
 
-/** Every key refusal ends by saying how to get a key. */
+/** Every key refusal ends by saying how to get served without one, and how to get one. */
 function refuse(
   code: AuthError["code"],
   reason: string,
 ): Result<never, AuthError> {
   // a sent key that was refused is routine traffic, logged without key material
-  if (code !== "missing_api_key") console.info(`api key refused: ${code}`);
+  console.info(`api key refused: ${code}`);
   return {
     ok: false,
     error: {
       code,
-      message: `${reason} To get a key, ask the operator; self-serve signup is coming.`,
+      message: `${reason} Requests sent without an \`Authorization\` header get a small free tier; for more, ask the operator for a key.`,
     },
   };
 }
@@ -126,29 +135,62 @@ function logFailure(event: string, cause: unknown) {
   );
 }
 
-function unavailable(cause: unknown): Result<never, AuthUnavailable> {
+const KEY_CHECK_UNAVAILABLE =
+  "The key check is unavailable right now; nothing is wrong with your key. Retry shortly.";
+const KEYLESS_UNAVAILABLE =
+  "Requests without an API key can't be served right now. Retry later, or send an API key.";
+
+function unavailable(
+  cause: unknown,
+  message = KEY_CHECK_UNAVAILABLE,
+): Result<never, AuthUnavailable> {
   logFailure("auth_unavailable", cause);
+  return { ok: false, error: { code: "auth_unavailable", message } };
+}
+
+function hex(bytes: ArrayBuffer): string {
+  return Array.from(new Uint8Array(bytes), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+/** The keyless principal for a client IP, stored only as a keyed hash: IPs are personal data. */
+async function keyless(
+  clientIp: string | null,
+  env: Env,
+): Promise<Result<Principal, AuthUnavailable>> {
+  if (!isSecretSet(env.IP_HASH_SECRET)) {
+    return unavailable(
+      "IP_HASH_SECRET is unset or a placeholder: keyless requests refused",
+      KEYLESS_UNAVAILABLE,
+    );
+  }
+  // only a local or test request lacks the header: all of them share one subject
+  let subject = "ip:unknown";
+  if (clientIp !== null) {
+    const encode = (text: string) => new TextEncoder().encode(text);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encode(env.IP_HASH_SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    subject = `ip:${hex(await crypto.subtle.sign("HMAC", key, encode(clientIp)))}`;
+  }
   return {
-    ok: false,
-    error: {
-      code: "auth_unavailable",
-      message:
-        "The key check is unavailable right now; nothing is wrong with your key. Retry shortly.",
-    },
+    ok: true,
+    value: { subject, tier: "anonymous", limits: KEYLESS_LIMITS },
   };
 }
 
-/** The key guard every transport runs before any quota or data read. */
+/** The guard every transport runs before any quota or data read: a sent key, or none at all. */
 export async function authorize(
   credential: string | null,
+  clientIp: string | null,
   env: Env,
 ): Promise<Result<Principal, AuthError | AuthUnavailable>> {
-  if (credential === null) {
-    return refuse(
-      "missing_api_key",
-      "No API key sent. Send one as `Authorization: Bearer <key>`.",
-    );
-  }
+  if (credential === null) return keyless(clientIp, env);
   if (!KEY_FORMAT.test(credential)) {
     return refuse(
       "invalid_api_key",
@@ -179,32 +221,48 @@ export async function authorize(
   }
   return {
     ok: true,
-    value: { keyId: stored.id, ...limitsOf(stored.daily, stored.perMinute) },
+    value: { subject: stored.id, ...limitsOf(stored.daily, stored.perMinute) },
   };
 }
 
-/** Gate, then quota: a refused key is never counted, and an uncounted request is never served. */
+/**
+ * Gate, then quota: a refused credential is never counted, and an uncounted
+ * request is never served. A metered request meets its Rate Limiting binding
+ * before D1: the binding's count can't be taken back, and D1 must not count a
+ * request the binding refuses.
+ */
 async function admit(
   ctx: HandlerContext,
 ): Promise<Result<Principal, HandlerError>> {
-  const authorized = await authorize(ctx.credential, ctx.env);
+  const { env, now } = ctx;
+  const authorized = await authorize(ctx.credential, ctx.clientIp, env);
   if (!authorized.ok) return authorized;
-  const principal = authorized.value;
+  const { subject, tier, limits } = authorized.value;
   let counted: Result<void, QuotaError>;
   try {
-    counted = await countRequest(
-      ctx.env.DB,
-      principal.keyId,
-      {
-        daily: principal.limits.daily,
-        // a default key's per-minute limit is the Rate Limiting binding's
-        perMinute:
-          principal.tier === "whitelisted" ? principal.limits.perMinute : null,
-      },
-      ctx.now,
-    );
+    if (tier === "whitelisted") {
+      counted = await countRequest(env.DB, subject, limits, now);
+    } else {
+      const limiter =
+        tier === "anonymous"
+          ? env.KEYLESS_BURST_LIMITER
+          : env.KEY_BURST_LIMITER;
+      const burst = await limiter.limit({ key: subject });
+      if (!burst.success) {
+        return { ok: false, error: burstRefusal(tier, limits.perMinute) };
+      }
+      counted = await countMeteredRequest(
+        env.DB,
+        { subject, tier, daily: limits.daily },
+        env.SERVICE_DAILY_LIMIT,
+        now,
+      );
+    }
   } catch (error) {
-    return unavailable(error);
+    return unavailable(
+      error,
+      tier === "anonymous" ? KEYLESS_UNAVAILABLE : KEY_CHECK_UNAVAILABLE,
+    );
   }
   return counted.ok ? authorized : counted;
 }

@@ -8,6 +8,7 @@ import {
   postAdmin,
   testEnv,
 } from "./harness.ts";
+import { startOfMinuteWindow } from "./minute-window.ts";
 
 const server = createWorkerHarness();
 
@@ -20,22 +21,14 @@ afterAll(async () => {
 });
 
 describe("API key guard on GET /v1/orgs/:ein", () => {
-  test("refuses a request with no key: 401 missing_api_key, saying how to send and get one", async () => {
-    const response = await server.fetch("/v1/orgs/530196605");
-    expect(response.status).toBe(401);
-    expect(response.headers.get("content-type")).toBe(
-      "application/problem+json",
-    );
-    expect(response.headers.get("www-authenticate")).toBe(
-      'Bearer realm="nonprofits"',
-    );
-    expect(await response.json()).toStrictEqual({
-      type: "about:blank",
-      title: "Unauthorized",
-      status: 401,
-      code: "missing_api_key",
-      detail:
-        "No API key sent. Send one as `Authorization: Bearer <key>`. To get a key, ask the operator; self-serve signup is coming.",
+  test("serves a request with no Authorization header on the keyless tier: 200 with the org", async () => {
+    const response = await server.fetch("/v1/orgs/530196605", {
+      headers: { "cf-connecting-ip": "203.0.113.80" },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ein: "530196605",
+      name: "AMERICAN NATIONAL RED CROSS",
     });
   });
 
@@ -46,7 +39,7 @@ describe("API key guard on GET /v1/orgs/:ein", () => {
     `Basic npk_${"a".repeat(64)}`,
     `npk_${"a".repeat(64)}`,
   ])(
-    "refuses a malformed key (%s): 401 invalid_api_key naming the format",
+    "refuses a malformed key (%s), never serving it keyless: 401 invalid_api_key naming the format",
     async (authorization) => {
       const response = await server.fetch("/v1/orgs/530196605", {
         headers: { authorization },
@@ -58,7 +51,7 @@ describe("API key guard on GET /v1/orgs/:ein", () => {
       expect(await response.json()).toMatchObject({
         code: "invalid_api_key",
         detail:
-          "API key is malformed: expected `npk_` followed by 64 letters, sent as `Authorization: Bearer <key>`. To get a key, ask the operator; self-serve signup is coming.",
+          "API key is malformed: expected `npk_` followed by 64 letters, sent as `Authorization: Bearer <key>`. Requests sent without an `Authorization` header get a small free tier; for more, ask the operator for a key.",
       });
     },
   );
@@ -71,7 +64,7 @@ describe("API key guard on GET /v1/orgs/:ein", () => {
     expect(await response.json()).toMatchObject({
       code: "invalid_api_key",
       detail:
-        "API key not recognized: check it was copied whole. To get a key, ask the operator; self-serve signup is coming.",
+        "API key not recognized: check it was copied whole. Requests sent without an `Authorization` header get a small free tier; for more, ask the operator for a key.",
     });
   });
 });
@@ -128,7 +121,7 @@ describe("admin key endpoints", () => {
     expect(await after.json()).toMatchObject({
       code: "revoked_api_key",
       detail:
-        "API key has been revoked. To get a key, ask the operator; self-serve signup is coming.",
+        "API key has been revoked. Requests sent without an `Authorization` header get a small free tier; for more, ask the operator for a key.",
     });
   });
 
@@ -244,6 +237,41 @@ describe("admin key endpoints", () => {
 });
 
 describe("quota on /v1", () => {
+  test("a default key's 11th request inside a minute gets 429 per_minute_limit_exceeded with Retry-After", async () => {
+    const issued = await issueKey(server);
+    const headers = { authorization: `Bearer ${issued.key}` };
+    await startOfMinuteWindow();
+    for (let i = 1; i <= 10; i++) {
+      await server.fetch("/v1/orgs/530196605", { headers });
+    }
+
+    const response = await server.fetch("/v1/orgs/530196605", { headers });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toMatchObject({
+      code: "per_minute_limit_exceeded",
+    });
+  }, 30_000);
+
+  test("without a key, an IP's 2nd request inside a minute gets 429 with Retry-After, and another IP is still served", async () => {
+    const from = (ip: string) =>
+      server.fetch("/v1/orgs/530196605", {
+        headers: { "cf-connecting-ip": ip },
+      });
+    await startOfMinuteWindow();
+    expect((await from("203.0.113.81")).status).toBe(200);
+
+    const response = await from("203.0.113.81");
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toMatchObject({
+      code: "per_minute_limit_exceeded",
+    });
+    expect((await from("203.0.113.82")).status).toBe(200);
+  }, 30_000);
+
   test("a key over its daily quota gets 429 problem details with Retry-After up to UTC midnight", async () => {
     const issued = await issueKey(server);
     const limits = await server.fetch(`/admin/keys/${issued.id}/limits`, {

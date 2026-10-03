@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createWorkerHarness,
-  issueKey,
+  issueWhitelistedKey,
   listenSeeded,
   testEnv,
 } from "./harness.ts";
@@ -11,7 +11,7 @@ let authorization: string;
 
 beforeAll(async () => {
   await listenSeeded(server);
-  authorization = `Bearer ${(await issueKey(server)).key}`;
+  authorization = `Bearer ${(await issueWhitelistedKey(server)).key}`;
 });
 
 afterAll(async () => {

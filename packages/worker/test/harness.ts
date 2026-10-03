@@ -16,6 +16,7 @@ export interface TestEnv {
 export const TEST_SECRETS = {
   BETTER_AUTH_SECRET: "test-only-better-auth-secret-0123456789abcdef",
   ADMIN_TOKEN: "test-only-admin-token-0123456789abcdef",
+  IP_HASH_SECRET: "test-only-ip-hash-secret-0123456789abcdef",
 };
 
 export const ADMIN_AUTHORIZATION = `Bearer ${TEST_SECRETS.ADMIN_TOKEN}`;
@@ -24,10 +25,15 @@ export type Harness = ReturnType<typeof createTestHarness>;
 
 export function createWorkerHarness(
   secrets: Record<string, string> = TEST_SECRETS,
+  vars: Record<string, number> = {},
 ): Harness {
   return createTestHarness({
     workers: [
-      { configPath: new URL("../wrangler.jsonc", import.meta.url), secrets },
+      {
+        configPath: new URL("../wrangler.jsonc", import.meta.url),
+        secrets,
+        vars,
+      },
     ],
   });
 }
@@ -104,4 +110,23 @@ export async function issueKey(
     );
   }
   return (await response.json()) as IssuedKey;
+}
+
+/** A key past the default tier's limits, for tests about data rather than limits. */
+export async function issueWhitelistedKey(server: Harness): Promise<IssuedKey> {
+  const issued = await issueKey(server, "whitelisted@example.org");
+  const response = await server.fetch(`/admin/keys/${issued.id}/limits`, {
+    method: "PUT",
+    headers: {
+      authorization: ADMIN_AUTHORIZATION,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ daily: 100_000, perMinute: 10_000 }),
+  });
+  if (response.status !== 200) {
+    throw new Error(
+      `whitelisting a key: ${response.status} ${await response.text()}`,
+    );
+  }
+  return issued;
 }
