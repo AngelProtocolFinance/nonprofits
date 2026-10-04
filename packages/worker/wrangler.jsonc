@@ -11,12 +11,22 @@
   // service-wide requests a UTC day per tier, so neither can lock out the other; whitelisted keys are exempt
   "vars": {
     "SERVICE_KEY_DAILY_LIMIT": 50000,
-    "SERVICE_KEYLESS_DAILY_LIMIT": 200000
+    "SERVICE_KEYLESS_DAILY_LIMIT": 200000,
+    // the daily cron starts GITHUB_REPO's import.yml when the served build is older
+    // than STALE_AFTER_DAYS, at most once per REDISPATCH_AFTER_HOURS
+    "GITHUB_REPO": "better-giving/nonprofits",
+    "STALE_AFTER_DAYS": 35,
+    "REDISPATCH_AFTER_HOURS": 72
   },
   "secrets": {
-    "required": ["BETTER_AUTH_SECRET", "ADMIN_TOKEN", "IP_HASH_SECRET"]
+    "required": [
+      "BETTER_AUTH_SECRET",
+      "ADMIN_TOKEN",
+      "IP_HASH_SECRET",
+      "GITHUB_DISPATCH_TOKEN"
+    ]
   },
-  // prunes key_usage once a UTC day
+  // prunes key_usage and checks the served data's age once a UTC day
   "triggers": { "crons": ["17 3 * * *"] },
   // namespace_id is account-wide: another binding with the same id shares its counters
   "ratelimits": [

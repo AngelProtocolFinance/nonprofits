@@ -35,7 +35,7 @@ export type Harness = ReturnType<typeof createTestHarness>;
 
 export function createWorkerHarness(
   secrets: Record<string, string> = TEST_SECRETS,
-  vars: Record<string, number> = {},
+  vars: Record<string, number | string> = {},
 ): Harness {
   return createTestHarness({
     workers: [

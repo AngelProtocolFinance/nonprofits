@@ -1,7 +1,7 @@
 -- Which data database (DATA_DB_A or DATA_DB_B) the Worker serves, and the build
 -- that filled it; one row. 'empty' until the first build. A build claims the
 -- slot it will reset (claimSlotSql) and flips to it (flipActiveSlotSql), each a
--- compare-and-set here; the Worker only reads this row.
+-- compare-and-set here; the Worker writes only the last_dispatch columns.
 CREATE TABLE data_generation (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   active TEXT NOT NULL CHECK (active IN ('a', 'b')),
@@ -13,7 +13,14 @@ CREATE TABLE data_generation (
   claim_build_id TEXT,
   claimed_at TEXT CHECK (claimed_at IS NULL OR julianday(claimed_at) IS NOT NULL),
   claim_expires_at TEXT CHECK (claim_expires_at IS NULL OR julianday(claim_expires_at) IS NOT NULL),
+  -- the Worker's last start of the import workflow on stale data, written before
+  -- its calls so a failing one waits out the redispatch interval too; the status
+  -- is GitHub's HTTP answer to the dispatch, or to the enable call before it when
+  -- that failed, and null while no answer was recorded
+  last_dispatch_at TEXT CHECK (last_dispatch_at IS NULL OR julianday(last_dispatch_at) IS NOT NULL),
+  last_dispatch_status INTEGER CHECK (last_dispatch_status IS NULL OR last_dispatch_status BETWEEN 100 AND 599),
   CHECK (claim_slot IS NULL OR claim_slot != active),
+  CHECK (last_dispatch_status IS NULL OR last_dispatch_at IS NOT NULL),
   CHECK (
     (claim_slot IS NULL) = (claim_build_id IS NULL)
     AND (claim_slot IS NULL) = (claimed_at IS NULL)

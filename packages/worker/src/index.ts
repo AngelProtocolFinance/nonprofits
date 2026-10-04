@@ -1,5 +1,6 @@
 import type { Result } from "@nonprofits/core";
 import { admin } from "./admin.ts";
+import { guardFreshness } from "./freshness.ts";
 import {
   clientRequestOf,
   type HandlerContext,
@@ -71,6 +72,10 @@ export default {
   },
 
   async scheduled(controller, env): Promise<void> {
-    await pruneUsage(env.APP_DB, new Date(controller.scheduledTime));
+    try {
+      await pruneUsage(env.APP_DB, new Date(controller.scheduledTime));
+    } finally {
+      await guardFreshness(env);
+    }
   },
 } satisfies ExportedHandler<Env>;

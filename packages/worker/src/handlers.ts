@@ -15,6 +15,7 @@ import {
 } from "@nonprofits/db";
 import { API_KEY_LETTERS, API_KEY_PREFIX } from "./auth.ts";
 import { clientSubject } from "./client.ts";
+import { countOf } from "./count.ts";
 import { D1OrgReader } from "./d1-org-reader.ts";
 import { activeDataDb, type ServedData } from "./data-db.ts";
 import { logFailure } from "./log.ts";
@@ -326,16 +327,6 @@ export async function limitKeylessMcpRequests(
   } catch (error) {
     return unavailable(error, KEYLESS_UNAVAILABLE);
   }
-}
-
-/**
- * A limit var as a count, or null when it is none. A var set as text arrives
- * as a string, and SQLite sorts every number below every string, so a limit
- * bound as text would never refuse.
- */
-function countOf(value: unknown): number | null {
-  const count = Number(value);
-  return Number.isSafeInteger(count) && count > 0 ? count : null;
 }
 
 /**

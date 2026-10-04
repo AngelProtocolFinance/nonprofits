@@ -1,7 +1,10 @@
 # Copy to .dev.vars (gitignored) for `wrangler dev`; set the deployed values with `wrangler secret put`.
-# Generate each with: openssl rand -base64 32
+# Generate each random one with: openssl rand -base64 32
 BETTER_AUTH_SECRET=replace-with-32-plus-random-characters
 # Admin endpoints stay off until this is at least 32 characters; the key CLI reads it from .dev.vars locally.
 ADMIN_TOKEN=replace-with-32-plus-random-characters
 # Keys the hash that stands in for a client's IP; /v1 requests, with a key or without, are refused until it is set.
 IP_HASH_SECRET=replace-with-32-plus-random-characters
+# Lets the daily cron start .github/workflows/import.yml when the served data is stale; the cron skips that with a warning until it is set.
+# A fine-grained token for this repository only, with the "Actions" repository permission set to read and write.
+GITHUB_DISPATCH_TOKEN=replace-with-a-fine-grained-github-token
