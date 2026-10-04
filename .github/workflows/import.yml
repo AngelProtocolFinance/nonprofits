@@ -26,6 +26,16 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 350
     steps:
+      - name: Check the dispatch inputs
+        id: inputs
+        env:
+          ROLLBACK: ${{ inputs.rollback }}
+          FORCE_VERIFY_FAILURE: ${{ inputs.force_verify_failure }}
+        run: |
+          if [ "$ROLLBACK" = true ] && [ "$FORCE_VERIFY_FAILURE" = true ]; then
+            echo "::error title=Conflicting inputs::rollback builds nothing for force_verify_failure to fail; run again with one of them"
+            exit 1
+          fi
       - name: Check the Cloudflare secrets are set
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -45,13 +55,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
-          cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Disk space before the import
         run: df -h .
       - name: Import
         id: import
-        # leaves the job's last 10 minutes to the steps below
+        # under the job's timeout, so the steps below still run; a step timeout
+        # fails the step (outcome failure), it doesn't cancel it
         timeout-minutes: 335
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -66,33 +76,39 @@ jobs:
           # waiting on node would leave it to the SIGKILL that follows
           exec node packages/import/src/cli.ts "${args[@]}" --summary "$RUNNER_TEMP/import-summary.md"
       - name: Release the claim of an import whose stop was cut off
-        if: cancelled() && steps.import.outcome == 'cancelled'
+        if: always() && (steps.import.outcome == 'cancelled' || steps.import.outcome == 'failure')
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           summary="$RUNNER_TEMP/import-summary.md"
           if [ ! -f "$summary" ]; then
-            echo "no run summary, so no claim this run is known to hold; a claim lapses with its 8 h lease"
+            echo "no run summary, so no claim this run is known to hold; a claim lapses with its lease"
             exit 0
           fi
+          # the grep and the sed are KEEPS_CLAIM_GREP and RELEASE_LINE_SED in packages/import/src/generation.ts
           if grep -q "keeps its claim" "$summary"; then
             echo "::warning title=Claim kept::a remote import may still be running in D1; run the irs release the summary names once it has ended"
             exit 0
           fi
           build=$(sed -n 's/.*irs release --remote --build \([^ ]*\) clears .*/\1/p' "$summary" | head -n 1)
           if [ -z "$build" ]; then
-            echo "the import's own stop released its claim"
+            echo "the summary names no claim left to release"
             exit 0
           fi
-          node packages/import/src/cli.ts release --remote --build "$build"
+          status=0
+          out=$(node packages/import/src/cli.ts release --remote --build "$build") || status=$?
+          echo "$out"
+          # "holds no claim": the cut-off stop's own release landed after all
+          if [ "$status" -ne 0 ] && [[ "$out" != *"holds no claim"* ]]; then exit "$status"; fi
       - name: Run summary
         if: always()
         run: |
           summary="$RUNNER_TEMP/import-summary.md"
           if [ -f "$summary" ]; then cat "$summary" >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Open or comment on the failure issue
-        if: failure()
+        # not for conflicting dispatch inputs: the dispatcher sees that red run
+        if: failure() && steps.inputs.outcome != 'failure'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -100,14 +116,17 @@ jobs:
             const title = "Monthly IRS import failed";
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            let failing = "No run summary was written; the run's log says why.";
+            let quoted = ["No run summary was written; the run's log says why."];
             try {
-              const summary = fs.readFileSync(`${process.env.RUNNER_TEMP}/import-summary.md`, "utf8");
-              failing =
-                summary.split("\n").find((line) => /^\*\*(Failed|Stopped):\*\*/.test(line)) ??
-                "The run summary records no failure; the run's log says why.";
+              const lines = fs.readFileSync(`${process.env.RUNNER_TEMP}/import-summary.md`, "utf8").split("\n");
+              quoted = [
+                lines.find((line) => /^\*\*(Failed|Stopped):\*\*/.test(line)) ??
+                  "The run summary records no failure; the run's log says why.",
+                ...lines.filter((line) => line.startsWith("**Claim kept:**")),
+              ];
             } catch {}
-            const body = `The ${context.eventName} run ${runUrl} failed. The previous generation is still served unless the summary says otherwise.\n\n> ${failing}`;
+            // the summary clips each line; this bounds the body far under GitHub's 65,536 characters whatever it holds
+            const body = `The ${context.eventName} run ${runUrl} failed. The previous generation is still served unless the summary says otherwise.\n\n${quoted.map((line) => `> ${line}`).join("\n>\n").slice(0, 20_000)}`;
             const open = await github.paginate(github.rest.issues.listForRepo, {
               owner,
               repo,

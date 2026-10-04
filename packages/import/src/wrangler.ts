@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { type ChildProcess, execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import type { DataDbBinding } from "@nonprofits/db";
 import { RETRY, type RetryPolicy, retrying } from "./retry.ts";
 
@@ -92,14 +93,22 @@ export function wrangler(
 }
 
 /**
- * What a failed command printed: with `--json`, the error is JSON on stdout,
- * so its text leads, then stderr and stdout whole, as a warning on stderr
- * would otherwise hide it.
+ * What a failed command printed, colour stripped (wrangler prints it even to
+ * a pipe): a line naming the cause leads, then stderr and stdout whole, as a
+ * warning on stderr would otherwise hide it. With `--json` the cause is the
+ * JSON error's text on stdout; without, wrangler's `[ERROR]` line, or else
+ * the first line it printed.
  */
-function failureOutput(stdout: string, stderr: string): string {
-  const both = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n");
-  const json = jsonErrorText(stdout);
-  return json === undefined ? `\n${both}` : ` ${json}\n${both}`;
+function failureOutput(rawStdout: string, rawStderr: string): string {
+  const stdout = stripVTControlCharacters(rawStdout).trim();
+  const stderr = stripVTControlCharacters(rawStderr).trim();
+  const both = [stderr, stdout].filter(Boolean).join("\n");
+  const lines = both.split("\n").map((line) => line.trim());
+  const cause =
+    jsonErrorText(stdout) ??
+    lines.find((line) => line.includes("[ERROR]")) ??
+    lines.find(Boolean);
+  return cause === undefined ? "" : ` ${cause}\n${both}`;
 }
 
 function jsonErrorText(stdout: string): string | undefined {
@@ -110,6 +119,11 @@ function jsonErrorText(stdout: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** The args of every wrangler command running now. */
+export function runningWrangler(): readonly (readonly string[])[] {
+  return [...running.values()];
 }
 
 /**

@@ -185,11 +185,11 @@ describe("remoteD1 through the wrangler process", () => {
     );
   });
 
-  test("a failure that printed no JSON error shows stderr, then stdout", async () => {
+  test("a failure that printed no JSON error leads with wrangler's error line, then shows stderr and stdout", async () => {
     const { remoteD1 } = await freshWrangler();
     plan({
       stdout: "partial banner",
-      stderr: "✘ [ERROR] fetch failed\n",
+      stderr: `${PROXY_WARNING}\n✘ [ERROR] fetch failed\n`,
       exit: 1,
     });
 
@@ -197,18 +197,33 @@ describe("remoteD1 through the wrangler process", () => {
     const failure = remoteD1().query("APP_DB", "DELETE FROM t");
 
     await expect(failure).rejects.toThrow(
-      "wrangler d1 execute failed:\n✘ [ERROR] fetch failed\npartial banner",
+      `wrangler d1 execute failed: ✘ [ERROR] fetch failed\n${PROXY_WARNING}\n✘ [ERROR] fetch failed\npartial banner`,
     );
   });
 
-  test("a failure whose JSON holds no error text shows the output alone", async () => {
+  test("a load file's failure, which wrangler prints in colour and without JSON, reads as plain text led by its cause", async () => {
+    const { remoteD1 } = await freshWrangler();
+    plan({
+      stderr:
+        "\n\u001b[31m✘ \u001b[41;31m[\u001b[41;97mERROR\u001b[41;31m]\u001b[0m \u001b[1mA request to the Cloudflare API (/accounts/x/d1/database/y/import) failed.\u001b[0m\n",
+      exit: 1,
+    });
+
+    const failure = remoteD1().applyFile("DATA_DB_A", "/load/bmf.load.sql");
+
+    await expect(failure).rejects.toThrow(
+      "wrangler d1 execute failed: ✘ [ERROR] A request to the Cloudflare API (/accounts/x/d1/database/y/import) failed.\n✘ [ERROR] A request",
+    );
+  });
+
+  test("a failure whose JSON holds no error text leads with that output", async () => {
     const { remoteD1 } = await freshWrangler();
     plan({ stdout: JSON.stringify({ error: { code: 7500 } }), exit: 1 });
 
     const failure = remoteD1().query("APP_DB", "DELETE FROM t");
 
     await expect(failure).rejects.toThrow(
-      'wrangler d1 execute failed:\n{"error":{"code":7500}}',
+      'wrangler d1 execute failed: {"error":{"code":7500}}\n{"error":{"code":7500}}',
     );
   });
 

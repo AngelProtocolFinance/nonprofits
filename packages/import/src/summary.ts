@@ -1,7 +1,7 @@
 import { appendFileSync } from "node:fs";
 import type { Pointer } from "@nonprofits/db";
 import { percent } from "./efile.ts";
-import { type Check, readPointer } from "./generation.ts";
+import { type Check, keepsClaim, readPointer } from "./generation.ts";
 import type { Loaded } from "./sources.ts";
 import type { D1Ops } from "./wrangler.ts";
 
@@ -9,6 +9,12 @@ export interface Step {
   name: string;
   seconds: number;
   ok: boolean;
+}
+
+/** A claim a run left held: `binding`'s remote import may still be running. */
+export interface KeptClaim {
+  buildId: string;
+  binding: string;
 }
 
 /** What a refresh or rollback did, filled in as it runs, so a failed or stopped run still reports how far it got. */
@@ -27,6 +33,7 @@ export interface RunRecord {
   loads: Loaded[];
   checks: Check[];
   failure: string | null;
+  keptClaims: KeptClaim[];
   /** A SIGINT or SIGTERM, and the lines its cleanup reported. */
   stop: { signal: string; lines: string[] } | null;
 }
@@ -46,6 +53,7 @@ export function runRecord(
     loads: [],
     checks: [],
     failure: null,
+    keptClaims: [],
     stop: null,
   };
 }
@@ -68,11 +76,15 @@ export async function summarized<T>(
     throw error;
   } finally {
     if (record.stop === null) {
-      record.servedAfter = await readPointer(ops).catch((error: unknown) => ({
+      const servedAfter = await readPointer(ops).catch((error: unknown) => ({
         unread: message(error),
       }));
-      finish(record);
-      write(record);
+      // a signal during the read: its stop writes the summary, once its cleanup is done
+      if (record.stop === null) {
+        record.servedAfter = servedAfter;
+        finish(record);
+        write(record);
+      }
     }
   }
 }
@@ -96,7 +108,8 @@ export function summaryWriter(
     if (written) return;
     written = true;
     let text = renderSummary(record);
-    for (const secret of secrets) {
+    // trimmed too: whitespace stored around a secret needn't appear where it is quoted
+    for (const secret of secrets.flatMap((s) => [s, s?.trim()])) {
       // an empty value would be "found" between every two characters
       if (secret) text = text.replaceAll(secret, "[redacted]");
     }
@@ -110,21 +123,24 @@ export function summaryWriter(
   };
 }
 
-/** The record as GitHub-flavoured markdown; a failure's first line on a line of its own, starting `**Failed:**`. */
+/** The record as GitHub-flavoured markdown; a failure's first line on a line of its own, starting `**Failed:**`, and each kept claim on one starting `**Claim kept:**`. */
 export function renderSummary(record: RunRecord): string {
   const out: string[] = [`## ${headline(record)}`, ""];
   if (record.stop !== null) {
     out.push(
       `**Stopped:** ${record.stop.signal}`,
       "",
-      ...record.stop.lines.map((line) => `- ${line}`),
+      ...record.stop.lines.map((line) => `- ${clip(line)}`),
       "",
     );
   }
   if (record.failure !== null) {
-    const [first, ...more] = record.failure.split("\n");
-    out.push(`**Failed:** ${first}`, "");
-    if (more.length > 0) out.push("```", ...more, "```", "");
+    const [first = "", ...more] = record.failure.split(/\r\n|\r|\n/);
+    out.push(`**Failed:** ${clip(first)}`, "");
+    if (more.length > 0) out.push(...fenced(tail(more)), "");
+  }
+  for (const { buildId, binding } of record.keptClaims) {
+    out.push(`**Claim kept:** ${clip(keepsClaim(buildId, binding))}`, "");
   }
   out.push(...served(record));
   if (record.loads.length > 0) out.push(...sources(record.loads));
@@ -202,8 +218,10 @@ function sources(loads: readonly Loaded[]): string[] {
       const dates = new Set(load.summary.files.map((f) => f.releasedAt));
       out.push(row("bmf", `${load.summary.orgs} orgs`, [...dates].join(", ")));
     } else if (load.source === "efile") {
-      const years = load.summary.indexes.map((i) => i.year).join(", ");
-      out.push(row("efile", `${load.summary.filings} filings`, years));
+      const indexes = load.summary.indexes
+        .map((i) => `${i.year}: ${i.releasedAt}`)
+        .join(", ");
+      out.push(row("efile", `${load.summary.filings} filings`, indexes));
     } else {
       out.push(
         row(load.source, `${load.summary.rows} rows`, load.summary.releasedAt),
@@ -237,9 +255,52 @@ function sources(loads: readonly Loaded[]): string[] {
   return out;
 }
 
-/** A markdown table row; a cell's `|` escaped and its line breaks flattened, so free text can't break the table. */
+/** A markdown table row; a cell clipped and its `|` escaped, so free text can't break the table. */
 function row(...cells: string[]): string {
-  return `| ${cells.map((c) => c.replaceAll("|", "\\|").replaceAll("\n", " ")).join(" | ")} |`;
+  return `| ${cells.map((c) => clip(c).replaceAll("|", "\\|")).join(" | ")} |`;
+}
+
+/**
+ * The most of a block of free text the summary keeps, its last lines: a
+ * wrangler failure can quote 16 MiB of output, and GitHub drops a step
+ * summary over 1 MiB.
+ */
+const BLOCK_LINES = 100;
+const BLOCK_BYTES = 16 * 1024;
+/** The most of one line of free text the summary keeps, its start. */
+const LINE_CHARS = 1_000;
+
+/** The end of `lines`, each clipped, within `BLOCK_LINES` and `BLOCK_BYTES`, led by how many were cut. */
+function tail(lines: readonly string[]): string[] {
+  const kept: string[] = [];
+  let bytes = 0;
+  for (let i = lines.length - 1; i >= 0 && kept.length < BLOCK_LINES; i--) {
+    const line = clip(lines[i] ?? "");
+    bytes += Buffer.byteLength(line) + 1;
+    if (bytes > BLOCK_BYTES) break;
+    kept.unshift(line);
+  }
+  const cut = lines.length - kept.length;
+  return cut === 0 ? kept : [`[${cut} earlier lines cut]`, ...kept];
+}
+
+/** `text` on one line, so it can't start a line a reader of the summary matches, within `LINE_CHARS`, saying how much was cut. */
+function clip(text: string): string {
+  const line = text.replace(/\r\n|\r|\n/g, " ");
+  if (line.length <= LINE_CHARS) return line;
+  return `${line.slice(0, LINE_CHARS)}… [${line.length - LINE_CHARS} characters cut]`;
+}
+
+/** `lines` as a code block, its fence longer than any run of backticks in them. */
+function fenced(lines: readonly string[]): string[] {
+  const longest = Math.max(
+    0,
+    ...lines
+      .flatMap((line) => line.match(/`+/g) ?? [])
+      .map((run) => run.length),
+  );
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return [fence, ...lines, fence];
 }
 
 function seconds(s: number): string {

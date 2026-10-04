@@ -21,7 +21,12 @@ import {
   sealGenerationSql,
 } from "@nonprofits/db";
 import { loadSource, SOURCES, type SourceConfig } from "./sources.ts";
-import { type RunRecord, runRecord, type Step } from "./summary.ts";
+import {
+  type KeptClaim,
+  type RunRecord,
+  runRecord,
+  type Step,
+} from "./summary.ts";
 import { type D1Ops, type D1Target, ImportMayBeRunning } from "./wrangler.ts";
 
 /** A new generation's row counts may differ from the served one's by this share and still flip. */
@@ -163,17 +168,20 @@ export async function refresh(
   const previous = pointer.active;
   const slot = otherSlot(previous);
   const binding = DATA_DB_BINDING[slot];
-  await settleLastFlip(pointer, slot, log);
+  const { steps } = record;
+  await settleLastFlip(pointer, slot, log, steps);
   // the start time, so a failed build's id says where Time Travel restores to
   const buildId = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   onClaim?.(buildId);
   try {
-    const claimed = await ops.query("APP_DB", claimSlotSql(slot, buildId));
-    if (claimed.length !== 1) {
-      throw new Error(
-        `refresh refused: slot ${slot} is served, another build holds its claim, or the pointer moved under ${FLIP_SETTLE_MS / 1000} s ago`,
-      );
-    }
+    await timed(quiet, steps, `claimed slot ${slot}`, async () => {
+      const claimed = await ops.query("APP_DB", claimSlotSql(slot, buildId));
+      if (claimed.length !== 1) {
+        throw new Error(
+          `refresh refused: slot ${slot} is served, another build holds its claim, or the pointer moved under ${FLIP_SETTLE_MS / 1000} s ago`,
+        );
+      }
+    });
     log(
       `claimed slot ${slot} (${binding}) for build ${buildId}; serving slot ${previous} (build ${pointer.build_id})`,
     );
@@ -188,10 +196,13 @@ export async function refresh(
       record,
       log,
     });
-    await flip(ops, previous, buildId, log);
+    await timed(quiet, steps, `flipped to slot ${slot}`, () =>
+      flip(ops, previous, buildId, log),
+    );
     return report;
   } catch (error) {
     if (error instanceof ImportMayBeRunning) {
+      record.keptClaims.push({ buildId, binding: error.binding });
       log(keepsClaim(buildId, error.binding));
     } else {
       await releaseFailedClaim(ops, buildId, log);
@@ -279,17 +290,19 @@ async function build(
     return counts;
   });
 
-  const [sealed] = await ops.query<DataMeta>(
-    binding,
-    sealGenerationSql(buildId),
-  );
-  if (
-    sealed?.slot !== slot ||
-    sealed.build_id !== buildId ||
-    sealed.state !== "complete"
-  ) {
-    throw new Error(`could not seal build ${buildId} in ${binding}`);
-  }
+  await timed(quiet, steps, "sealed", async () => {
+    const [sealed] = await ops.query<DataMeta>(
+      binding,
+      sealGenerationSql(buildId),
+    );
+    if (
+      sealed?.slot !== slot ||
+      sealed.build_id !== buildId ||
+      sealed.state !== "complete"
+    ) {
+      throw new Error(`could not seal build ${buildId} in ${binding}`);
+    }
+  });
   log(`sealed build ${buildId} in ${binding}`);
   return { buildId, slot, previous: pointer.active, counts, checks };
 }
@@ -299,13 +312,19 @@ async function settleLastFlip(
   pointer: Pointer,
   slot: DataSlot,
   log: (line: string) => void,
+  steps: Step[],
 ): Promise<void> {
   const wait = Date.parse(pointer.flipped_at) + FLIP_SETTLE_MS - Date.now();
   if (!(wait > 0)) return;
   log(
     `waiting ${Math.ceil(wait / 1000)} s: the flip at ${pointer.flipped_at} left slot ${slot}, and Workers may still serve it`,
   );
-  await new Promise((resolve) => setTimeout(resolve, wait));
+  await timed(
+    quiet,
+    steps,
+    "waited out the last flip",
+    () => new Promise((resolve) => setTimeout(resolve, wait)),
+  );
 }
 
 /**
@@ -357,8 +376,22 @@ async function flip(
  * Why `buildId` keeps its claim after `binding`'s remote import was cut short:
  * the next build's reset would land in the middle of that import.
  */
-function keepsClaim(buildId: string, binding: string): string {
-  return `build ${buildId} keeps its claim: ${binding}'s import may still be running in D1, which serves that database no queries until it ends; once it has, irs release --remote --build ${buildId} clears the claim`;
+export function keepsClaim(buildId: string, binding: string): string {
+  return `build ${buildId} ${KEEPS_CLAIM_GREP}: ${binding}'s import may still be running in D1, which serves that database no queries until it ends; once it has, irs release --remote --build ${buildId} clears the claim`;
+}
+
+/**
+ * The data database whose remote import is among `commands` (wrangler args),
+ * so may still be running in D1 after they were killed.
+ */
+export function importAmong(
+  ops: D1Ops,
+  commands: readonly (readonly string[])[],
+): string | undefined {
+  if (!ops.remote) return undefined;
+  const load = commands.find((args) => args.includes("--file"));
+  // `d1 execute <binding> …`
+  return load === undefined ? undefined : (load[2] ?? "the data database");
 }
 
 /**
@@ -370,15 +403,19 @@ export async function releaseAfterStop(
   ops: D1Ops,
   buildIds: readonly string[],
   killed: readonly (readonly string[])[],
-  report: (line: string) => void,
+  {
+    report,
+    keep,
+  }: {
+    report: (line: string) => void;
+    /** Called for each claim kept. */
+    keep: (claim: KeptClaim) => void;
+  },
 ): Promise<void> {
-  const remoteImport = ops.remote
-    ? killed.find((args) => args.includes("--file"))
-    : undefined;
+  const binding = importAmong(ops, killed);
   for (const buildId of buildIds) {
-    if (remoteImport !== undefined) {
-      // `d1 execute <binding> …`
-      report(keepsClaim(buildId, remoteImport[2] ?? "the data database"));
+    if (binding !== undefined) {
+      keep({ buildId, binding });
       continue;
     }
     try {
@@ -389,8 +426,9 @@ export async function releaseAfterStop(
           : `build ${buildId} holds no claim`,
       );
     } catch (error) {
+      // the release first: the summary keeps only a line's start
       report(
-        `could not release build ${buildId}'s claim (${message(error)}); ${releaseCommand(ops, buildId)} clears it`,
+        `could not release build ${buildId}'s claim; ${releaseCommand(ops, buildId)} clears it (${message(error)})`,
       );
     }
   }
@@ -402,8 +440,24 @@ export async function releaseAfterStop(
   }
 }
 
+/**
+ * What the monthly workflow's release step (.github/workflows/import.yml)
+ * greps a run's summary for before anything else: a claim kept, which it
+ * leaves held.
+ */
+export const KEEPS_CLAIM_GREP = "keeps its claim";
+
+/**
+ * The sed script the monthly workflow's release step (.github/workflows/import.yml)
+ * runs over a run's summary once `KEEPS_CLAIM_GREP` found nothing: prints the
+ * build id of each line naming a remote `irs release --build <id>` that
+ * "clears", as a cut-off stop's and a failed release's do.
+ */
+export const RELEASE_LINE_SED =
+  "s/.*irs release --remote --build \\([^ ]*\\) clears .*/\\1/p";
+
 /** The `irs release` that clears `buildId`'s claim where `ops` runs. */
-function releaseCommand(ops: D1Ops, buildId: string): string {
+export function releaseCommand(ops: D1Ops, buildId: string): string {
   return `irs release${ops.remote ? " --remote" : ""} --build ${buildId}`;
 }
 
@@ -592,6 +646,9 @@ async function applySql(
   await ops.applyFile(binding, file);
 }
 
+/** For a step `timed` adds to the summary that logs its own line. */
+function quiet(): void {}
+
 /** Runs `step` and adds it to `steps` with how long it took, failed or not; logs `done` with that time only when it succeeds. */
 async function timed<T>(
   log: (line: string) => void,
@@ -653,17 +710,25 @@ export async function rollback(
       `rollback refused: slot ${to}'s build ${meta.build_id} was sealed at ${meta.built_at} but never served (the pointer last moved at ${pointer.flipped_at}); irs refresh rebuilds it`,
     );
   }
-  await settleLastFlip(pointer, to, log);
+  const steps = record?.steps ?? [];
+  await settleLastFlip(pointer, to, log, steps);
   onClaim?.(meta.build_id);
   try {
-    const claimed = await ops.query("APP_DB", claimSlotSql(to, meta.build_id));
-    if (claimed.length !== 1) {
-      throw new Error(
-        `rollback refused: a build holds slot ${to}'s claim; wait for it to finish or its lease to run out`,
+    await timed(quiet, steps, `claimed slot ${to}`, async () => {
+      const claimed = await ops.query(
+        "APP_DB",
+        claimSlotSql(to, meta.build_id),
       );
-    }
+      if (claimed.length !== 1) {
+        throw new Error(
+          `rollback refused: a build holds slot ${to}'s claim; wait for it to finish or its lease to run out`,
+        );
+      }
+    });
     log(`claimed slot ${to} (${binding}) for build ${meta.build_id}`);
-    await flip(ops, from, meta.build_id, log);
+    await timed(quiet, steps, `flipped to slot ${to}`, () =>
+      flip(ops, from, meta.build_id, log),
+    );
   } catch (error) {
     await releaseFailedClaim(ops, meta.build_id, log);
     throw error;

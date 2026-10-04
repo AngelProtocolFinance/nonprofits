@@ -32,6 +32,7 @@ import {
 } from "./generation.ts";
 import type { SourceConfig } from "./sources.ts";
 import {
+  type KeptClaim,
   type RunRecord,
   runRecord,
   summarized,
@@ -1003,20 +1004,20 @@ describe("refresh and rollback", { timeout: 30_000 }, () => {
 
   test.each([
     [
-      "keeps a claim when the stop killed a remote import, naming the release for once it ends",
+      "keeps a claim when the stop killed a remote import, naming the database it may still be running in",
       true,
-      [
-        "build stopped keeps its claim: DATA_DB_B's import may still be running in D1, which serves that database no queries until it ends; once it has, irs release --remote --build stopped clears the claim",
-      ],
+      [],
+      [{ buildId: "stopped", binding: "DATA_DB_B" }],
       "stopped",
     ],
     [
       "releases a claim when the stop killed no import",
       false,
       ["released build stopped's claim"],
+      [],
       null,
     ],
-  ])("after a stop, %s", async (_, importKilled, reported, held) => {
+  ])("after a stop, %s", async (_, importKilled, reported, kept, held) => {
     const w = world();
     await w.query("APP_DB", claimSlotSql("b", "stopped"));
     const killed = importKilled
@@ -1034,16 +1035,21 @@ describe("refresh and rollback", { timeout: 30_000 }, () => {
           ],
         ];
     const lines: string[] = [];
+    const keptClaims: KeptClaim[] = [];
 
     await releaseAfterStop(
       w.failingApply("no file is applied"),
       ["stopped"],
       killed,
-      (line) => lines.push(line),
+      {
+        report: (line) => lines.push(line),
+        keep: (claim) => keptClaims.push(claim),
+      },
     );
 
     expect(lines.slice(0, -1)).toStrictEqual(reported);
     expect(lines.at(-1)).toMatch(/^serving slot [ab] \(build \S+\)$/);
+    expect(keptClaims).toStrictEqual(kept);
     expect(await w.claimHolder()).toBe(held);
   });
 
@@ -1105,7 +1111,13 @@ describe("run summary", { timeout: 30_000 }, () => {
     expect(md).toContain(row("pub78", "122 rows", released));
     expect(md).toContain(row("revocation", "31 rows", released));
     expect(md).toContain(row("epostcard", "95 rows", released));
-    expect(md).toContain(row("efile", "10 filings", "2026, 2025, 2024"));
+    expect(md).toContain(
+      row(
+        "efile",
+        "10 filings",
+        `2026: ${released}, 2025: ${released}, 2024: ${released}`,
+      ),
+    );
     expect(md).toContain(
       "Release years read: 2026, 2025, 2024 (index_2026.csv lists 11 rows, at least half of index_2025.csv's 3: 3 release years read)",
     );
@@ -1124,6 +1136,7 @@ describe("run summary", { timeout: 30_000 }, () => {
     expect(md).toContain(row("orgs floor", "ok", "orgs: 260, floor 1"));
     expect(md).toContain(row("orgs vs served", "ok", "orgs: 260, served 260"));
     for (const step of [
+      "claimed slot a",
       "reset DATA_DB_A",
       "loaded bmf",
       "loaded pub78",
@@ -1132,6 +1145,8 @@ describe("run summary", { timeout: 30_000 }, () => {
       "loaded efile",
       "rebuilt the search index",
       "verified",
+      "sealed",
+      "flipped to slot a",
       "total",
     ]) {
       expect(md).toMatch(new RegExp(`^\\| ${step} \\| \\d+\\.\\d s \\|$`, "m"));
@@ -1195,6 +1210,29 @@ describe("run summary", { timeout: 30_000 }, () => {
     expect(md).toMatch(/^\| reset DATA_DB_B \| failed after \d+\.\d s \|$/m);
   });
 
+  test("a refresh that keeps its claim says so in its summary, naming the release for once the import ends", async () => {
+    const w = world();
+    const record = runRecord("refresh", true);
+    const file = summaryFile();
+
+    await expect(
+      summarized(w.ops, record, summaryWriter(file, []), () =>
+        w.refresh({
+          record,
+          via: w.failingApply("wrangler d1 execute timed out after 7200000 ms"),
+        }),
+      ),
+    ).rejects.toThrow("timed out");
+
+    const held = await w.claimHolder();
+    const md = await readFile(file, "utf8");
+    expect(
+      md.split("\n").filter((l) => l.startsWith("**Claim kept:**")),
+    ).toStrictEqual([
+      `**Claim kept:** build ${held} keeps its claim: DATA_DB_B's import may still be running in D1, which serves that database no queries until it ends; once it has, irs release --remote --build ${held} clears the claim`,
+    ]);
+  });
+
   test("a rollback's summary names the build served before and after", async () => {
     const w = world();
     await holdPreviousBuild(w, "b");
@@ -1211,6 +1249,25 @@ describe("run summary", { timeout: 30_000 }, () => {
     );
     expect(md).toContain(row("served before", "a", "empty"));
     expect(md).toContain(row("served after", "b", "old"));
+    for (const step of ["claimed slot b", "flipped to slot b", "total"]) {
+      expect(md).toMatch(new RegExp(`^\\| ${step} \\| \\d+\\.\\d s \\|$`, "m"));
+    }
+    expect(md).not.toContain("waited out the last flip");
+  });
+
+  test("a run that waited out the last flip lists the wait among its steps", async () => {
+    const w = world();
+    await holdPreviousBuild(w, "b");
+    await w.flippedAgo(FLIP_SETTLE_MS - 50);
+    const record = runRecord("rollback", false);
+    const file = summaryFile();
+
+    await summarized(w.ops, record, summaryWriter(file, []), () =>
+      rollback(w.ops, { record }),
+    );
+
+    const md = await readFile(file, "utf8");
+    expect(md).toMatch(/^\| waited out the last flip \| \d+\.\d s \|$/m);
   });
 });
 
