@@ -5,9 +5,9 @@ on:
     branches: [main]
 permissions:
   contents: read
-# runs on blacksmith (blacksmith.sh), as better-giving/better-giving does: the app is installed on
-# the org and the runner label is the whole integration. blacksmith proxies the standard cache
-# actions to its own colocated cache, so `cache: pnpm` below is accelerated as-is.
+# runs on blacksmith (blacksmith.sh): the app is installed on the org and the runner label is the
+# whole integration. blacksmith proxies the standard cache actions to its own colocated cache, so
+# `cache: pnpm` below is accelerated as-is.
 jobs:
   check:
     runs-on: blacksmith-4vcpu-ubuntu-2404

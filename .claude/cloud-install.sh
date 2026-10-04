@@ -20,9 +20,9 @@ if [ -x "$node_bin" ] && "$node_bin" --version | grep -q "^v$(cat .nvmrc)\."; th
   ln -sf "$node_bin" "$bin/node"
 fi
 export PATH="$bin:$PATH"
-# later shells read this file. without it they find the image's pnpm, which
-# self-switches to `packageManager` with lifecycle scripts off, and turbo, which
-# spawns that placeholder directly, fails with `Exec format error`.
+# later shells source CLAUDE_ENV_FILE. without this line they find the image's
+# pnpm, which self-switches to `packageManager` with lifecycle scripts off, and
+# turbo, which spawns that placeholder directly, fails with `Exec format error`.
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   echo "export PATH=\"$bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
 fi

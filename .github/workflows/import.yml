@@ -88,7 +88,7 @@ jobs:
           fi
           # the grep and the sed are KEEPS_CLAIM_GREP and RELEASE_LINE_SED in packages/import/src/generation.ts
           if grep -q "keeps its claim" "$summary"; then
-            echo "::warning title=Claim kept::a remote import may still be running in D1; run the irs release the summary names once it has ended"
+            echo "::warning title=Claim kept::a remote import may still be running in D1; once it has ended, run the irs release command the summary names"
             exit 0
           fi
           build=$(sed -n 's/.*irs release --remote --build \([^ ]*\) clears .*/\1/p' "$summary" | head -n 1)

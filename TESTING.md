@@ -6,7 +6,7 @@
 
 Two Vitest projects in `vitest.config.ts`:
 
-- **`workerd`**: `packages/worker/test/**` and `packages/cli/test/**`. Each file boots its own workerd through wrangler's `createTestHarness()`, so test and hook timeouts are 60 s.
+- **`workerd`**: `packages/worker/test/**` and `packages/cli/test/**`. Each file boots workerd, through wrangler's `createTestHarness()` or a `wrangler` child process, so test and hook timeouts are 60 s.
 - **`node`**: everything else (core, db, import), on Vitest's defaults unless a file says otherwise.
 
 Worker tests come in two tiers:
@@ -37,7 +37,7 @@ Worker tests come in two tiers:
 ## Things that bite
 
 - `server.getLogs()` has no flush barrier: wrap log assertions in `vi.waitFor` and filter by `event`.
-- Wrangler prints a proxy warning on stderr in this environment, so never assert on the whole of stderr.
+- Wrangler prints a warning on stderr when proxy environment variables are set, so never assert on the whole of stderr.
 - `scripts/local-data.ts` writes `.wrangler/<name>.sql` under the worker package, so its tests live in one file to avoid racing on it.
 - The import's refresh and verify tests run on in-memory SQLite through `sqliteWrangler()` (`packages/import/src/test-support.ts`), which stands in for the wrangler process only; one real-wrangler refresh and rollback stay. Process behaviour (timeouts, kills, argv, JSON output) is tested against `fixtures/fake-wrangler.mjs` behind a mocked `execFile`.
 - A refresh's build id is its start time to the second, so a test that runs two builds fakes `Date`.

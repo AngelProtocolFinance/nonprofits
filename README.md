@@ -6,11 +6,11 @@ Look up IRS exempt organizations by EIN, over REST and MCP.
 
 pnpm workspace, one package per deliverable plus shared code:
 
-- `packages/core` — response types and handlers shared by REST and MCP
-- `packages/db` — app DB migrations, the data DBs' schema and generation SQL (reset, seal, flip), and table/column constants shared by worker and import
-- `packages/worker` — Cloudflare Worker serving REST + MCP
-- `packages/import` — Node job that ingests IRS data
-- `packages/cli` — API key admin
+- `packages/core`: response types and handlers shared by REST and MCP
+- `packages/db`: app DB migrations, the data DBs' schema and generation SQL (reset, seal, flip), and table/column constants shared by worker and import
+- `packages/worker`: Cloudflare Worker serving REST + MCP
+- `packages/import`: Node job that ingests IRS data
+- `packages/cli`: API key admin
 
 Node 24 (`.nvmrc`), pnpm pinned via `packageManager`. Dependency versions live in the `catalog` in `pnpm-workspace.yaml`.
 
