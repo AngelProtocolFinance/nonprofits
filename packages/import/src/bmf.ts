@@ -121,8 +121,9 @@ export interface BmfImportSummary {
 /**
  * Streams each BMF file into one SQL load file, then applies it to D1 in a
  * single `wrangler d1 execute --file`, so the orgs and their `import_runs` rows
- * commit together; the search index is left for the caller to rebuild. A failed download, any layout drift or a short count
- * throws before the apply, leaving D1 untouched and no load file behind.
+ * commit together; the search index is left for the caller to rebuild. A
+ * failed download, any layout drift or a short count throws before the apply,
+ * leaving D1 untouched and no load file behind.
  */
 export async function importBmf(
   options: BmfImportOptions,

@@ -997,7 +997,7 @@ describe("run summary", { timeout: 30_000 }, () => {
   const startLater = () => vi.setSystemTime(Date.now() + 2_000);
   let n = 0;
   const summaryFile = () => join(work, `summary-${++n}.md`);
-  /** One markdown table row's cells, `|` and padding trimmed. */
+  /** A markdown table row of `cells`, as the summary writes one. */
   const row = (...cells: string[]) => `| ${cells.join(" | ")} |`;
 
   test("a served refresh's summary lists each source's rows, the e-file years and yields, every check with its numbers, each step's time, and the build served before and after", async () => {

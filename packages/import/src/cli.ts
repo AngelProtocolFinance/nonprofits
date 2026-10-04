@@ -214,7 +214,7 @@ async function command(
       return values.build === undefined ? 0 : 1;
     }
     console.log(
-      `release: cleared build ${claim.claim_build_id}'s claim on slot ${claim.claim_slot} (claimed ${claim.claimed_at}, lease to ${claim.claim_expires_at})`,
+      `release: cleared build ${claim.claim_build_id}'s claim on slot ${claim.claim_slot} (claimed ${claim.claimed_at}, lease until ${claim.claim_expires_at})`,
     );
     return 0;
   }

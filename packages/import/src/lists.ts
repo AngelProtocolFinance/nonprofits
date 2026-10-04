@@ -193,8 +193,8 @@ export interface ListImportSummary {
  * Streams one list's zip into a SQL load file, then applies it to D1 in a
  * single `wrangler d1 execute --file`, so its rows and its `import_runs` row
  * commit together; the search index is left for the caller to rebuild. A
- * failed download, any layout drift or a short count throws
- * before the apply, leaving D1 untouched and no load file behind.
+ * failed download, any layout drift or a short count throws before the apply,
+ * leaving D1 untouched and no load file behind.
  */
 export async function importList(
   list: ListName,

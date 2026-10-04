@@ -9,7 +9,7 @@ export interface RetryPolicy {
   log?: (line: string) => void;
 }
 
-/** A run's retries: 4 tries, about 2 s, 4 s and 8 s apart, each logged to stderr. */
+/** A run's retries: 4 tries, 1–2 s, 2–4 s and 4–8 s apart, each logged to stderr. */
 export const RETRY: RetryPolicy = {
   attempts: 4,
   firstDelayMs: 2_000,

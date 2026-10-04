@@ -43,7 +43,7 @@ const COUNTED = {
 } as const;
 type Counted = keyof typeof COUNTED;
 
-/** The fewest of each count a generation may hold: all a first build, with no served counts to compare, is held to besides its other checks. */
+/** The fewest of each count a generation may hold: a first build's only count check, as it has no served counts to compare with. */
 export type TableFloors = Record<Counted, number>;
 
 export const TABLE_FLOORS: TableFloors = {
@@ -240,7 +240,7 @@ async function build(
   const found = await readMeta(ops, binding);
   if (found !== null && found.slot !== slot) {
     throw new Error(
-      `refresh refused: ${binding} holds slot ${found.slot}'s generation, so it may be the database served; check the database_id each binding names`,
+      `refresh refused: ${binding} holds slot ${found.slot}'s generation, so it may be the database served; check the database_id each binding names in packages/worker/wrangler.jsonc`,
     );
   }
   await mkdir(loadDir, { recursive: true });
