@@ -219,7 +219,7 @@ describe("import.yml's release step, run over what the CLI writes", () => {
         keptClaims: [{ buildId: "b1", binding: "DATA_DB_B" }],
       }),
     );
-    // the line the keep step must not act on
+    // the line the release step must not act on
     expect(keepsClaim("b1", "DATA_DB_B")).toContain(
       "irs release --remote --build b1 clears",
     );

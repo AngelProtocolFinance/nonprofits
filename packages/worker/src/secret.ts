@@ -1,6 +1,6 @@
 // an unset secret reads as undefined; the floor also refuses a guessable one
 export const MIN_SECRET_LENGTH = 32;
-// how every `.dev.vars.example` value starts: long enough to pass the floor, and public
+// the start of every `.dev.vars.example` value: each is long enough to pass the floor, and public
 const PLACEHOLDER_PREFIX = "replace-with-";
 
 /** Whether the operator set this secret to something only they know. */

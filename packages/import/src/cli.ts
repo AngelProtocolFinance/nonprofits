@@ -133,7 +133,7 @@ export async function run(
   env: Readonly<Record<string, string | undefined>>,
   deps: CliDeps,
 ): Promise<number> {
-  /** Set by a SIGINT or SIGTERM, so the run's own failure isn't reported over it. */
+  /** The stop's exit code, set by a SIGINT or SIGTERM, so the run's own failure isn't reported over it. */
   let stoppedWith: number | null = null;
   /** The run's own lines; quiet once a signal is stopping it, as its failures are the stop's. */
   const log = (line: string) => {
@@ -326,7 +326,7 @@ function releaseOnSignal(
     }
     stopping = true;
     onStop(code);
-    // the commands the stop kills: all a stop cut off before its cleanup has to go on
+    // what the stop kills, read now: a stop cut off before its cleanup has only this to go on
     const running = deps.runningWrangler();
     const lines: string[] = [];
     record.stop = { signal, lines };

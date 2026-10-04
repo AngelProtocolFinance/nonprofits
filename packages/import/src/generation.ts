@@ -382,7 +382,7 @@ export function keepsClaim(buildId: string, binding: string): string {
 
 /**
  * The data database whose remote import is among `commands` (wrangler args),
- * so may still be running in D1 after they were killed.
+ * which may still be running in D1 after they were killed.
  */
 export function importAmong(
   ops: D1Ops,
@@ -426,7 +426,7 @@ export async function releaseAfterStop(
           : `build ${buildId} holds no claim`,
       );
     } catch (error) {
-      // the release first: the summary keeps only a line's start
+      // the release command first: the summary keeps only a line's start
       report(
         `could not release build ${buildId}'s claim; ${releaseCommand(ops, buildId)} clears it (${message(error)})`,
       );
@@ -646,7 +646,7 @@ async function applySql(
   await ops.applyFile(binding, file);
 }
 
-/** For a step `timed` adds to the summary that logs its own line. */
+/** `timed`'s log for a step that logs its own line: the step still goes in the summary. */
 function quiet(): void {}
 
 /** Runs `step` and adds it to `steps` with how long it took, failed or not; logs `done` with that time only when it succeeds. */

@@ -42,9 +42,9 @@ interface SentRequest {
 
 /**
  * Answers the Worker's GitHub requests by URL with `respond` (204 by default)
- * and records them. The
- * harness sends every outbound Worker fetch through this process's
- * `globalThis.fetch`; anything not for GitHub goes to the real one.
+ * and records them. The harness sends every outbound Worker fetch through
+ * this process's `globalThis.fetch`; anything not for GitHub goes to the real
+ * one.
  */
 function stubGitHub(
   respond: (url: string) => Response = () =>
@@ -71,7 +71,7 @@ function stubGitHub(
   return sent;
 }
 
-/** The pointer's age, and the claim and last dispatch, as SQLite `now` modifiers (`'-36 days'`); null for none. */
+/** The served build, then the pointer's age, the claim's expiry and the last dispatch as SQLite `now` modifiers (`'-36 days'`); null for none. */
 interface Generation {
   buildId?: string;
   flipped: string;
@@ -189,7 +189,7 @@ test("stale data under a claim whose lease ran out: a dispatch", async () => {
   ]);
 });
 
-test("stale data dispatched for 50 hours ago: no call, skipped as dispatched_recently", async () => {
+test("stale data last dispatched 50 hours ago: no call, skipped as dispatched_recently", async () => {
   await setGeneration({ flipped: "-40 days", lastDispatch: "-50 hours" });
   const sent = stubGitHub();
 
@@ -203,7 +203,7 @@ test("stale data dispatched for 50 hours ago: no call, skipped as dispatched_rec
   expect(sent).toHaveLength(0);
 });
 
-test("stale data dispatched for 80 hours ago: dispatched again", async () => {
+test("stale data last dispatched 80 hours ago: dispatched again", async () => {
   await setGeneration({ flipped: "-40 days", lastDispatch: "-80 hours" });
   const sent = stubGitHub();
 

@@ -352,7 +352,7 @@ describe("run", () => {
   });
 });
 
-/** Silences the run's console, returning what it printed. */
+/** Silences the run's console, returning the spies that record what it printed. */
 function quiet() {
   return {
     log: vi.spyOn(console, "log").mockImplementation(() => {}),
@@ -445,7 +445,7 @@ describe("run's exit codes", { timeout: 60_000 }, () => {
     },
   );
 
-  test("a run that failed before touching D1 exits 1 with its summary written", async () => {
+  test("a refresh whose first load file fails exits 1 with its summary written", async () => {
     const h = harness({
       via: (args, next) =>
         args.includes("--file")
