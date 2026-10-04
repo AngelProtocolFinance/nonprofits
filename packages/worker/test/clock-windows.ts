@@ -10,8 +10,8 @@ async function clearOfWindowEnd(periodMs: number, neededMs: number) {
 /**
  * The local Rate Limiting binding counts in wall-clock minutes: a burst
  * started in a minute's last seconds would be split across two windows. A
- * burst that takes longer than the default margin passes its own cost, as
- * `startOfBurstWindow` measures it.
+ * burst that can outlast the default margin passes its own cost, as
+ * `startOfBurstWindow` does once it has measured it.
  */
 export function startOfMinuteWindow(neededMs = 10_000): Promise<void> {
   return clearOfWindowEnd(MINUTE_MS, neededMs);

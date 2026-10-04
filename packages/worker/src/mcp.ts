@@ -26,15 +26,15 @@ const LOOKUP_DESCRIPTION = `Look up a US tax-exempt organization by its EIN (Emp
 
 Returns the organization's name, address, 501(c)(3) status, whether gifts to it are tax-deductible (IRS Pub 78), revocation status, mission, activity summary, top programs, latest finances and website. Every fact is read from IRS bulk data files, and \`provenance\` names the IRS file (and, for facts from a 990, the filing and tax year) each fact came from.
 
-A fact is null when the IRS data doesn't carry it, and \`notes\` says why: \`mission\` is null for an organization that files only a 990-N postcard, for a 990-PF private foundation, or when its latest 990 states none or puts it on Schedule O, which isn't extracted.
+A fact is null when the IRS data doesn't carry it, and \`notes\` says why. For example, \`mission\` is null for an organization that files only a 990-N postcard, for a 990-PF private foundation, or when its latest 990 states none or puts it on Schedule O, which isn't extracted.
 
-Errors: \`invalid_ein\` for an EIN that isn't 9 digits, \`not_found\` when no organization has that EIN. Know only the name? Call search_nonprofits first. Each call counts against your daily quota, except one refused for its EIN.`;
+Errors: \`invalid_ein\` for an EIN that isn't 9 digits, \`not_found\` when no organization has that EIN. Know only the name? Call search_nonprofits first. Each call counts against your daily quota, except one refused as \`invalid_ein\`.`;
 
 const SEARCH_DESCRIPTION = `Find US tax-exempt organizations by name. Results are ranked by relevance to the words, best match first, with each match's EIN, name, city, state, 501(c)(3) status and deductibility; pass an EIN to lookup_nonprofit for the full record.
 
 \`query\` is a few distinctive words of the name, 2 to 200 characters, e.g. "red cross"; punctuation is ignored and at most 8 words are used. \`limit\` is how many matches to return: a whole number from 1 to 50, default 10, and above 50 is capped at 50.
 
-Names come from the IRS Business Master File. Each call counts against your daily quota, except one refused for its query or limit.`;
+Names come from the IRS Business Master File. Each call counts against your daily quota, except one refused as \`invalid_query\` or \`invalid_limit\`.`;
 
 /**
  * An EIN sent as a number, as the 9 digits it stands for: a number has lost

@@ -61,7 +61,8 @@ async function issueKey(): Promise<{ id: string; key: string }> {
 /**
  * The Worker's env with every Rate Limiting binding admitting all calls, but
  * for `overrides`: a test about a count in D1 isn't a test of a binding's
- * minute, which `countingLimiter` doubles or the one real burst test cover.
+ * minute, which `countingLimiter` stands in for, or the one real burst test
+ * covers.
  */
 function burstless(overrides: Partial<Env> = {}): Env {
   return {

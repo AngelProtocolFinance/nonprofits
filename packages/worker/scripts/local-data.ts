@@ -148,7 +148,7 @@ function flip(slot: DataSlot): void {
       claimSlotSql(slot, build_id, undefined, LOCAL_CLAIM_LEASE_SECONDS),
     ).length === 0
   ) {
-    throw new Error(`build ${claim_build_id} holds slot ${slot}`);
+    throw new Error(`slot ${slot} can't be claimed for build ${build_id}`);
   }
   const flipped = query("APP_DB", flipActiveSlotSql(active, build_id));
   if (flipped.length === 0)

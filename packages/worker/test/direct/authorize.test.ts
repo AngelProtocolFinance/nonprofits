@@ -290,7 +290,7 @@ test("a request whose usage can't be counted answers auth_unavailable and is not
     error: {
       code: "auth_unavailable",
       message:
-        "The key check is unavailable right now; nothing is wrong with your key. Retry shortly.",
+        "The key check is unavailable right now, so this refusal says nothing about your key. Retry shortly.",
     },
   });
 });
@@ -381,7 +381,7 @@ function viaWorker(
 const KEYLESS_UNAVAILABLE =
   "Requests without an API key can't be served right now. Retry later, or send an API key.";
 const KEY_CHECK_UNAVAILABLE =
-  "The key check is unavailable right now; nothing is wrong with your key. Retry shortly.";
+  "The key check is unavailable right now, so this refusal says nothing about your key. Retry shortly.";
 
 test.each([
   {
