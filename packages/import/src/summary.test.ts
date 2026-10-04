@@ -1,7 +1,15 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+  vi,
+} from "vitest";
 import {
   type RunRecord,
   renderSummary,
@@ -23,6 +31,10 @@ afterAll(async () => {
 function record(fields: Partial<RunRecord> = {}): RunRecord {
   return { ...runRecord("refresh", true), ...fields };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("renderSummary", () => {
   test("a stop line that spans lines stays one list item", () => {
@@ -97,6 +109,40 @@ describe("renderSummary", () => {
   });
 });
 
+describe("renderSummary's served-after row", () => {
+  test("a pointer that couldn't be read shows as unknown with the reason, and a run that otherwise succeeded as done", () => {
+    const md = renderSummary(
+      record({ servedAfter: { unread: "wrangler d1 execute failed: boom" } }),
+    );
+
+    expect(md).toContain("## irs refresh (remote D1): done\n");
+    expect(md).toContain(
+      "| served after | unknown | pointer unread: wrangler d1 execute failed: boom |\n",
+    );
+  });
+
+  test("the reason's own pipes stay inside its table cell", () => {
+    const md = renderSummary(record({ servedAfter: { unread: "a | b" } }));
+
+    expect(md).toContain(
+      "| served after | unknown | pointer unread: a \\| b |\n",
+    );
+  });
+
+  test("a pointer that was read shows its slot and build, and names them in the headline", () => {
+    const md = renderSummary(
+      record({
+        servedAfter: { active: "b", build_id: "b1", flipped_at: "2026-10-03" },
+      }),
+    );
+
+    expect(md).toContain(
+      "## irs refresh (remote D1): serving slot b, build b1\n",
+    );
+    expect(md).toContain("| served after | b | b1 |\n");
+  });
+});
+
 describe("summaryWriter", () => {
   test("redacts a secret stored with surrounding whitespace by its trimmed value too", async () => {
     const file = join(work, "trimmed.md");
@@ -111,5 +157,44 @@ describe("summaryWriter", () => {
     const md = await readFile(file, "utf8");
     expect(md).toContain("/accounts/[redacted]/d1/");
     expect(md).not.toContain("0123abcd");
+  });
+
+  test("appends to what the file already holds", async () => {
+    const file = join(work, "appended.md");
+    await writeFile(file, "an earlier step's summary\n");
+
+    summaryWriter(file, [])(record({ failure: "x" }));
+
+    const md = await readFile(file, "utf8");
+    expect(md.startsWith("an earlier step's summary\n## irs refresh")).toBe(
+      true,
+    );
+    expect(md).toContain("**Failed:** x\n");
+  });
+
+  test("writes the first record only: a later one adds nothing", async () => {
+    const file = join(work, "once.md");
+    const write = summaryWriter(file, []);
+
+    write(record({ failure: "the run's own failure" }));
+    write(record({ stop: { signal: "SIGINT", lines: ["a stop's line"] } }));
+
+    const md = await readFile(file, "utf8");
+    expect(md.match(/^## /gm)).toHaveLength(1);
+    expect(md).toContain("**Failed:** the run's own failure\n");
+    expect(md).not.toContain("a stop's line");
+  });
+
+  test("an unwritable path is reported on stderr, naming it, and doesn't throw", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const file = join(work, "no-such-dir", "summary.md");
+
+    expect(() => summaryWriter(file, [])(record())).not.toThrow();
+
+    expect(error).toHaveBeenCalledWith(
+      expect.stringMatching(
+        new RegExp(`^could not write the summary to ${file}: ENOENT`),
+      ),
+    );
   });
 });

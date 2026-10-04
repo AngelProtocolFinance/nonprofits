@@ -24,6 +24,16 @@ Worker tests come in two tiers:
 - The Rate Limiting bindings are exact in miniflare and approximate in production. Most tests use `countingLimiter(limit)` or `noBurstLimit` from `test/direct/limiters.ts`; each binding keeps one real burst test.
 - `test/direct/ratelimits-config.test.ts` checks that the limits in `wrangler.jsonc` match the constants in `quota.ts`.
 
+## Import CLI tiers
+
+`packages/import/src/cli.ts` exports `run(argv, env, deps)`, which resolves the exit code; `deps` (`CliDeps`) carries everything it reaches outside its arguments (D1, sources, load dir, signal hook, `stopWrangler`, `runningWrangler`, `exit`). Its tests come in tiers:
+
+- `cli.test.ts` spawns the real CLI on local wrangler state: process-level behaviour (signals, exit codes, the real flip being killed). Slow; add a case here only when it needs a real process.
+- `cli-run.test.ts` calls `run()` in process with fakes. `harness({ via, running, stop, sources })` puts in-memory D1 (`sqliteWrangler()`) behind `remoteD1`; `via` sees each wrangler command first and may stall or fail it, `stop`/`running` stand in for the wrangler kill, `fixtureServer()` and `fixtureSources()` (`test-support.ts`) serve a full fixture build. `run()` verifies against the real `TABLE_FLOORS`, so a fixture build never passes verify: tests that need a build to get that far assert on the check rows of the summary, not on a success.
+- `cli-redaction.test.ts` runs `run()` through the real `wrangler.ts` with `fixtures/fake-wrangler.mjs` behind a mocked `execFile`, so the failure text is the shipped `failureOutput` shape (JSON cause, colour codes, the account id on later lines). Env secrets reach the summary writer only through `run`'s `env` argument.
+- `workflow.test.ts` reads `.github/workflows/import.yml` and runs its release step (`bash -eo pipefail`, a stub `node`) and failure-issue script over summaries `renderSummary` writes, so a change to either side's text breaks a test.
+- `summary.test.ts` covers `renderSummary` and `summaryWriter` directly.
+
 ## Things that bite
 
 - `server.getLogs()` has no flush barrier: wrap log assertions in `vi.waitFor` and filter by `event`.

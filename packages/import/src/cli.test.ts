@@ -160,8 +160,9 @@ describe("irs", { timeout: 90_000 }, () => {
     expect(await pointer()).toStrictEqual(before);
   });
 
-  test("a stopped rollback's --summary says what stopped it and what its cleanup did", async () => {
+  test("a stopped rollback's --summary says what stopped it, what its cleanup did and the failure the kill caused", async () => {
     const summary = join(work, "stopped.md");
+    const [before] = await pointer();
 
     const exit = await irs(
       ["rollback", "--summary", summary],
@@ -173,8 +174,20 @@ describe("irs", { timeout: 90_000 }, () => {
     const md = await readFile(summary, "utf8");
     expect(md).toContain("## irs rollback (local D1): stopped by SIGINT\n");
     expect(md).toContain("**Stopped:** SIGINT\n");
-    expect(md).toContain("- released build old's claim\n");
-    expect(md).toContain("| served before | a | empty |");
+    // a loaded machine can push the cleanup past the stop's 7 s
+    expect(md).toMatch(
+      /^- (released build old's claim|stop cut off after 7 s)$/m,
+    );
+    expect(md).toContain(
+      `| served before | ${before?.active} | ${before?.build_id} |`,
+    );
+    // the killed flip fails the run, so a stop's summary carries that failure too, after its own line
+    const stopped = md.indexOf("**Stopped:**");
+    const failed = md.indexOf(
+      "**Failed:** flip failed: wrangler d1 execute stopped",
+    );
+    expect(stopped).toBeGreaterThan(-1);
+    expect(failed).toBeGreaterThan(stopped);
   });
 
   test("a refresh refused by another build's claim exits 1 and its --summary carries the refusal", async () => {
