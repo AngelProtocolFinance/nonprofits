@@ -17,6 +17,10 @@ ppa.launchpadcontent.net
 mcp.context7.com
 www.irs.gov
 apps.irs.gov
+api.turso.tech
+*.turso.io
+vercel.com
+api.vercel.com
 ```
 
 ## Setup script
