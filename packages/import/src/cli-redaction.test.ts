@@ -78,11 +78,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** `run` on a remote refresh whose every wrangler command fails as `WRANGLER_OUTPUT`, with `env` as the process env; resolves with its exit code and summary. */
+/** `run` on a remote refresh whose every wrangler command fails as `WRANGLER_OUTPUT`, with `env` as the process env; resolves with its exit code, summary and what it printed on stderr. */
 async function failingRefresh(env: Record<string, string | undefined>) {
   vi.stubEnv("FAKE_WRANGLER", JSON.stringify(WRANGLER_OUTPUT));
   vi.spyOn(console, "log").mockImplementation(() => {});
-  vi.spyOn(console, "error").mockImplementation(() => {});
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
   const summary = join(work, `summary-${++n}.md`);
   const deps: CliDeps = {
     d1: () => remoteD1(),
@@ -99,7 +99,8 @@ async function failingRefresh(env: Record<string, string | undefined>) {
     env,
     deps,
   );
-  return { code, md: await readFile(summary, "utf8") };
+  const stderr = error.mock.calls.map((args) => args.join(" ")).join("\n");
+  return { code, md: await readFile(summary, "utf8"), stderr };
 }
 
 describe("run's summary redaction", () => {
@@ -129,13 +130,32 @@ describe("run's summary redaction", () => {
     expect(md).not.toContain("\u001b");
   });
 
-  // the same output with no secrets in the env, so the test above reads redaction and not a fixture that never carried them
+  test("replaces them in the failure the run prints on stderr", async () => {
+    const { stderr } = await failingRefresh({
+      CLOUDFLARE_ACCOUNT_ID: ACCOUNT_ID,
+      CLOUDFLARE_API_TOKEN: API_TOKEN,
+    });
+
+    expect(stderr).toContain(
+      "wrangler d1 execute failed: Authentication error: token [redacted] was rejected [code: 10000]",
+    );
+    expect(stderr).toContain(
+      `A request to the Cloudflare API (/accounts/[redacted]/d1/database/${DATABASE}/query) failed.`,
+    );
+    expect(stderr).not.toContain(ACCOUNT_ID);
+    expect(stderr).not.toContain(API_TOKEN);
+  });
+
+  // the same output with no secrets in the env, so the tests above read redaction and not a fixture that never carried them
   test("leaves them as printed when the env doesn't hold them", async () => {
-    const { md } = await failingRefresh({});
+    const { md, stderr } = await failingRefresh({});
 
     expect(md).toContain(`/accounts/${ACCOUNT_ID}/d1/`);
     expect(md).toContain(`token ${API_TOKEN} was rejected`);
     expect(md).not.toContain("[redacted]");
+    expect(stderr).toContain(`/accounts/${ACCOUNT_ID}/d1/`);
+    expect(stderr).toContain(`token ${API_TOKEN} was rejected`);
+    expect(stderr).not.toContain("[redacted]");
   });
 
   test("redacts each secret from its own env variable", async () => {

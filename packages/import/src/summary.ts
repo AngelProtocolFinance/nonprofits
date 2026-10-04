@@ -101,20 +101,14 @@ export function finish(record: RunRecord): void {
  */
 export function summaryWriter(
   path: string,
-  secrets: readonly (string | undefined)[],
+  secrets: Secrets,
 ): (record: RunRecord) => void {
   let written = false;
   return (record) => {
     if (written) return;
     written = true;
-    let text = renderSummary(record);
-    // trimmed too: whitespace stored around a secret needn't appear where it is quoted
-    for (const secret of secrets.flatMap((s) => [s, s?.trim()])) {
-      // an empty value would be "found" between every two characters
-      if (secret) text = text.replaceAll(secret, "[redacted]");
-    }
     try {
-      appendFileSync(path, text);
+      appendFileSync(path, renderSummary(record, secrets));
     } catch (error) {
       console.error(
         `could not write the summary to ${path}: ${message(error)}`,
@@ -123,8 +117,39 @@ export function summaryWriter(
   };
 }
 
-/** The record as GitHub-flavoured markdown; a failure's first line on a line of its own, starting `**Failed:**`, and each kept claim on one starting `**Claim kept:**`. */
-export function renderSummary(record: RunRecord): string {
+type Secrets = readonly (string | undefined)[];
+
+/** `text` with every one of `secrets` replaced by `[redacted]`. */
+function redact(text: string, secrets: Secrets): string {
+  // trimmed too: whitespace stored around a secret needn't appear where it is quoted
+  for (const secret of secrets.flatMap((s) => [s, s?.trim()])) {
+    // an empty value would be "found" between every two characters
+    if (secret) text = text.replaceAll(secret, "[redacted]");
+  }
+  return text;
+}
+
+/**
+ * Free text as the CLI prints it, kept as a summary keeps a failure: every
+ * one of `secrets` replaced, the first line clipped as the `**Failed:**` line
+ * is and the rest as the block under it.
+ */
+export function printable(text: string, secrets: Secrets): string {
+  return clipped(text, redactingClip(secrets)).join("\n");
+}
+
+/**
+ * The record as GitHub-flavoured markdown; a failure's first line on a line
+ * of its own, starting `**Failed:**`, and each kept claim on one starting
+ * `**Claim kept:**`. Every one of `secrets` is replaced, in free text before
+ * it is clipped, so a cut can't leave part of one.
+ */
+export function renderSummary(
+  record: RunRecord,
+  secrets: Secrets = [],
+): string {
+  const clip = redactingClip(secrets);
+  const row = tableRow(clip);
   const out: string[] = [`## ${headline(record)}`, ""];
   if (record.stop !== null) {
     out.push(
@@ -135,15 +160,15 @@ export function renderSummary(record: RunRecord): string {
     );
   }
   if (record.failure !== null) {
-    const [first = "", ...more] = record.failure.split(/\r\n|\r|\n/);
-    out.push(`**Failed:** ${clip(first)}`, "");
-    if (more.length > 0) out.push(...fenced(tail(more)), "");
+    const [first, ...more] = clipped(record.failure, clip);
+    out.push(`**Failed:** ${first}`, "");
+    if (more.length > 0) out.push(...fenced(more), "");
   }
   for (const { buildId, binding } of record.keptClaims) {
     out.push(`**Claim kept:** ${clip(keepsClaim(buildId, binding))}`, "");
   }
-  out.push(...served(record));
-  if (record.loads.length > 0) out.push(...sources(record.loads));
+  out.push(...served(record, row));
+  if (record.loads.length > 0) out.push(...sources(record.loads, row));
   if (record.checks.length > 0) {
     out.push(
       "### Verify",
@@ -170,7 +195,8 @@ export function renderSummary(record: RunRecord): string {
     ...(record.seconds === null ? [] : [row("total", seconds(record.seconds))]),
     "",
   );
-  return `${out.join("\n")}\n`;
+  // the unclipped text too: the headline's build id, the release years' reason
+  return redact(`${out.join("\n")}\n`, secrets);
 }
 
 function headline(record: RunRecord): string {
@@ -183,7 +209,7 @@ function headline(record: RunRecord): string {
     : `${run}: serving slot ${after.active}, build ${after.build_id}`;
 }
 
-function served(record: RunRecord): string[] {
+function served(record: RunRecord, row: Row): string[] {
   const rows: string[] = [];
   if (record.servedBefore !== null) {
     rows.push(
@@ -206,7 +232,7 @@ function served(record: RunRecord): string[] {
   return [row("", "slot", "build"), row("---", "---", "---"), ...rows, ""];
 }
 
-function sources(loads: readonly Loaded[]): string[] {
+function sources(loads: readonly Loaded[], row: Row): string[] {
   const out = [
     "### Sources",
     "",
@@ -255,9 +281,12 @@ function sources(loads: readonly Loaded[]): string[] {
   return out;
 }
 
-/** A markdown table row; a cell clipped and its `|` escaped, so free text can't break the table. */
-function row(...cells: string[]): string {
-  return `| ${cells.map((c) => clip(c).replaceAll("|", "\\|")).join(" | ")} |`;
+type Row = (...cells: string[]) => string;
+
+/** A markdown table row; a cell through `clip` and its `|` escaped, so free text can't break the table. */
+function tableRow(clip: Clip): Row {
+  return (...cells) =>
+    `| ${cells.map((c) => clip(c).replaceAll("|", "\\|")).join(" | ")} |`;
 }
 
 /**
@@ -270,8 +299,8 @@ const BLOCK_BYTES = 16 * 1024;
 /** The most of one line of free text the summary keeps, its start. */
 const LINE_CHARS = 1_000;
 
-/** The end of `lines`, each clipped, within `BLOCK_LINES` and `BLOCK_BYTES`, led by how many were cut. */
-function tail(lines: readonly string[]): string[] {
+/** The end of `lines`, each through `clip`, within `BLOCK_LINES` and `BLOCK_BYTES`, led by how many were cut. */
+function tail(lines: readonly string[], clip: Clip): string[] {
   const kept: string[] = [];
   let bytes = 0;
   for (let i = lines.length - 1; i >= 0 && kept.length < BLOCK_LINES; i--) {
@@ -284,8 +313,21 @@ function tail(lines: readonly string[]): string[] {
   return cut === 0 ? kept : [`[${cut} earlier lines cut]`, ...kept];
 }
 
+/** `text`'s first line through `clip`, then the tail of the rest. */
+function clipped(text: string, clip: Clip): [string, ...string[]] {
+  const [first = "", ...more] = text.split(/\r\n|\r|\n/);
+  return [clip(first), ...tail(more, clip)];
+}
+
+type Clip = (text: string) => string;
+
+/** `clipLine` once every one of `secrets` is replaced, so a cut can't leave part of one. */
+function redactingClip(secrets: Secrets): Clip {
+  return (text) => clipLine(redact(text, secrets));
+}
+
 /** `text` on one line, so it can't start a line a reader of the summary matches, within `LINE_CHARS`, saying how much was cut. */
-function clip(text: string): string {
+function clipLine(text: string): string {
   const line = text.replace(/\r\n|\r|\n/g, " ");
   if (line.length <= LINE_CHARS) return line;
   return `${line.slice(0, LINE_CHARS)}… [${line.length - LINE_CHARS} characters cut]`;

@@ -159,6 +159,43 @@ describe("summaryWriter", () => {
     expect(md).not.toContain("0123abcd");
   });
 
+  const SECRET = "S3CR3T0123abcd";
+  /** Text that, after `lead` the summary puts before it, has `SECRET` across the 1,000-character cut a line of free text gets. */
+  const straddling = (lead = "") =>
+    `${"x".repeat(995 - lead.length)}${SECRET}${"y".repeat(100)}`;
+
+  test.each<[string, Partial<RunRecord>]>([
+    ["a failure's first line", { failure: straddling() }],
+    ["a failure's later line", { failure: `wrangler failed\n${straddling()}` }],
+    ["a stop's line", { stop: { signal: "SIGINT", lines: [straddling()] } }],
+    [
+      "a table cell",
+      { servedAfter: { unread: straddling("pointer unread: ") } },
+    ],
+  ])(
+    "redacts a secret across the cut in %s before clipping, leaving no prefix of it",
+    async (name, fields) => {
+      const file = join(work, `straddle-${name.replaceAll(" ", "-")}.md`);
+
+      summaryWriter(file, [SECRET])(record(fields));
+
+      const md = await readFile(file, "utf8");
+      expect(md).not.toContain(SECRET.slice(0, 5));
+      expect(md).toContain("[reda… [");
+    },
+  );
+
+  test("clips a failure's first line on its redacted text, counting what the cut dropped of it", async () => {
+    const file = join(work, "straddle-count.md");
+
+    summaryWriter(file, [SECRET])(record({ failure: straddling() }));
+
+    const md = await readFile(file, "utf8");
+    expect(md).toContain(
+      `**Failed:** ${"x".repeat(995)}[reda… [105 characters cut]\n`,
+    );
+  });
+
   test("appends to what the file already holds", async () => {
     const file = join(work, "appended.md");
     await writeFile(file, "an earlier step's summary\n");

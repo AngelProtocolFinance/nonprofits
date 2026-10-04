@@ -80,6 +80,14 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+/** 16 lines of 1 MiB each: as much as a failed `wrangler d1 execute` may quote. */
+const HUGE_WRANGLER_OUTPUT = Array.from({ length: 16 }, () =>
+  "x".repeat(1024 * 1024),
+).join("\n");
+
+/** The summary's clip, which the terminal's follows: a first line of 1,000 characters, then at most 16 KiB of the rest. */
+const PRINTED_FAILURE_BYTES = 32 * 1024;
+
 /** The wrangler args a remote `--command` runs `sql` with. */
 const remoteCommand = (binding: string, sql: string) => [
   "d1",
@@ -322,9 +330,6 @@ describe("run", () => {
 
   test("a stop whose release failed with 16 MiB of wrangler output still names the release the workflow's release step finds", async () => {
     const reachedApply = deferred<void>();
-    const huge = Array.from({ length: 16 }, () => "x".repeat(1024 * 1024)).join(
-      "\n",
-    );
     const h = harness({
       via: (args, next) => {
         if (args.includes("--file")) {
@@ -333,13 +338,14 @@ describe("run", () => {
         }
         if (args.some((arg) => arg.includes("SET claim_slot = NULL"))) {
           return Promise.reject(
-            new Error(`wrangler d1 execute failed: ${huge}`),
+            new Error(`wrangler d1 execute failed: ${HUGE_WRANGLER_OUTPUT}`),
           );
         }
         return next();
       },
       stop: (then) => then([]),
     });
+    const out = quiet();
 
     void run(["refresh", "--remote", "--summary", h.summary], {}, h.deps);
     await reachedApply.promise;
@@ -349,6 +355,11 @@ describe("run", () => {
     const held = await h.claimHolder();
     expect(held).toMatch(/^\d{4}-\d\d-\d\dT/);
     expect(await releaseStepBuilds(h.summary)).toStrictEqual([held]);
+    const stderr = printed(out.error);
+    expect(Buffer.byteLength(stderr)).toBeLessThan(PRINTED_FAILURE_BYTES);
+    const printedFile = join(work, `stderr-${n}.txt`);
+    await writeFile(printedFile, stderr);
+    expect(await releaseStepBuilds(printedFile)).toStrictEqual([held]);
   });
 });
 
@@ -464,6 +475,59 @@ describe("run's exit codes", { timeout: 60_000 }, () => {
     const md = await summaryText(h.summary);
     expect(md).toContain("## irs refresh (remote D1): failed\n");
     expect(md).toContain('**Failed:** wrangler d1 execute failed: near "x"\n');
+  });
+
+  test("a refresh failing with 16 MiB of wrangler output exits 1, its failure clipped on stderr", async () => {
+    const h = harness({
+      via: (args, next) =>
+        args.includes("--file")
+          ? Promise.reject(
+              new Error(`wrangler d1 execute failed: ${HUGE_WRANGLER_OUTPUT}`),
+            )
+          : next(),
+    });
+    const out = quiet();
+
+    const code = await run(
+      ["refresh", "--remote", "--summary", h.summary],
+      {},
+      h.deps,
+    );
+
+    expect(code).toBe(1);
+    const stderr = printed(out.error);
+    expect(Buffer.byteLength(stderr)).toBeLessThan(PRINTED_FAILURE_BYTES);
+    expect(stderr.split("\n")[0]).toMatch(
+      /^wrangler d1 execute failed: x+… \[\d+ characters cut\]$/,
+    );
+  });
+
+  test("a refresh whose claim release also failed with 16 MiB of wrangler output prints it clipped on stdout", async () => {
+    const h = harness({
+      via: (args, next) => {
+        if (args.includes("--file")) {
+          return Promise.reject(new Error("wrangler d1 execute failed: boom"));
+        }
+        if (args.some((arg) => arg.includes("SET claim_slot = NULL"))) {
+          return Promise.reject(
+            new Error(`wrangler d1 execute failed: ${HUGE_WRANGLER_OUTPUT}`),
+          );
+        }
+        return next();
+      },
+    });
+    const out = quiet();
+
+    const code = await run(
+      ["refresh", "--remote", "--summary", h.summary],
+      {},
+      h.deps,
+    );
+
+    expect(code).toBe(1);
+    const stdout = printed(out.log);
+    expect(stdout).toMatch(/^could not release build \S+'s claim \(wrangler/m);
+    expect(Buffer.byteLength(stdout)).toBeLessThan(PRINTED_FAILURE_BYTES);
   });
 
   test("a rollback that served exits 0, and its summary names the slot it serves", async () => {

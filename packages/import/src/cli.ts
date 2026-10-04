@@ -26,6 +26,7 @@ import {
 import {
   finish,
   type KeptClaim,
+  printable,
   type RunRecord,
   runRecord,
   summarized,
@@ -103,6 +104,14 @@ function args(argv: readonly string[]) {
 
 type Values = ReturnType<typeof args>["values"];
 
+/** Where the run prints free text that can quote wrangler or an error: redacted and clipped as the summary is. */
+interface Terminal {
+  /** stdout; quiet once a signal is stopping the run, as its failures are the stop's. */
+  log(text: string): void;
+  /** stderr. */
+  error(text: string): void;
+}
+
 /** What `run` reaches beyond its arguments; the CLI's own entry passes the real ones. */
 export interface CliDeps {
   /** The deployed databases when `remote`, else local state under `persistTo` (wrangler's default dir when undefined). */
@@ -126,7 +135,7 @@ export interface CliDeps {
 /**
  * Runs the CLI on `argv` (the args after the script); resolves with its exit
  * code: 0 done, 1 failed, 2 usage, or the stop's 130 or 143 once a signal is
- * stopping it. `env` supplies the secrets a summary redacts.
+ * stopping it. `env` supplies the secrets the summary and the terminal redact.
  */
 export async function run(
   argv: readonly string[],
@@ -135,31 +144,34 @@ export async function run(
 ): Promise<number> {
   /** The stop's exit code, set by a SIGINT or SIGTERM, so the run's own failure isn't reported over it. */
   let stoppedWith: number | null = null;
-  /** The run's own lines; quiet once a signal is stopping it, as its failures are the stop's. */
-  const log = (line: string) => {
-    if (stoppedWith === null) console.log(line);
+  const secrets = [env.CLOUDFLARE_API_TOKEN, env.CLOUDFLARE_ACCOUNT_ID];
+  const terminal: Terminal = {
+    log: (text) => {
+      if (stoppedWith === null) console.log(printable(text, secrets));
+    },
+    error: (text) => console.error(printable(text, secrets)),
   };
   try {
-    return await command(argv, env, deps, log, (code) => {
+    return await command(argv, secrets, deps, terminal, (code) => {
       stoppedWith = code;
     });
   } catch (error) {
     if (stoppedWith !== null) return stoppedWith;
     if (error instanceof UsageError) {
-      if (error.message) console.error(error.message);
+      if (error.message) terminal.error(error.message);
       console.error(USAGE);
       return 2;
     }
-    console.error(error instanceof Error ? error.message : error);
+    terminal.error(error instanceof Error ? error.message : String(error));
     return 1;
   }
 }
 
 async function command(
   argv: readonly string[],
-  env: Readonly<Record<string, string | undefined>>,
+  secrets: readonly (string | undefined)[],
   deps: CliDeps,
-  log: (line: string) => void,
+  terminal: Terminal,
   onStop: (code: number) => void,
 ): Promise<number> {
   const { values, positionals } = args(argv);
@@ -190,15 +202,19 @@ async function command(
     const write =
       values.summary === undefined
         ? () => {}
-        : summaryWriter(values.summary, [
-            env.CLOUDFLARE_API_TOKEN,
-            env.CLOUDFLARE_ACCOUNT_ID,
-          ]);
-    const claims = releaseOnSignal(ops, record, write, deps, onStop);
+        : summaryWriter(values.summary, secrets);
+    const claims = releaseOnSignal(
+      ops,
+      record,
+      write,
+      deps,
+      terminal.error,
+      onStop,
+    );
     await summarized(ops, record, write, () =>
       name === "refresh"
-        ? runRefresh(ops, values, record, claims, deps, log)
-        : runRollback(ops, record, claims, log),
+        ? runRefresh(ops, values, record, claims, deps, terminal.log)
+        : runRollback(ops, record, claims, terminal.log),
     );
     return 0;
   }
@@ -240,6 +256,7 @@ async function command(
     values.batch,
     values["persist-to"],
     deps,
+    terminal.error,
   );
 }
 
@@ -301,14 +318,15 @@ const STOP_BUDGET_MS = 7_000;
  * never got releases nothing; one the run kept, or whose remote import the
  * stop killed, is kept and recorded), reports what the pointer serves,
  * records the stop and writes the run's summary, and exits 130 or 143, within
- * `STOP_BUDGET_MS`. A signal while stopping waits for that stop. Returns the
- * list the run adds each build id to as it claims.
+ * `STOP_BUDGET_MS`. A signal while stopping waits for that stop. Its lines go
+ * to `printError`. Returns the list the run adds each build id to as it claims.
  */
 function releaseOnSignal(
   ops: D1Ops,
   record: RunRecord,
   write: (record: RunRecord) => void,
   deps: CliDeps,
+  printError: (text: string) => void,
   onStop: (code: number) => void,
 ): string[] {
   const claims: string[] = [];
@@ -332,7 +350,7 @@ function releaseOnSignal(
     record.stop = { signal, lines };
     const report = (line: string) => {
       lines.push(line);
-      console.error(line);
+      printError(line);
     };
     console.error(`${signal}: stopping`);
     for (const claim of record.keptClaims) keep(claim);
@@ -379,6 +397,7 @@ async function loadSources(
   batches: readonly string[] | undefined,
   persistTo: string | undefined,
   deps: CliDeps,
+  printError: (text: string) => void,
 ): Promise<number> {
   const { active } = await readPointer(ops);
   const slot = named ?? otherSlot(active);
@@ -405,7 +424,7 @@ async function loadSources(
         console.log(line);
       }
     } catch (error) {
-      console.error(error instanceof Error ? error.message : error);
+      printError(error instanceof Error ? error.message : String(error));
       failed.push(source);
     }
   }
