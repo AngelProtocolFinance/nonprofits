@@ -1,4 +1,4 @@
-# Copy to .dev.vars (gitignored) for `wrangler dev`; set the deployed values with `wrangler secret put`.
+# Copy to .dev.vars (gitignored) for `wrangler dev`. Deployed values: docs/deploy.md (first deploy) or `wrangler secret put` (after).
 # Generate each random one with: openssl rand -base64 32
 BETTER_AUTH_SECRET=replace-with-32-plus-random-characters
 # Admin endpoints stay off until this is at least 32 characters; the key CLI reads it from .dev.vars locally.

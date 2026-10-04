@@ -23,6 +23,10 @@ pnpm check
 Runs Biome, `tsc --noEmit` per package, and Vitest, sequentially. CI runs the same command.
 See [TESTING.md](TESTING.md) for how the suite is laid out. `pnpm format <paths>` formats only the paths given.
 
+## Deploy your own
+
+From a fork, on your own Cloudflare account (Workers Paid, $5 a month): the Worker serving REST and MCP, three D1 databases holding the IRS data, a monthly GitHub Actions import that rebuilds them, and API keys you issue with the CLI. [docs/deploy.md](docs/deploy.md) walks through it in order.
+
 ## Worker, locally
 
 From `packages/worker`, against local D1 seeded with fixture rows:
