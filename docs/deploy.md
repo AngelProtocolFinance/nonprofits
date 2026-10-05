@@ -95,7 +95,7 @@ Until a first build is served, every `/v1` and MCP data request answers 503 `dat
   unset TURSO_PLATFORM_TOKEN TURSO_ORG TURSO_GROUP
   ```
 
-A run that succeeds leaves one `nonprofits-data-<build id>` database in `turso db list` and the pointer naming it. A first refresh that fails, or is stopped, leaves nothing served, deletes the database it was making and prints why. [Import](../README.md#import) in the README covers each step and the checks a build must pass.
+A run that succeeds leaves one `nonprofits-data-<build id>` database in `turso db list` and the pointer naming it. A first refresh that fails, or is stopped, leaves nothing served, deletes the database it was making and prints why. [Import](../CONTRIBUTING.md#real-data-locally) in CONTRIBUTING.md covers each step and the checks a build must pass.
 
 ## 7. Create the Vercel project
 
@@ -125,7 +125,7 @@ Each secret needs at least 32 characters; a shorter one, or one still starting w
 
 Optional, each leaving the default when unset:
 
-- **`GITHUB_DISPATCH_TOKEN`**: with it, the daily cron restarts the import when the served data is more than 35 days old, which covers GitHub disabling the schedule after 60 days without activity in a public repository (see [Freshness guard](../README.md#freshness-guard)). Create a fine-grained personal access token with access to your fork only and the **Actions** repository permission set to read and write. Without it the cron logs `token_unset` and starts nothing. The token expires on the date you choose; after that, the cron's dispatch fails until you set a new one.
+- **`GITHUB_DISPATCH_TOKEN`**: with it, the daily cron restarts the import when the served data is more than 35 days old, which covers GitHub disabling the schedule after 60 days without activity in a public repository (see [Freshness guard](../packages/api/src/freshness.ts)). Create a fine-grained personal access token with access to your fork only and the **Actions** repository permission set to read and write. Without it the cron logs `token_unset` and starts nothing. The token expires on the date you choose; after that, the cron's dispatch fails until you set a new one.
 - **`GITHUB_REPO`**: `owner/repo` whose import the cron starts. It defaults to the GitHub repository Vercel deployed from, your fork; set it only when that isn't so.
 - **`STALE_AFTER_DAYS`** and **`REDISPATCH_AFTER_HOURS`**: the freshness guard's 35 days and 72 hours.
 - **`SERVICE_KEYLESS_DAILY_LIMIT`** and **`SERVICE_KEY_DAILY_LIMIT`**: the service-wide daily ceilings, below.
@@ -169,7 +169,7 @@ export ADMIN_TOKEN=<the ADMIN_TOKEN from step 8>
 pnpm --filter @nonprofits/cli keys create --email <owner-email> --name <key-name>
 ```
 
-The key is printed once. A shell variable wins over the local value in `packages/api/.env.local`, so the CLI talks to the deployed api while both are set. [API, locally](../README.md#api-locally) in the README lists the other `keys` commands (`list`, `revoke`, `set-limit`) and the limits a key gets.
+The key is printed once. A shell variable wins over the local value in `packages/api/.env.local`, so the CLI talks to the deployed api while both are set. [API, locally](../CONTRIBUTING.md#api-keys-locally) in the README lists the other `keys` commands (`list`, `revoke`, `set-limit`) and the limits a key gets.
 
 ## 12. Check it answers
 
@@ -188,7 +188,7 @@ Both answer with `AMERICAN NATIONAL RED CROSS`. The keyless tier allows 1 reques
 | `auth_unavailable` | A Firewall rule isn't published, or the request couldn't be counted | Step 9 |
 | `data_unavailable` | No build is served yet | Step 6 |
 
-To connect an MCP client, see [MCP](../README.md#mcp) in the README, with `<api-url>` as `https://<your-project>.vercel.app`.
+To connect an MCP client, see [MCP](../README.md#mcp) in the README, with `https://nonprofits.better.giving` replaced by `https://<your-project>.vercel.app`.
 
 ## The free Turso plan
 
@@ -202,7 +202,7 @@ Raising a ceiling, or moving to Turso's Developer plan ($4.99 a month, with more
 
 ## Keeping it running
 
-- The import runs at 06:17 UTC on the 3rd of each month. [Monthly import](../README.md#monthly-import) in the README covers its one switch (a dry run) and what a failed run leaves.
-- The cron runs at 03:17 UTC each day: it deletes usage rows more than 7 days old, then runs the [freshness guard](../README.md#freshness-guard).
+- The import runs at 06:17 UTC on the 3rd of each month. [Monthly import](../CONTRIBUTING.md#monthly-import) in CONTRIBUTING.md covers its one switch (a dry run) and what a failed run leaves.
+- The cron runs at 03:17 UTC each day: it deletes usage rows more than 7 days old, then runs the [freshness guard](../packages/api/src/freshness.ts).
 - To change a secret, edit it under **Settings > Environment Variables**, then redeploy. A new `TURSO_APP_DB_TOKEN` goes in the GitHub secret too.
 - When you sync your fork with upstream, keep your workflows' `runs-on` through any conflict there.
