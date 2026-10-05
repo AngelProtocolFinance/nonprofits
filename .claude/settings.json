@@ -1,5 +1,8 @@
 {
-  "env": { "KRU_PROJECT": "nonprofits", "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" },
+  "env": {
+    "KRU_PROJECT": "nonprofits",
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -12,5 +15,8 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "turso@turso": true
   }
 }

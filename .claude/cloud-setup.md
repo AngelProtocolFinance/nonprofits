@@ -19,6 +19,7 @@ www.irs.gov
 apps.irs.gov
 api.turso.tech
 *.turso.io
+mcp.turso.ai
 vercel.com
 api.vercel.com
 ```
@@ -27,7 +28,7 @@ api.vercel.com
 
 ```bash
 #!/bin/bash
-# kru v0.137.0
+# kru v0.141.0
 set -uo pipefail
 exec > >(tee -a /tmp/setup.log) 2>&1
 
@@ -44,6 +45,9 @@ try git clone -q https://github.com/ap-justin/kru-store ~/.kru
 try claude plugin marketplace add anthropics/claude-plugins-official
 try claude plugin marketplace add ap-justin/kru
 try claude plugin install kru@kru --scope user
+try claude plugin enable cc-plugin-you-should-know@builtin --scope user
+try claude plugin marketplace add tursodatabase/turso-mcp
+try claude plugin install turso@turso --scope user
 
 # nonprofits: node 24 (`.nvmrc`, `engines`) and pnpm 12.4.2 (`packageManager`)
 node_24() {
