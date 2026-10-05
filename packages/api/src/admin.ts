@@ -3,7 +3,12 @@ import type { Client } from "@libsql/client";
 import { Hono } from "hono";
 import { type Auth, createAuth, MAX_KEY_NAME_LENGTH } from "./auth.ts";
 import type { ApiVars } from "./handlers.ts";
-import { clearKeyLimits, listKeyRows, setKeyLimits } from "./key-store.ts";
+import {
+  clearKeyLimits,
+  keyOwner,
+  listKeyRows,
+  setKeyLimits,
+} from "./key-store.ts";
 import { problem } from "./problem.ts";
 import {
   DEFAULT_LIMITS,
@@ -125,17 +130,11 @@ async function createKey(request: Request, ctx: AdminContext) {
 
 /** Disables the key, keeping its row so a later request is told it was revoked. */
 async function revokeKey(keyId: string, ctx: AdminContext) {
-  const auth = ctx.auth();
-  const { adapter } = await auth.$context;
   // updateApiKey without a session acts for the `userId` it is given: the owner's
-  const owned = await adapter.findOne<{ referenceId: string }>({
-    model: "apikey",
-    where: [{ field: "id", value: keyId }],
-    select: ["referenceId"],
-  });
-  if (owned === null) return keyNotFound(keyId);
-  await auth.api.updateApiKey({
-    body: { keyId, userId: owned.referenceId, enabled: false },
+  const owner = await keyOwner(ctx.deps.appDb, keyId);
+  if (owner === null) return keyNotFound(keyId);
+  await ctx.auth().api.updateApiKey({
+    body: { keyId, userId: owner, enabled: false },
   });
   return Response.json({ id: keyId, status: "revoked" });
 }

@@ -62,6 +62,18 @@ export async function readStoredKey(
   return rowsOf<StoredKey>(found)[0];
 }
 
+/** The id of the user who owns key `keyId`, or null when no key has that id. */
+export async function keyOwner(
+  appDb: Client,
+  keyId: string,
+): Promise<string | null> {
+  const found = await appDb.execute({
+    sql: "SELECT referenceId FROM apikey WHERE id = ?1",
+    args: [keyId],
+  });
+  return rowsOf<{ referenceId: string }>(found)[0]?.referenceId ?? null;
+}
+
 const SET_LIMITS_SQL = `
 INSERT INTO key_limits (key_id, daily, per_minute)
 SELECT id, ?2, ?3 FROM apikey WHERE id = ?1

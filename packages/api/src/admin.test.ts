@@ -3,6 +3,7 @@ import {
   ADMIN_AUTHORIZATION,
   failingDb,
   freshClient,
+  insertKey,
   seedUsage,
   TEST_VARS,
   type TestApi,
@@ -18,6 +19,7 @@ async function start(options?: TestApiOptions) {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await api.dispose();
 });
@@ -237,16 +239,30 @@ describe("POST /admin/keys/:id/revoke", () => {
     expect(await response.json()).toMatchObject({ code: "key_not_found" });
   });
 
-  test("the next admin call still answers while the revoke's expired-key sweep may be running", async () => {
+  test("a revoke starts the expired-key sweep without awaiting it; the admin call right after answers, and the sweep deletes the expired key", async () => {
     await start();
+    // the plugin sweeps at most once per 10 s per process, timed by Date: a
+    // day on, clear of any sweep an earlier test ran
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 86_400_000);
+    const expired = await insertKey(api, {
+      expiresAt: "2000-01-01T00:00:00.000Z",
+    });
     const issued = await issue();
-    await admin("POST", `/admin/keys/${issued.id}/revoke`, {});
 
+    await admin("POST", `/admin/keys/${issued.id}/revoke`, {});
     const created = await admin("POST", "/admin/keys", {
       email: "owner@example.org",
     });
 
     expect(created.status).toBe(201);
+    await vi.waitFor(async () => {
+      const { rows } = await api.appDb.client.execute({
+        sql: "SELECT id FROM apikey WHERE id = ?1",
+        args: [expired.id],
+      });
+      expect(rows).toHaveLength(0);
+    });
   });
 });
 
