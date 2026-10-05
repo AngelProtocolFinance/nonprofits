@@ -1,9 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DATA_DB_BINDING, resetGenerationSql } from "@nonprofits/db";
 import { zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
@@ -16,9 +15,7 @@ import {
   type Route,
   resetDataDb,
   serve,
-  sqliteWrangler,
 } from "./test-support.ts";
-import { d1LoadTarget, localD1 } from "./wrangler.ts";
 
 const BMF_FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
 const BMF_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
@@ -618,33 +615,6 @@ test("a download that stalls is cut off and the load restarted, saying so", {
   expect(retry.lines).toStrictEqual([
     `Pub 78 load failed (Pub 78 download failed: ${base}/stall-once/pub78.zip: no data for 0.5 s); try 2 of 3 in 0.0 s`,
   ]);
-});
-
-test("a D1 load fenced for another build than the slot is building aborts, writing nothing, while its own build's loads", {
-  timeout: 60_000,
-}, async () => {
-  const ops = localD1(undefined, { run: sqliteWrangler() });
-  const binding = DATA_DB_BINDING.a;
-  const reset = join(work, "fenced-reset.sql");
-  await writeFile(reset, resetGenerationSql("a", "building"));
-  await ops.applyFile(binding, reset);
-  const load = (buildId: string) =>
-    importList("pub78", {
-      url: `${base}/pub78.zip`,
-      minRows: 1,
-      out: join(work, "fenced.load.sql"),
-      target: d1LoadTarget({ ops, binding, buildId }),
-    });
-  const runs = () =>
-    ops.query(binding, "SELECT count(*) AS runs FROM import_runs");
-
-  await expect(load("a-later-build")).rejects.toThrow(
-    "load refused: this slot is not building the load's build",
-  );
-  expect(await runs()).toStrictEqual([{ runs: 0 }]);
-
-  await load("building");
-  expect(await runs()).toStrictEqual([{ runs: 1 }]);
 });
 
 function counts(dataDir: string) {

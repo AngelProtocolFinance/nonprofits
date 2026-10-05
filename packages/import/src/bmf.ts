@@ -100,7 +100,7 @@ export interface BmfImportOptions {
   /** Where the generated SQL load file is written. */
   out: string;
   target: LoadTarget;
-  /** Largest upsert statement written, in bytes; defaults under D1's 100 KB limit. */
+  /** Largest upsert statement written, in bytes; defaults to `MAX_STATEMENT_BYTES`. */
   maxStatementBytes?: number;
   /** A file that failed transiently restarts the load from the first file; defaults to `DOWNLOAD_RETRY`. */
   retry?: DownloadRetry;

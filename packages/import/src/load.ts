@@ -15,7 +15,7 @@ export const run = (column: RunColumn) => column;
 export const ORGS: DataTable = "orgs";
 export const IMPORT_RUNS: DataTable = "import_runs";
 
-/** D1 rejects a statement over 100 KB; a local file takes any, but the D1 refresh shares these loads. */
+/** The largest statement a load writes: within `LOAD_CHUNK_CHARS` (target.ts), so no one statement hands the driver more SQL in one call than a chunk does. */
 export const MAX_STATEMENT_BYTES = 90_000;
 
 /** An IRS file being imported: its source, and what error messages call it. */

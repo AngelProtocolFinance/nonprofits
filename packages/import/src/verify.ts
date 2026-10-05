@@ -88,12 +88,11 @@ export async function readCounts(read: ReadData): Promise<Counts> {
 
 export interface VerifyDataOptions {
   floors: TableFloors;
-  /** The served build's counts; each count must then be within 10% of its own. Omitted for a first build. */
+  /** The served build's counts; each count must then be within 10% of its own. Omitted for a first build, or a partial one. */
   served?: Counts | undefined;
   /** Adds a check that always fails, after every real one. */
   forceVerifyFailure: boolean;
   check: RunCheck;
-  log: (line: string) => void;
 }
 
 /**
@@ -104,7 +103,7 @@ export interface VerifyDataOptions {
  */
 export async function verifyData(
   read: ReadData,
-  { floors, served, forceVerifyFailure, check, log }: VerifyDataOptions,
+  { floors, served, forceVerifyFailure, check }: VerifyDataOptions,
 ): Promise<Counts> {
   const counts = {} as Counts;
   for (const [name, rows] of Object.entries(COUNTED) as [Counted, string][]) {
@@ -122,7 +121,6 @@ export async function verifyData(
       detail: `${name}: ${counts[name]}, served ${served[name]}`,
     }));
   }
-  if (served === undefined) log("no served build to compare counts with");
   await check("red cross", async () => {
     const [row] = await read<{ mission: string | null }>(
       `SELECT f.mission FROM orgs o JOIN filings f ON f.ein = o.ein WHERE o.ein = '${RED_CROSS}'`,

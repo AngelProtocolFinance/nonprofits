@@ -1109,7 +1109,7 @@ describe("a run while the newest index is filling", { timeout: 60_000 }, () => {
   });
 });
 
-describe("a run into an empty slot rejecting an EIN's latest return", {
+describe("a run into an empty data file rejecting an EIN's latest return", {
   timeout: 60_000,
 }, () => {
   const floors = {

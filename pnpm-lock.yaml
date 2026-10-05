@@ -303,9 +303,6 @@ importers:
       undici:
         specifier: 'catalog:'
         version: 7.29.1
-      wrangler:
-        specifier: 'catalog:'
-        version: 4.146.0(@types/node@24.19.1)
 
   packages/worker:
     dependencies:

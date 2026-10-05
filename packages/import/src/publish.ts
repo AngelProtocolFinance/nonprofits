@@ -33,8 +33,8 @@ export interface DatabaseHost {
     file: string,
     signal?: AbortSignal,
   ): Promise<void>;
-  /** A client on `database`, able to read it. */
-  open(database: ServedDatabase): Client;
+  /** A client on `database`, able to read it: one this host made, or the one served. */
+  open(database: ServedDatabase): Promise<Client>;
   /** Removes the database named `name`; resolves once it is gone, also when it already was. */
   remove(name: string): Promise<void>;
   /** The shell command an operator runs to remove `name` by hand. */
@@ -143,8 +143,8 @@ async function publish(
   say(`uploaded ${file} to ${name}`);
   await orRemove(async () => {
     unlessStopped();
-    await failsAs(`checking the uploaded ${name}`, () =>
-      checkUploaded(host.open(database), buildId, counts),
+    await failsAs(`checking the uploaded ${name}`, async () =>
+      checkUploaded(await host.open(database), buildId, counts),
     );
   });
   say(`checked ${name}: build ${buildId}, every count as the file's`);

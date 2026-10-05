@@ -74,7 +74,7 @@ describe("local databases", () => {
     );
     const database = await host.create("nonprofits-data-x");
     await host.upload(database, file);
-    const copy = host.open(database);
+    const copy = await host.open(database);
     try {
       const rs = await copy.execute("SELECT name FROM sqlite_schema");
       expect(rs.rows.map((r) => r.name)).toStrictEqual(["t"]);
@@ -210,6 +210,36 @@ describe("Turso databases", () => {
     expect(upload?.contentLength).toBe("16");
     expect(String(upload?.body)).toBe("the file's bytes");
     expect(platform.secrets).toStrictEqual([PLATFORM_TOKEN, MINTED]);
+  });
+
+  test("open a database it didn't upload, the one served, with a read-only token minted for it, redacted from then on", async () => {
+    const platform = host();
+    const data = await platform.open({
+      name: "nonprofits-data-x",
+      url: "libsql://nonprofits-data-x-acme.aws-us-east-1.turso.io",
+    });
+    data.close();
+
+    const [mint] = received;
+    const query = new URL(mint?.url ?? "", base).searchParams;
+    expect(mint?.method).toBe("POST");
+    expect(mint?.authorization).toBe(`Bearer ${PLATFORM_TOKEN}`);
+    expect(query.get("authorization")).toBe("read-only");
+    expect(query.get("expiration")).toBe("6h");
+    expect(platform.secrets).toStrictEqual([PLATFORM_TOKEN, MINTED]);
+  });
+
+  test("open a database it uploaded with the upload's token, minting no other", async () => {
+    const platform = host();
+    const database = await platform.create("nonprofits-data-x");
+    const file = join(work, "upload.db");
+    await writeFile(file, "the file's bytes");
+    await platform.upload(database, file);
+    (await platform.open(database)).close();
+
+    expect(received.filter((r) => r.url.includes("/auth/tokens"))).toHaveLength(
+      1,
+    );
   });
 
   test("fail a create Turso refuses with its status and error", async () => {

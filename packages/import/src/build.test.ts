@@ -9,19 +9,12 @@ import { readDataMeta } from "@nonprofits/db";
 import { dataDbClient } from "@nonprofits/db/node";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { type BuildReport, buildDataFile } from "./build.ts";
-import { fixtureServer, fixtureSources } from "./test-support.ts";
-import type { Counts, TableFloors } from "./verify.ts";
-
-/** What a build of the fixtures counts: floors at these clear. */
-const FIXTURE_COUNTS: TableFloors = {
-  orgs: 260,
-  filings: 10,
-  programs: 19,
-  in_pub78: 122,
-  revocation_date: 26,
-  files_990n: 95,
-  bmf_run_id: 245,
-};
+import {
+  FIXTURE_COUNTS,
+  fixtureServer,
+  fixtureSources,
+} from "./test-support.ts";
+import type { Counts } from "./verify.ts";
 
 let server: Server;
 let base: string;

@@ -1,172 +1,128 @@
-import type { ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { switchServedDatabase } from "@nonprofits/db";
+import { appDbFixture, type LocalDb } from "@nonprofits/db/fixture";
+import { appDbClient } from "@nonprofits/db/node";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { type CliDeps, run } from "./cli.ts";
-import { irsSources } from "./sources.ts";
-import { remoteD1 } from "./wrangler.ts";
+import type { DatabaseHost } from "./publish.ts";
+import { FIXTURE_COUNTS } from "./test-support.ts";
 
-// wrangler's own bin is swapped for fixtures/fake-wrangler.mjs, which prints what $FAKE_WRANGLER says;
-// the wrangler module's failure text, `run` and the summary around it are the shipped ones
-vi.mock(import("node:child_process"), async (importOriginal) => {
-  const actual = await importOriginal();
-  const fake = fileURLToPath(
-    new URL("../fixtures/fake-wrangler.mjs", import.meta.url),
-  );
-  return {
-    ...actual,
-    execFile: ((file: string, args: string[], ...rest: unknown[]) =>
-      (actual.execFile as (...all: unknown[]) => ChildProcess)(
-        file,
-        [fake, ...args.slice(1)],
-        ...rest,
-      )) as typeof actual.execFile,
-  };
-});
-
-const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
-const API_TOKEN = "Zk3pQ9xLr7TuV2yWm5NaB8cDe1FgH4jKs6Ot0Iq_";
-const DATABASE = "5f2c9a1e-7b3d-4c68-9e0a-1d4b8f6a2c37";
-const API_PATH = `/accounts/${ACCOUNT_ID}/d1/database/${DATABASE}/query`;
-
-/**
- * What `wrangler d1 execute --json` prints for a rejected request: the JSON
- * error on stdout, its notes quoting the API path, and the same cause in
- * colour on stderr under the proxy warning.
- */
-const WRANGLER_OUTPUT = {
-  stdout: JSON.stringify({
-    error: {
-      text: `Authentication error: token ${API_TOKEN} was rejected [code: 10000]`,
-      notes: [
-        { text: `A request to the Cloudflare API (${API_PATH}) failed.` },
-      ],
-    },
-  }),
-  stderr: [
-    "▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.",
-    "",
-    `\u001b[31m✘ \u001b[41;31m[\u001b[41;97mERROR\u001b[41;31m]\u001b[0m \u001b[1mA request to the Cloudflare API (${API_PATH}) failed.\u001b[0m`,
-    "",
-  ].join("\n"),
-  exit: 1,
-};
+const APP_TOKEN = "app-eyJhbGciOiJFZERTQSJ9.YXBwLXRva2Vu.Q9xLr7TuV2yWm5Na";
+const PLATFORM_TOKEN = "platform-Zk3pQ9xLr7TuV2yWm5NaB8cDe1FgH4jKs6Ot0Iq";
+const MINTED = "minted-eyJhbGciOiJFZERTQSJ9.bWludGVk.B8cDe1FgH4jKs6Ot";
 
 let work: string;
-let n = 0;
+let app: LocalDb;
 
-beforeAll(async () => {
+beforeEach(async () => {
   work = await mkdtemp(join(tmpdir(), "cli-redaction-"));
+  app = await appDbFixture();
+  await switchServedDatabase(app.client, {
+    expected: null,
+    to: {
+      name: "nonprofits-data-x",
+      url: "libsql://nonprofits-data-x.turso.io",
+    },
+    buildId: "b1",
+  });
 });
 
-afterAll(async () => {
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await app?.dispose();
   if (work) await rm(work, { recursive: true, force: true });
 });
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-  vi.restoreAllMocks();
-});
+/**
+ * A host whose read of the served database mints a token, adding it to its
+ * secrets as Turso's does, then fails quoting it and every env secret, on its
+ * first line and the ones after, as an HTTP client's error can.
+ */
+function quotingHost(): DatabaseHost {
+  const secrets = [PLATFORM_TOKEN];
+  const never = () => Promise.reject(new Error("not reached"));
+  return {
+    secrets,
+    create: never,
+    upload: never,
+    async open() {
+      secrets.push(MINTED);
+      throw new Error(
+        `POST /v2/pipeline answered 401: token ${MINTED} rejected\nAuthorization: Bearer ${APP_TOKEN}\nx-platform: ${PLATFORM_TOKEN}`,
+      );
+    },
+    remove: never,
+    removeCommand: (name) => `turso db destroy ${name} --yes`,
+  };
+}
 
-/** `run` on a remote refresh whose every wrangler command fails as `WRANGLER_OUTPUT`, with `env` as the process env; resolves with its exit code, summary and what it printed on stderr. */
+/** `run` on a refresh failing as `quotingHost` does, with `env` as the process env; its exit code, summary and stderr. */
 async function failingRefresh(env: Record<string, string | undefined>) {
-  vi.stubEnv("FAKE_WRANGLER", JSON.stringify(WRANGLER_OUTPUT));
   vi.spyOn(console, "log").mockImplementation(() => {});
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  const summary = join(work, `summary-${++n}.md`);
+  const summary = join(work, "summary.md");
   const deps: CliDeps = {
-    d1: () => remoteD1(),
-    // built, never downloaded from: the pointer read that starts a refresh fails first
-    sources: () => irsSources({ workDir: join(work, "efile") }),
+    databases: () => ({
+      app: appDbClient({ TURSO_APP_DB_URL: app.url }),
+      host: quotingHost(),
+    }),
+    // never downloaded from: reading the served counts fails first
+    sources: () => {
+      throw new Error("not reached");
+    },
+    floors: FIXTURE_COUNTS,
     loadDir: join(work, "load"),
+    dataFile: join(work, "data.db"),
     onSignal: () => {},
-    stopWrangler: (then) => then([]),
-    runningWrangler: () => [],
     exit: () => {},
   };
-  const code = await run(
-    ["refresh", "--remote", "--summary", summary],
-    env,
-    deps,
-  );
+  const code = await run(["refresh", "--summary", summary], env, deps);
   const stderr = error.mock.calls.map((args) => args.join(" ")).join("\n");
   return { code, md: await readFile(summary, "utf8"), stderr };
 }
 
-describe("run's summary redaction", () => {
-  test("replaces the Cloudflare secrets in a real wrangler failure: its first line, the lines in its fence, and the unread pointer row", async () => {
-    const { code, md } = await failingRefresh({
-      CLOUDFLARE_ACCOUNT_ID: ACCOUNT_ID,
-      CLOUDFLARE_API_TOKEN: API_TOKEN,
-    });
+const ENV = {
+  TURSO_APP_DB_TOKEN: APP_TOKEN,
+  TURSO_PLATFORM_TOKEN: PLATFORM_TOKEN,
+};
+
+describe("run's redaction", () => {
+  test("replaces the env's Turso tokens and one the host minted during the run in the summary: the failure's first line and the lines in its fence", async () => {
+    const { code, md } = await failingRefresh(ENV);
 
     expect(code).toBe(1);
-    const failed = md.split("\n").filter((l) => l.startsWith("**Failed:**"));
-    expect(failed).toStrictEqual([
-      "**Failed:** wrangler d1 execute failed: Authentication error: token [redacted] was rejected [code: 10000]",
-    ]);
-    // the id sits on the later lines, under the failure's first
     expect(md).toContain(
-      `\n\`\`\`\n▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.\n\n✘ [ERROR] A request to the Cloudflare API (/accounts/[redacted]/d1/database/${DATABASE}/query) failed.\n`,
+      "**Failed:** POST /v2/pipeline answered 401: token [redacted] rejected\n",
     );
     expect(md).toContain(
-      `"text":"A request to the Cloudflare API (/accounts/[redacted]/d1/database/${DATABASE}/query) failed."`,
+      "\n```\nAuthorization: Bearer [redacted]\nx-platform: [redacted]\n```\n",
     );
-    expect(md).toMatch(
-      /^\| served after \| unknown \| pointer unread: wrangler d1 execute failed: Authentication error: token \[redacted\] was rejected/m,
-    );
-    expect(md).not.toContain(ACCOUNT_ID);
-    expect(md).not.toContain(API_TOKEN);
-    expect(md).not.toContain("\u001b");
+    for (const secret of [APP_TOKEN, PLATFORM_TOKEN, MINTED]) {
+      expect(md).not.toContain(secret);
+    }
   });
 
   test("replaces them in the failure the run prints on stderr", async () => {
-    const { stderr } = await failingRefresh({
-      CLOUDFLARE_ACCOUNT_ID: ACCOUNT_ID,
-      CLOUDFLARE_API_TOKEN: API_TOKEN,
-    });
+    const { stderr } = await failingRefresh(ENV);
 
     expect(stderr).toContain(
-      "wrangler d1 execute failed: Authentication error: token [redacted] was rejected [code: 10000]",
+      "POST /v2/pipeline answered 401: token [redacted] rejected",
     );
-    expect(stderr).toContain(
-      `A request to the Cloudflare API (/accounts/[redacted]/d1/database/${DATABASE}/query) failed.`,
-    );
-    expect(stderr).not.toContain(ACCOUNT_ID);
-    expect(stderr).not.toContain(API_TOKEN);
+    for (const secret of [APP_TOKEN, PLATFORM_TOKEN, MINTED]) {
+      expect(stderr).not.toContain(secret);
+    }
   });
 
-  // the same output with no secrets in the env, so the tests above read redaction and not a fixture that never carried them
-  test("leaves them as printed when the env doesn't hold them", async () => {
+  // the same failure with neither env token set, so the tests above read redaction and not a fixture that never carried them
+  test("leaves the env's tokens as printed when the env doesn't hold them", async () => {
     const { md, stderr } = await failingRefresh({});
 
-    expect(md).toContain(`/accounts/${ACCOUNT_ID}/d1/`);
-    expect(md).toContain(`token ${API_TOKEN} was rejected`);
-    expect(md).not.toContain("[redacted]");
-    expect(stderr).toContain(`/accounts/${ACCOUNT_ID}/d1/`);
-    expect(stderr).toContain(`token ${API_TOKEN} was rejected`);
-    expect(stderr).not.toContain("[redacted]");
-  });
-
-  test("redacts each secret from its own env variable", async () => {
-    const accountOnly = await failingRefresh({
-      CLOUDFLARE_ACCOUNT_ID: ACCOUNT_ID,
-    });
-    const tokenOnly = await failingRefresh({ CLOUDFLARE_API_TOKEN: API_TOKEN });
-
-    expect(accountOnly.md).not.toContain(ACCOUNT_ID);
-    expect(accountOnly.md).toContain(API_TOKEN);
-    expect(tokenOnly.md).not.toContain(API_TOKEN);
-    expect(tokenOnly.md).toContain(ACCOUNT_ID);
+    expect(md).toContain(`Authorization: Bearer ${APP_TOKEN}`);
+    expect(stderr).toContain(`Authorization: Bearer ${APP_TOKEN}`);
+    // the host's own secrets still are
+    expect(md).not.toContain(MINTED);
+    expect(md).not.toContain(PLATFORM_TOKEN);
   });
 });

@@ -1,10 +1,8 @@
-import { readdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import type { Client } from "@libsql/client";
 import { dataDbClient } from "@nonprofits/db/node";
 import { type Zippable, zipSync } from "fflate";
@@ -13,7 +11,7 @@ import { EFILE_FLOORS } from "./efile.ts";
 import type { DownloadRetry } from "./load.ts";
 import type { SourceConfig } from "./sources.ts";
 import { fileTarget, type LoadTarget } from "./target.ts";
-import { QUERY_TIMEOUT_MS, type WranglerRun, wrangler } from "./wrangler.ts";
+import type { TableFloors } from "./verify.ts";
 
 /** Retries at once, at most twice more, giving up on a body silent for 500 ms; records each retry's line. */
 export function quickRetry(): DownloadRetry & { lines: string[] } {
@@ -145,6 +143,17 @@ export async function fixtureServer(): Promise<{
   return serve(routes, RELEASED);
 }
 
+/** What a build of the fixtures counts: floors at these clear. */
+export const FIXTURE_COUNTS: TableFloors = {
+  orgs: 260,
+  filings: 10,
+  programs: 19,
+  in_pub78: 122,
+  revocation_date: 26,
+  files_990n: 95,
+  bmf_run_id: 245,
+};
+
 /** The sources `fixtureServer` serves at `base`: `bmf` region files only, and the cut route of each list in `cut`; floors the fixtures clear. */
 export function fixtureSources(
   base: string,
@@ -205,86 +214,4 @@ export function query<T>(dir: string, sql: string): Promise<T[]> {
   return withDataFile(dir, async (data) =>
     (await data.execute(sql)).rows.map((row) => ({ ...row }) as T),
   );
-}
-
-/** Applies the app migrations to the local `APP_DB` under `persistTo`, seeding the pointer at slot a, build `empty`. */
-export async function migrateAppDb(persistTo: string): Promise<void> {
-  await wrangler(
-    [
-      "d1",
-      "migrations",
-      "apply",
-      "APP_DB",
-      "--local",
-      "--persist-to",
-      persistTo,
-    ],
-    QUERY_TIMEOUT_MS,
-  );
-}
-
-const APP_MIGRATIONS = fileURLToPath(
-  new URL("../../db/migrations/app/", import.meta.url),
-);
-
-/** The value after `flag` in `args`. */
-function flagValue(args: readonly string[], flag: string): string | undefined {
-  const at = args.indexOf(flag);
-  return at === -1 ? undefined : args[at + 1];
-}
-
-/**
- * A wrangler that runs `d1 execute` on in-memory SQLite instead of a child
- * process: one database per binding, `APP_DB` with its migrations applied and
- * a data database empty until a reset file is applied. Answers as `wrangler
- * d1 execute --json` does (one result set per `--command`), applies a `--file`
- * as one transaction as D1 does, and fails as wrangler would. Every call to
- * one runner shares its databases; make a runner per test for state of its own.
- */
-export function sqliteWrangler(): WranglerRun {
-  const dbs = new Map<string, DatabaseSync>();
-  const open = (binding: string): DatabaseSync => {
-    let db = dbs.get(binding);
-    if (db === undefined) {
-      db = new DatabaseSync(":memory:");
-      if (binding === "APP_DB") {
-        for (const name of readdirSync(APP_MIGRATIONS).sort()) {
-          if (name.endsWith(".sql")) {
-            db.exec(readFileSync(join(APP_MIGRATIONS, name), "utf8"));
-          }
-        }
-      }
-      dbs.set(binding, db);
-    }
-    return db;
-  };
-  return async (args) => {
-    const db = open(args[2] ?? "");
-    const file = flagValue(args, "--file");
-    const command = flagValue(args, "--command");
-    try {
-      if (file !== undefined) {
-        db.exec("BEGIN");
-        try {
-          db.exec(readFileSync(file, "utf8"));
-          db.exec("COMMIT");
-        } catch (error) {
-          db.exec("ROLLBACK");
-          throw error;
-        }
-        return "applied";
-      }
-      if (command === undefined) throw new Error("no --file or --command");
-      const statement = db.prepare(command);
-      let results: unknown[] = [];
-      if (statement.columns().length > 0) results = statement.all();
-      else statement.run();
-      return JSON.stringify([{ results, success: true, meta: {} }]);
-    } catch (error) {
-      throw new Error(
-        `wrangler d1 execute failed: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      );
-    }
-  };
 }

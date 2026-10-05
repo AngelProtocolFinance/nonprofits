@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -20,14 +20,9 @@ import {
   test,
   vi,
 } from "vitest";
-import {
-  KEEPS_CLAIM_GREP,
-  keepsClaim,
-  RELEASE_LINE_SED,
-  releaseCommand,
-} from "./generation.ts";
+import { type CliDeps, DATA_FILE_NAME, run } from "./cli.ts";
 import { type RunRecord, renderSummary, runRecord } from "./summary.ts";
-import { remoteD1 } from "./wrangler.ts";
+import { FIXTURE_COUNTS } from "./test-support.ts";
 
 const WORKFLOW = readFileSync(
   new URL("../../../.github/workflows/import.yml", import.meta.url),
@@ -59,21 +54,24 @@ function block(text: string, key: string): string {
   return body.join("\n");
 }
 
+const CHECK = step("Check the Turso secrets are set");
 const IMPORT = step("Import");
-const RELEASE = step("Release the claim of an import whose stop was cut off");
 const RUN_SUMMARY = step("Run summary");
 const ISSUE = step("Open or comment on the failure issue");
+const CLEANUP = step("Clean up downloads, load files and the built file");
 
 /** The path the import step has the CLI write its summary to, as the shell spells it. */
 const SUMMARY_PATH = /--summary "([^"]+)"/.exec(IMPORT)?.[1] ?? "";
 
-/** A remote refresh's record with `fields` set. */
+/** The repository secrets `text` reads, by name. */
+const secretsIn = (text: string) =>
+  [...text.matchAll(/\$\{\{ secrets\.(\w+) \}\}/g)].map((m) => m[1]).sort();
+
+/** A refresh's record with `fields` set. */
 const record = (fields: Partial<RunRecord> = {}): RunRecord => ({
-  ...runRecord("refresh", true),
+  ...runRecord(),
   ...fields,
 });
-
-const remote = remoteD1({ run: async () => "" });
 
 let work: string;
 let n = 0;
@@ -86,59 +84,36 @@ afterAll(async () => {
   if (work) await rm(work, { recursive: true, force: true });
 });
 
-describe("import.yml", () => {
-  test("the steps that read the run summary read the path the import step writes it to", () => {
-    expect(SUMMARY_PATH).toBe("$RUNNER_TEMP/import-summary.md");
-    expect(block(RELEASE, "run")).toContain(`summary="${SUMMARY_PATH}"`);
-    expect(block(RUN_SUMMARY, "run")).toContain(`summary="${SUMMARY_PATH}"`);
-    expect(block(ISSUE, "script")).toContain(
-      SUMMARY_PATH.replace("$RUNNER_TEMP", "${process.env.RUNNER_TEMP}"),
-    );
-  });
-
-  test("the release step greps for a kept claim, then seds for the release line, with the CLI's own patterns", () => {
-    const script = block(RELEASE, "run");
-    const grep = script.indexOf(`grep -q "${KEEPS_CLAIM_GREP}" "$summary"`);
-    const sed = script.indexOf(`sed -n '${RELEASE_LINE_SED}' "$summary"`);
-
-    expect(grep).toBeGreaterThan(-1);
-    expect(sed).toBeGreaterThan(-1);
-    // a kept claim's line also matches the sed, so the grep has to come first
-    expect(grep).toBeLessThan(sed);
-  });
-});
-
-/** The release step's script run as GitHub runs it (`bash -eo pipefail`) over `summary`, `node` a stub that records its args and answers `node`. */
-async function releaseStep(
-  summary: string | null,
-  node: { out?: string; exit?: number } = {},
+/**
+ * `script` run as GitHub runs a step (`bash -eo pipefail`) in a directory of
+ * its own, which is also `RUNNER_TEMP`, with `env`, and `node` a stub that
+ * records its args; resolves with its exit code, its stdout and node's calls.
+ */
+async function bashStep(
+  script: string,
+  env: Record<string, string> = {},
+  setUp: (dir: string) => Promise<void> = async () => {},
 ) {
   const dir = join(work, `step-${++n}`);
   const bin = join(dir, "bin");
   const calls = join(dir, "calls");
   await mkdir(bin, { recursive: true });
   await writeFile(calls, "");
-  await writeFile(
-    join(bin, "node"),
-    `#!/bin/sh\necho "$@" >> "$CALLS"\n[ -z "$NODE_OUT" ] || echo "$NODE_OUT"\nexit "\${NODE_EXIT:-0}"\n`,
-  );
+  await writeFile(join(bin, "node"), `#!/bin/sh\necho "$@" >> "$CALLS"\n`);
   await chmod(join(bin, "node"), 0o755);
-  if (summary !== null) {
-    await writeFile(join(dir, "import-summary.md"), summary);
-  }
+  await setUp(dir);
   const { code, stdout } = await new Promise<{ code: number; stdout: string }>(
     (resolve) => {
       execFile(
         "bash",
-        ["-eo", "pipefail", "-c", block(RELEASE, "run")],
+        ["-eo", "pipefail", "-c", script],
         {
           cwd: dir,
           env: {
             PATH: `${bin}:${process.env.PATH}`,
             RUNNER_TEMP: dir,
             CALLS: calls,
-            NODE_OUT: node.out ?? "",
-            NODE_EXIT: String(node.exit ?? 0),
+            ...env,
           },
         },
         (error, out) =>
@@ -150,143 +125,177 @@ async function releaseStep(
     },
   );
   return {
+    dir,
     code,
     stdout,
     calls: (await readFile(calls, "utf8")).split("\n").filter(Boolean),
   };
 }
 
-const CLI_RELEASE = (build: string) =>
-  `packages/import/src/cli.ts release --remote --build ${build}`;
+/** Every secret the check step requires, set as a Turso Cloud deploy sets them. */
+const TURSO_SECRETS = {
+  TURSO_APP_DB_URL: "libsql://nonprofits-app-acme.aws-us-east-1.turso.io",
+  TURSO_APP_DB_TOKEN: "app-token",
+  TURSO_PLATFORM_TOKEN: "platform-token",
+  TURSO_ORG: "acme",
+  TURSO_GROUP: "us-east",
+};
 
-describe("import.yml's release step, run over what the CLI writes", () => {
-  test("a cut-off stop's named release is run, for that build", async () => {
-    const md = renderSummary(
-      record({
-        stop: {
-          signal: "SIGINT",
-          lines: [
-            "stop cut off after 7 s",
-            `${releaseCommand(remote, "b2")} clears build b2's claim if it is still held`,
-          ],
-        },
-      }),
+describe("import.yml", () => {
+  test("names no Cloudflare secret, no wrangler or D1, and no release or rollback input or command", () => {
+    expect(WORKFLOW).not.toMatch(/cloudflare|wrangler|\bd1\b/i);
+    expect(WORKFLOW).not.toMatch(
+      /inputs\.rollback|^ {6}rollback:|(cli\.ts|irs) (release|rollback)/m,
     );
-
-    const step = await releaseStep(md);
-
-    expect(step.code).toBe(0);
-    expect(step.calls).toStrictEqual([CLI_RELEASE("b2")]);
   });
 
-  test("a release that failed in the run is run again, for that build", async () => {
-    const md = renderSummary(
-      record({
-        stop: {
-          signal: "SIGTERM",
-          lines: [
-            `could not release build b3's claim (wrangler d1 execute failed: x); ${releaseCommand(remote, "b3")} clears it, or it lapses with its lease`,
-          ],
-        },
-      }),
+  test("the steps that read the run summary read the path the import step writes it to", () => {
+    expect(SUMMARY_PATH).toBe("$RUNNER_TEMP/import-summary.md");
+    expect(block(RUN_SUMMARY, "run")).toContain(`summary="${SUMMARY_PATH}"`);
+    expect(block(ISSUE, "script")).toContain(
+      SUMMARY_PATH.replace("$RUNNER_TEMP", "${process.env.RUNNER_TEMP}"),
     );
-
-    const step = await releaseStep(md);
-
-    expect(step.calls).toStrictEqual([CLI_RELEASE("b3")]);
   });
 
-  test("only the first release a summary names is run", async () => {
-    const md = renderSummary(
-      record({
-        stop: {
-          signal: "SIGINT",
-          lines: [
-            `${releaseCommand(remote, "b2")} clears build b2's claim if it is still held`,
-            `${releaseCommand(remote, "b3")} clears build b3's claim if it is still held`,
-          ],
-        },
-      }),
+  test("the import step hands the CLI each secret the check step requires, and no other", () => {
+    expect(secretsIn(IMPORT)).toStrictEqual(Object.keys(TURSO_SECRETS).sort());
+    expect(secretsIn(CHECK)).toStrictEqual(Object.keys(TURSO_SECRETS).sort());
+  });
+});
+
+describe("import.yml's secrets check", () => {
+  test("passes with every Turso secret set and a Turso Cloud app database", async () => {
+    expect((await bashStep(block(CHECK, "run"), TURSO_SECRETS)).code).toBe(0);
+  });
+
+  test("fails naming each secret missing", async () => {
+    const { TURSO_PLATFORM_TOKEN, TURSO_GROUP, ...some } = TURSO_SECRETS;
+    const step = await bashStep(block(CHECK, "run"), some);
+
+    expect(step.code).toBe(1);
+    expect(step.stdout).toContain(
+      "::error title=Missing repository secret::TURSO_PLATFORM_TOKEN TURSO_GROUP not set",
     );
-
-    expect((await releaseStep(md)).calls).toStrictEqual([CLI_RELEASE("b2")]);
   });
 
-  test("a kept claim is left held, though its line names a release too", async () => {
-    const md = renderSummary(
-      record({
-        failure: "wrangler d1 execute timed out after 7200000 ms",
-        keptClaims: [{ buildId: "b1", binding: "DATA_DB_B" }],
-      }),
-    );
-    // the line the release step must not act on
-    expect(keepsClaim("b1", "DATA_DB_B")).toContain(
-      "irs release --remote --build b1 clears",
-    );
-
-    const step = await releaseStep(md);
-
-    expect(step.code).toBe(0);
-    expect(step.calls).toStrictEqual([]);
-    expect(step.stdout).toContain("::warning title=Claim kept::");
-  });
-
-  test("a run with a kept claim and a release to make releases nothing", async () => {
-    const md = renderSummary(
-      record({
-        keptClaims: [{ buildId: "b1", binding: "DATA_DB_B" }],
-        stop: {
-          signal: "SIGINT",
-          lines: [
-            `${releaseCommand(remote, "b2")} clears build b2's claim if it is still held`,
-          ],
-        },
-      }),
-    );
-
-    expect((await releaseStep(md)).calls).toStrictEqual([]);
-  });
-
-  test("no summary, or one naming no claim, releases nothing", async () => {
-    const none = await releaseStep(null);
-    const bare = await releaseStep(renderSummary(record({ failure: "x" })));
-
-    expect(none.code).toBe(0);
-    expect(none.calls).toStrictEqual([]);
-    expect(none.stdout).toContain("no run summary");
-    expect(bare.code).toBe(0);
-    expect(bare.calls).toStrictEqual([]);
-    expect(bare.stdout).toContain("names no claim");
-  });
-
-  const STOPPED = renderSummary(
-    record({
-      stop: {
-        signal: "SIGINT",
-        lines: [
-          `${releaseCommand(remote, "b2")} clears build b2's claim if it is still held`,
-        ],
-      },
-    }),
-  );
-
-  test("a release that finds no claim holding is a pass: the stop's own release landed", async () => {
-    const step = await releaseStep(STOPPED, {
-      out: "release: build b2 holds no claim in remote D1",
-      exit: 1,
-    });
-
-    expect(step.code).toBe(0);
-  });
-
-  test("any other release failure fails the step with its exit code", async () => {
-    const step = await releaseStep(STOPPED, {
-      out: "wrangler d1 execute failed: boom",
-      exit: 1,
+  // any other app database publishes to files on the runner, which nothing serves
+  test("fails an app database that isn't a Turso Cloud one, never printing its url", async () => {
+    const step = await bashStep(block(CHECK, "run"), {
+      ...TURSO_SECRETS,
+      TURSO_APP_DB_URL: "file:/tmp/app.db",
     });
 
     expect(step.code).toBe(1);
-    expect(step.stdout).toContain("boom");
+    expect(step.stdout).toContain("::error title=Not a Turso Cloud database::");
+    expect(step.stdout).not.toContain("/tmp/app.db");
+  });
+});
+
+describe("import.yml's import step", () => {
+  test.each([
+    ["a scheduled run", "", []],
+    [
+      "a dispatch with force_verify_failure",
+      "true",
+      ["--force-verify-failure"],
+    ],
+  ])(
+    "%s runs refresh with the flags the CLI takes",
+    async (_, force, flags) => {
+      const step = await bashStep(block(IMPORT, "run"), {
+        FORCE_VERIFY_FAILURE: force,
+      });
+      const summary = join(step.dir, "import-summary.md");
+
+      expect(step.calls).toStrictEqual([
+        [
+          "packages/import/src/cli.ts",
+          "refresh",
+          ...flags,
+          "--summary",
+          summary,
+        ].join(" "),
+      ]);
+      // the CLI parses them and goes on to open its databases: a usage error would exit 2 first
+      const argv = step.calls[0]?.split(" ").slice(1) ?? [];
+      const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+      const code = await run(argv, {}, {
+        databases: () => {
+          throw new Error("reached the databases");
+        },
+        sources: () => {
+          throw new Error("not reached");
+        },
+        floors: FIXTURE_COUNTS,
+        loadDir: join(step.dir, "load"),
+        dataFile: join(step.dir, DATA_FILE_NAME),
+        onSignal: () => {},
+        exit: () => {},
+      } satisfies CliDeps);
+      const printed = stderr.mock.calls.map((args) => args.join(" "));
+      stderr.mockRestore();
+      expect(code).toBe(1);
+      expect(printed).toStrictEqual(["reached the databases"]);
+    },
+  );
+});
+
+describe("import.yml's run summary step", () => {
+  test("adds the CLI's summary to the job's, and warns of a database a run left behind", async () => {
+    const md = renderSummary(
+      record({ cleanup: "turso db destroy nonprofits-data-b1 --yes" }),
+    );
+
+    const jobSummary = join(work, "job-summary-cleanup.md");
+
+    const step = await bashStep(
+      block(RUN_SUMMARY, "run"),
+      { GITHUB_STEP_SUMMARY: jobSummary },
+      (dir) => writeFile(join(dir, "import-summary.md"), md),
+    );
+
+    expect(step.code).toBe(0);
+    expect(await readFile(jobSummary, "utf8")).toBe(md);
+    expect(step.stdout).toContain("::warning title=Database left behind::");
+  });
+
+  test("warns of nothing when the run left no database behind", async () => {
+    const step = await bashStep(
+      block(RUN_SUMMARY, "run"),
+      { GITHUB_STEP_SUMMARY: join(work, "job-summary-none.md") },
+      (dir) =>
+        writeFile(join(dir, "import-summary.md"), renderSummary(record())),
+    );
+
+    expect(step.code).toBe(0);
+    expect(step.stdout).not.toContain("::warning");
+  });
+});
+
+describe("import.yml's cleanup step", () => {
+  test("deletes the downloads, the load files and the file the CLI built", async () => {
+    const step = await bashStep(block(CLEANUP, "run"), {}, async (dir) => {
+      await mkdir(join(dir, dirname(DATA_FILE_NAME), "efile"), {
+        recursive: true,
+      });
+      await writeFile(join(dir, DATA_FILE_NAME), "the built file");
+      await writeFile(
+        join(dir, `${DATA_FILE_NAME}.building`),
+        "a stopped build",
+      );
+      await mkdir(join(dir, "load"));
+      await writeFile(join(dir, "load", "bmf.load.sql"), "a load file");
+    });
+
+    expect(step.code).toBe(0);
+    expect(
+      [
+        DATA_FILE_NAME,
+        `${DATA_FILE_NAME}.building`,
+        "load",
+        "data/efile",
+      ].filter((path) => existsSync(join(step.dir, path))),
+    ).toStrictEqual([]);
   });
 });
 
@@ -337,26 +346,18 @@ const bodyOf = (call: Mock<(arg: IssueCall) => Promise<object>>) =>
   call.mock.calls[0]?.[0].body;
 
 describe("import.yml's failure issue step, run over what the CLI writes", () => {
-  test("quotes a failed run's failure line", async () => {
+  const served: RunRecord["servedBefore"] = {
+    database: { name: "nonprofits-data-b8", url: "libsql://b8.turso.io" },
+    build_id: "b8",
+    switched_at: "2026-09-03T06:20:00Z",
+  };
+
+  test("quotes a failed run's failure line and what it left serving, and says there is no rollback", async () => {
     const md = renderSummary(
       record({
-        failure: "verify failed for build b9 in DATA_DB_B: orgs floor",
-      }),
-    );
-
-    const { create } = await issueStep(md);
-
-    expect(bodyOf(create)).toContain(
-      "\n\n> **Failed:** verify failed for build b9 in DATA_DB_B: orgs floor",
-    );
-  });
-
-  test("quotes a stopped run's stop line and each kept claim, not the failure the kill caused", async () => {
-    const md = renderSummary(
-      record({
-        failure: "flip failed: wrangler d1 execute stopped",
-        stop: { signal: "SIGINT", lines: ["released build b1's claim"] },
-        keptClaims: [{ buildId: "b4", binding: "DATA_DB_B" }],
+        failure: "verify failed for build b9: orgs floor",
+        servedBefore: served,
+        servedAfter: served,
       }),
     );
 
@@ -364,9 +365,27 @@ describe("import.yml's failure issue step, run over what the CLI writes", () => 
 
     const body = bodyOf(create);
     expect(body).toContain(
-      `> **Stopped:** SIGINT\n>\n> **Claim kept:** ${keepsClaim("b4", "DATA_DB_B")}`,
+      "\n\n> **Failed:** verify failed for build b9: orgs floor\n>\n> **Nothing switched:** still serving nonprofits-data-b8, build b8",
     );
-    expect(body).not.toContain("flip failed");
+    expect(body).toContain("There is no rollback");
+  });
+
+  test("quotes a stopped run's stop line and its cleanup, not the failure the stop caused", async () => {
+    const md = renderSummary(
+      record({
+        failure: "uploading failed: stopped: SIGINT",
+        stop: { signal: "SIGINT", lines: ["stop cut off after 7 s"] },
+        cleanup: "turso db destroy nonprofits-data-b9 --yes",
+      }),
+    );
+
+    const { create } = await issueStep(md);
+
+    const body = bodyOf(create);
+    expect(body).toContain(
+      "> **Stopped:** SIGINT\n>\n> **Cleanup:** `turso db destroy nonprofits-data-b9 --yes` removes",
+    );
+    expect(body).not.toContain("uploading failed");
   });
 
   test("says no summary was written when there is none, and comments on the open issue instead of opening another", async () => {

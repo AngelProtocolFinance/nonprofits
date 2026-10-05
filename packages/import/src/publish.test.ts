@@ -63,7 +63,7 @@ afterEach(async () => {
   expect(printed.filter((line) => line.includes(TOKEN))).toStrictEqual([]);
   // no secrets handed to the summary: the message alone must be clean
   const summaries = thrown.map((failure) =>
-    renderSummary({ ...runRecord("refresh", false), failure }),
+    renderSummary({ ...runRecord(), failure }),
   );
   expect(summaries.filter((text) => text.includes(TOKEN))).toStrictEqual([]);
   await app?.dispose();
@@ -370,7 +370,7 @@ describe("a publish that fails", () => {
       ...local,
       async upload(database, file) {
         await local.upload(database, file);
-        const copy = local.open(database);
+        const copy = await local.open(database);
         try {
           await copy.executeMultiple(sql);
         } finally {

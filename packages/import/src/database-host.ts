@@ -75,7 +75,7 @@ export function localDatabases(dir: string): DatabaseHost {
       await uploadable(file);
       await copyFile(file, path(database.name));
     },
-    open(database) {
+    async open(database) {
       return dataDbClient(database.url, {});
     },
     async remove(name) {
@@ -102,9 +102,9 @@ export interface TursoPlatform {
 }
 
 /**
- * How long the token minted for a new database lasts: through its upload and
- * check, within a GitHub Actions job's 6 hours. Read-write, as the upload
- * writes; nothing keeps it once the publish ends.
+ * How long a token minted for a database lasts: through a new one's upload
+ * and check, within a GitHub Actions job's 6 hours. Nothing keeps it once the
+ * run ends.
  */
 const DATABASE_TOKEN_EXPIRY = "6h";
 
@@ -121,7 +121,7 @@ export function tursoDatabases({
   endpoints = TURSO_ENDPOINTS,
 }: TursoPlatform): DatabaseHost {
   const secrets = [token];
-  /** Each database's own token, by name: minted to upload it, then to check it. */
+  /** Each database's own token, by name: minted to upload it, then to check it, or to read the one served. */
   const minted = new Map<string, string>();
   const api = async (
     method: string,
@@ -138,6 +138,20 @@ export function tursoDatabases({
       signal: withTimeout(signal),
     });
     return (await response.json()) as unknown;
+  };
+  const mint = async (
+    name: string,
+    authorization: "full-access" | "read-only",
+    signal?: AbortSignal,
+  ) => {
+    const { jwt } = (await api(
+      "POST",
+      `/v1/organizations/${org}/databases/${name}/auth/tokens?expiration=${DATABASE_TOKEN_EXPIRY}&authorization=${authorization}`,
+      { signal },
+    )) as { jwt: string };
+    secrets.push(jwt);
+    minted.set(name, jwt);
+    return jwt;
   };
   const createOnce = async (name: string, signal?: AbortSignal) => {
     const { database } = (await api(
@@ -186,13 +200,8 @@ export function tursoDatabases({
       }
     },
     async upload(database, file, signal) {
-      const { jwt } = (await api(
-        "POST",
-        `/v1/organizations/${org}/databases/${database.name}/auth/tokens?expiration=${DATABASE_TOKEN_EXPIRY}&authorization=full-access`,
-        { signal },
-      )) as { jwt: string };
-      secrets.push(jwt);
-      minted.set(database.name, jwt);
+      // read-write: the upload writes
+      const jwt = await mint(database.name, "full-access", signal);
       // undici's 300 s headersTimeout runs from the last byte sent, and Turso
       // answers only once it has taken a ~2 GB file in: the caller's signal is the bound
       const dispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
@@ -209,11 +218,9 @@ export function tursoDatabases({
         await dispatcher.close();
       }
     },
-    open(database) {
-      const jwt = minted.get(database.name);
-      if (jwt === undefined) {
-        throw new Error(`${database.name} has no token: open it after upload`);
-      }
+    async open(database) {
+      const jwt =
+        minted.get(database.name) ?? (await mint(database.name, "read-only"));
       return dataDbClient(database.url, { TURSO_DATA_DB_TOKEN: jwt });
     },
     remove,

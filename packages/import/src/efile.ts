@@ -121,7 +121,7 @@ export interface EfileImportOptions {
   /** Where the generated SQL load file is written. */
   out: string;
   target: LoadTarget;
-  /** Largest statement written, in bytes; defaults under D1's 100 KB limit. A filing too large for one aborts the run. */
+  /** Largest statement written, in bytes; defaults to `MAX_STATEMENT_BYTES`. A filing too large for one aborts the run. */
   maxStatementBytes?: number;
   /** A failed index download reads the indexes over, a failed zip download fetches that zip over; defaults to `DOWNLOAD_RETRY`. */
   retry?: DownloadRetry;

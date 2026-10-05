@@ -15,7 +15,7 @@ Secrets never go in the repository: it is public, and so is your fork. Each live
 | Secret | Where it lives | What it's for |
 | --- | --- | --- |
 | `BETTER_AUTH_SECRET`, `ADMIN_TOKEN`, `IP_HASH_SECRET`, `GITHUB_DISPATCH_TOKEN` | Worker secrets (`--secrets-file` on the first deploy, `wrangler secret put` after) | The deployed Worker; `.dev.vars.example` says what each one does |
-| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions repository secrets | The monthly import |
+| `TURSO_APP_DB_URL`, `TURSO_APP_DB_TOKEN`, `TURSO_PLATFORM_TOKEN`, `TURSO_ORG`, `TURSO_GROUP` | GitHub Actions repository secrets | The monthly import |
 | The same Worker secrets, with local values | `packages/worker/.dev.vars` (gitignored) | `wrangler dev` only; never uploaded |
 
 ## 1. Clone and install
@@ -100,24 +100,24 @@ The data databases have no migrations: the import builds their tables.
 2. **Commit and push** steps 4 and 6.1 to your fork's `main`. Scheduled workflows only run from the default branch, and the freshness guard dispatches the import on `main`.
 3. **Enable Actions.** Workflows don't run in a fork until you enable them in its **Actions** tab. Scheduled workflows in a fork of a public repository start disabled: open **monthly import** in the Actions tab and enable it.
 4. **Issues.** A failed import opens an issue in your fork. Check **Issues** is on under **Settings > General > Features**.
-5. **Cloudflare API token.** In the Cloudflare dashboard, under **My Profile > API Tokens**, create a custom token with one permission, **Account > D1 > Edit**, for your account.
-6. **Repository secrets.** Under **Settings > Secrets and variables > Actions**, add `CLOUDFLARE_API_TOKEN` (the token) and `CLOUDFLARE_ACCOUNT_ID` (from step 2).
+5. **Turso Platform API token.** Mint one for the group the data databases live in: `turso auth api-tokens mint nonprofits-import --org <org> --group <group> --scope db:create --scope db:mint-token --scope db:delete`.
+6. **Repository secrets.** Under **Settings > Secrets and variables > Actions**, add `TURSO_APP_DB_URL` (the app database's `libsql://` URL), `TURSO_APP_DB_TOKEN` (read-write on it), `TURSO_PLATFORM_TOKEN` (the token), `TURSO_ORG` and `TURSO_GROUP`.
 
 ## 7. Load the IRS data
 
 Until a first build is served, every `/v1` and MCP data request answers 503. Run the first build either way:
 
-- **From GitHub:** in the Actions tab, open **monthly import**, select **Run workflow**, and leave both boxes unticked.
+- **From GitHub:** in the Actions tab, open **monthly import**, select **Run workflow**, and leave **force_verify_failure** unticked.
 - **From your machine:** downloads about 10 GB, so it needs a steady connection for the whole run.
 
   ```sh
-  export CLOUDFLARE_API_TOKEN=<your-d1-token>
-  export CLOUDFLARE_ACCOUNT_ID=<your-account-id>
-  pnpm --filter @nonprofits/import irs refresh --remote
-  unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID    # step 8 deploys with your login, not this D1-only token
+  export TURSO_APP_DB_URL=<libsql://your-app-database-url> TURSO_APP_DB_TOKEN=<its-token>
+  export TURSO_PLATFORM_TOKEN=<the-platform-token> TURSO_ORG=<org> TURSO_GROUP=<group>
+  pnpm --filter @nonprofits/import irs refresh
+  unset TURSO_APP_DB_URL TURSO_APP_DB_TOKEN TURSO_PLATFORM_TOKEN TURSO_ORG TURSO_GROUP
   ```
 
-A first refresh that fails leaves nothing served and prints why. One that stops while a remote load file is importing keeps its claim on the slot and prints the `irs release --remote --build <id>` to run once D1's import has ended; until then, every refresh is refused. [Import](../README.md#import) in the README covers each step, the checks a build must pass and rollback.
+A first refresh that fails, or is stopped, leaves nothing served, deletes the database it was making and prints why. [Import](../README.md#import) in the README covers each step and the checks a build must pass.
 
 ## 8. Deploy the Worker
 

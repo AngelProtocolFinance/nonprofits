@@ -5,6 +5,7 @@ import type { Client } from "@libsql/client";
 import { createDataDatabase, finishDataDatabase } from "@nonprofits/db";
 import { dataDbClient } from "@nonprofits/db/node";
 import { loadSource, SOURCES, type SourceConfig } from "./sources.ts";
+import { type RunRecord, runRecord, timed } from "./summary.ts";
 import { fileTarget } from "./target.ts";
 import {
   type Check,
@@ -51,6 +52,8 @@ export interface BuildOptions {
   forceVerifyFailure?: boolean;
   /** Receives one line per step as the build goes. */
   log?: (line: string) => void;
+  /** Filled in as the build goes, also when it fails: each step with its time, each source's load and each verify check. */
+  record?: Pick<RunRecord, "steps" | "loads" | "checks">;
 }
 
 export interface BuildReport {
@@ -79,7 +82,10 @@ export async function buildDataFile({
   served,
   forceVerifyFailure = false,
   log = () => {},
+  record = runRecord(),
 }: BuildOptions): Promise<BuildReport> {
+  const { steps, loads, checks } = record;
+  const partial = sources.efile.batches !== undefined;
   const buildId = buildIdNow();
   const building = `${out}.building`;
   await removeFile(out);
@@ -91,32 +97,35 @@ export async function buildDataFile({
     const data = await createDataFile(building);
     opened = data;
     for (const source of SOURCES) {
-      await step(log, `loaded ${source}`, async () => {
+      await timed(log, steps, `loaded ${source}`, async () => {
         const loaded = await loadSource(
           source,
           sources,
           fileTarget(data),
           join(loadDir, `${source}.load.sql`),
         );
+        loads.push(loaded);
         for (const line of loaded.lines) log(`  ${line}`);
       });
     }
-    await step(log, "indexed for search", () =>
+    await timed(log, steps, "indexed for search", () =>
       finishDataDatabase(data, buildId),
     );
-    const checks: Check[] = [];
-    const counts = await step(log, "verified", async () => {
+    const counts = await timed(log, steps, "verified", async () => {
       const read: ReadData = async <T>(sql: string) =>
         (await data.execute(sql)).rows as unknown as T[];
+      if (served === undefined) {
+        log(
+          partial
+            ? "a partial build: its counts are compared with no served build's"
+            : "no served build to compare counts with",
+        );
+      }
       const counts = await verifyData(read, {
-        floors:
-          sources.efile.batches === undefined
-            ? floors
-            : { ...floors, filings: 0, programs: 0 },
+        floors: partial ? { ...floors, filings: 0, programs: 0 } : floors,
         served,
         forceVerifyFailure,
         check: checker(checks, log),
-        log,
       });
       const failed = verifyFailure(`build ${buildId}`, checks);
       if (failed !== null) throw failed;
@@ -159,16 +168,4 @@ async function removeFile(path: string): Promise<void> {
       rm(file, { force: true }),
     ),
   );
-}
-
-/** Runs `run`, logging `done` with how long it took once it succeeds. */
-async function step<T>(
-  log: (line: string) => void,
-  done: string,
-  run: () => Promise<T>,
-): Promise<T> {
-  const started = performance.now();
-  const result = await run();
-  log(`${done} (${((performance.now() - started) / 1000).toFixed(1)} s)`);
-  return result;
 }

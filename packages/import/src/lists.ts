@@ -176,7 +176,7 @@ export interface ListImportOptions {
   /** Where the generated SQL load file is written. */
   out: string;
   target: LoadTarget;
-  /** Largest upsert statement written, in bytes; defaults under D1's 100 KB limit. */
+  /** Largest upsert statement written, in bytes; defaults to `MAX_STATEMENT_BYTES`. */
   maxStatementBytes?: number;
   /** A download that failed transiently restarts the load; defaults to `DOWNLOAD_RETRY`. */
   retry?: DownloadRetry;

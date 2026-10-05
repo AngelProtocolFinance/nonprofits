@@ -1,10 +1,8 @@
 import { appendFileSync } from "node:fs";
-import type { Pointer } from "@nonprofits/db";
+import type { ServedPointer } from "@nonprofits/db";
 import { percent } from "./efile.ts";
-import { keepsClaim, readPointer } from "./generation.ts";
 import type { Loaded } from "./sources.ts";
 import type { Check } from "./verify.ts";
-import type { D1Ops } from "./wrangler.ts";
 
 export interface Step {
   name: string;
@@ -12,40 +10,28 @@ export interface Step {
   ok: boolean;
 }
 
-/** A claim a run left held: `binding`'s remote import may still be running. */
-export interface KeptClaim {
-  buildId: string;
-  binding: string;
-}
-
-/** What a refresh or rollback did, filled in as it runs, so a failed or stopped run still reports how far it got. */
+/** What a refresh did, filled in as it runs, so a failed or stopped run still reports how far it got. */
 export interface RunRecord {
-  command: "refresh" | "rollback";
-  remote: boolean;
   /** `performance.now()` when the record was made. */
   startedAt: number;
   /** Set once the run has ended. */
   seconds: number | null;
   /** What the pointer served when the run first read it. */
-  servedBefore: Pointer | null;
-  /** Read back from the pointer once the run ended, or why it couldn't be. Null after a stop, whose own lines say. */
-  servedAfter: Pointer | { unread: string } | null;
+  servedBefore: ServedPointer | null;
+  /** Read back from the pointer once the run ended or stopped, or why it couldn't be; null when the run never reached the app database. */
+  servedAfter: ServedPointer | { unread: string } | null;
   steps: Step[];
   loads: Loaded[];
   checks: Check[];
   failure: string | null;
-  keptClaims: KeptClaim[];
+  /** The command that removes a database the run left behind, holding storage. */
+  cleanup: string | null;
   /** A SIGINT or SIGTERM, and the lines its cleanup reported. */
   stop: { signal: string; lines: string[] } | null;
 }
 
-export function runRecord(
-  command: RunRecord["command"],
-  remote: boolean,
-): RunRecord {
+export function runRecord(): RunRecord {
   return {
-    command,
-    remote,
     startedAt: performance.now(),
     seconds: null,
     servedBefore: null,
@@ -54,20 +40,28 @@ export function runRecord(
     loads: [],
     checks: [],
     failure: null,
-    keptClaims: [],
+    cleanup: null,
     stop: null,
   };
 }
 
+/** What `read` says the pointer serves, or why it couldn't be read. */
+export async function readServedAfter(
+  read: () => Promise<ServedPointer | null>,
+): Promise<RunRecord["servedAfter"]> {
+  return read().catch((error: unknown) => ({ unread: message(error) }));
+}
+
 /**
  * Runs `run`, recording its failure in `record`, then reads what the pointer
- * serves into it and hands it to `write`; rethrows the run's failure after.
- * A run a signal stopped is left to the stop, which writes its own summary.
+ * serves into it with `readServed` and hands it to `write`; rethrows the
+ * run's failure after. A run a signal stopped is left to the stop, which
+ * writes its own summary.
  */
 export async function summarized<T>(
-  ops: D1Ops,
   record: RunRecord,
   write: (record: RunRecord) => void,
+  readServed: () => Promise<ServedPointer | null>,
   run: () => Promise<T>,
 ): Promise<T> {
   try {
@@ -77,9 +71,7 @@ export async function summarized<T>(
     throw error;
   } finally {
     if (record.stop === null) {
-      const servedAfter = await readPointer(ops).catch((error: unknown) => ({
-        unread: message(error),
-      }));
+      const servedAfter = await readServedAfter(readServed);
       // a signal during the read: its stop writes the summary, once its cleanup is done
       if (record.stop === null) {
         record.servedAfter = servedAfter;
@@ -96,20 +88,44 @@ export function finish(record: RunRecord): void {
 }
 
 /**
- * Appends a record's summary to `path` once, every one of `secrets` in it
- * replaced: a wrangler error can quote the account id in an API path. A
- * failed write is reported on stderr and doesn't fail the run.
+ * Runs `step` and adds it to `steps` with how long it took, failed or not;
+ * logs `done` with that time only when it succeeds.
+ */
+export async function timed<T>(
+  log: (line: string) => void,
+  steps: Step[],
+  done: string,
+  step: () => Promise<T>,
+): Promise<T> {
+  const started = performance.now();
+  const seconds = () => (performance.now() - started) / 1000;
+  let result: T;
+  try {
+    result = await step();
+  } catch (error) {
+    steps.push({ name: done, seconds: seconds(), ok: false });
+    throw error;
+  }
+  steps.push({ name: done, seconds: seconds(), ok: true });
+  log(`${done} (${seconds().toFixed(1)} s)`);
+  return result;
+}
+
+/**
+ * Appends a record's summary to `path` once, every one of `secrets()` in it
+ * replaced, read when it is written: a token minted during the run is among
+ * them. A failed write is reported on stderr and doesn't fail the run.
  */
 export function summaryWriter(
   path: string,
-  secrets: Secrets,
+  secrets: () => Secrets,
 ): (record: RunRecord) => void {
   let written = false;
   return (record) => {
     if (written) return;
     written = true;
     try {
-      appendFileSync(path, renderSummary(record, secrets));
+      appendFileSync(path, renderSummary(record, secrets()));
     } catch (error) {
       console.error(
         `could not write the summary to ${path}: ${message(error)}`,
@@ -118,7 +134,7 @@ export function summaryWriter(
   };
 }
 
-type Secrets = readonly (string | undefined)[];
+export type Secrets = readonly (string | undefined)[];
 
 /** `text` with every one of `secrets` replaced by `[redacted]`. */
 function redact(text: string, secrets: Secrets): string {
@@ -141,9 +157,11 @@ export function printable(text: string, secrets: Secrets): string {
 
 /**
  * The record as GitHub-flavoured markdown; a failure's first line on a line
- * of its own, starting `**Failed:**`, and each kept claim on one starting
- * `**Claim kept:**`. Every one of `secrets` is replaced, in free text before
- * it is clipped, so a cut can't leave part of one.
+ * of its own, starting `**Failed:**`, a failed or stopped run that left the
+ * pointer where it was on one starting `**Nothing switched:**`, and a
+ * database left behind on one starting `**Cleanup:**`. Every one of
+ * `secrets` is replaced, in free text before it is clipped, so a cut can't
+ * leave part of one.
  */
 export function renderSummary(
   record: RunRecord,
@@ -165,8 +183,15 @@ export function renderSummary(
     out.push(`**Failed:** ${first}`, "");
     if (more.length > 0) out.push(...fenced(more), "");
   }
-  for (const { buildId, binding } of record.keptClaims) {
-    out.push(`**Claim kept:** ${clip(keepsClaim(buildId, binding))}`, "");
+  const unmoved = unswitched(record);
+  if (unmoved !== null) {
+    out.push(`**Nothing switched:** still serving ${clip(unmoved)}`, "");
+  }
+  if (record.cleanup !== null) {
+    out.push(
+      `**Cleanup:** \`${clip(record.cleanup)}\` removes a database this run left behind, which holds storage until then`,
+      "",
+    );
   }
   out.push(...served(record, row));
   if (record.loads.length > 0) out.push(...sources(record.loads, row));
@@ -201,13 +226,26 @@ export function renderSummary(
 }
 
 function headline(record: RunRecord): string {
-  const run = `irs ${record.command} (${record.remote ? "remote" : "local"} D1)`;
+  const run = "irs refresh";
   if (record.stop !== null) return `${run}: stopped by ${record.stop.signal}`;
   if (record.failure !== null) return `${run}: failed`;
   const after = record.servedAfter;
   return after === null || "unread" in after
     ? `${run}: done`
-    : `${run}: serving slot ${after.active}, build ${after.build_id}`;
+    : `${run}: serving ${servedName(after)}, build ${after.build_id}`;
+}
+
+/** What a failed or stopped run left served, when the pointer read back names what it named before; else null. */
+function unswitched(record: RunRecord): string | null {
+  const { servedBefore: before, servedAfter: after } = record;
+  if (record.failure === null && record.stop === null) return null;
+  if (before === null || after === null || "unread" in after) return null;
+  if (after.database?.name !== before.database?.name) return null;
+  return `${servedName(after)}, build ${after.build_id}`;
+}
+
+function servedName(pointer: ServedPointer): string {
+  return pointer.database?.name ?? "no database";
 }
 
 function served(record: RunRecord, row: Row): string[] {
@@ -216,7 +254,7 @@ function served(record: RunRecord, row: Row): string[] {
     rows.push(
       row(
         "served before",
-        record.servedBefore.active,
+        servedName(record.servedBefore),
         record.servedBefore.build_id,
       ),
     );
@@ -226,11 +264,11 @@ function served(record: RunRecord, row: Row): string[] {
     rows.push(
       "unread" in after
         ? row("served after", "unknown", `pointer unread: ${after.unread}`)
-        : row("served after", after.active, after.build_id),
+        : row("served after", servedName(after), after.build_id),
     );
   }
   if (rows.length === 0) return [];
-  return [row("", "slot", "build"), row("---", "---", "---"), ...rows, ""];
+  return [row("", "database", "build"), row("---", "---", "---"), ...rows, ""];
 }
 
 function sources(loads: readonly Loaded[], row: Row): string[] {
@@ -291,9 +329,8 @@ function tableRow(clip: Clip): Row {
 }
 
 /**
- * The most of a block of free text the summary keeps, its last lines: a
- * wrangler failure can quote 16 MiB of output, and GitHub drops a step
- * summary over 1 MiB.
+ * The most of a block of free text the summary keeps, its last lines: an
+ * error's message has no bound, and GitHub drops a step summary over 1 MiB.
  */
 const BLOCK_LINES = 100;
 const BLOCK_BYTES = 16 * 1024;
