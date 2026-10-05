@@ -168,6 +168,18 @@ export function utcDay(at: Date): string {
   return at.toISOString().slice(0, 10);
 }
 
+/** Days of `key_usage` kept before the run's own: requests read only today's rows, the rest are for the operator. */
+const USAGE_RETENTION_DAYS = 7;
+
+/** Deletes usage rows more than `USAGE_RETENTION_DAYS` days before `at`'s UTC day. */
+export async function pruneUsage(db: Client, at: Date): Promise<void> {
+  const cutoff = utcDay(new Date(at.getTime() - USAGE_RETENTION_DAYS * DAY_MS));
+  await db.execute({
+    sql: "DELETE FROM key_usage WHERE day < ?1",
+    args: [cutoff],
+  });
+}
+
 function instant(ms: number): string {
   return new Date(ms).toISOString().replace(".000Z", "Z");
 }
