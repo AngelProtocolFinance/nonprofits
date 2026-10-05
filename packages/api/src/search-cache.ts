@@ -18,7 +18,7 @@ export interface SearchCache {
 /**
  * The searcher's records for `words` at `limit` on the served build, from
  * `cache` when the same search set them within the hour: a word in most names
- * ranks up to 10,000 candidates, each a few Turso rows read. The cache failing
+ * ranks up to 1,000 candidates, each 3 Turso rows read. The cache failing
  * to answer is a miss, and failing to store is logged: either way the search
  * is answered.
  */

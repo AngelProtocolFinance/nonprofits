@@ -392,3 +392,48 @@ describe("GET /v1/search among names that score the same", () => {
     ]);
   });
 });
+
+/** EINs of 1,001 orgs named alike, in EIN order; only the last two are in Pub 78. */
+const ALIKE_EINS = Array.from({ length: 1_001 }, (_, i) =>
+  String(800_000_001 + i),
+);
+
+async function alikeNames(data: Client) {
+  await data.batch(
+    ALIKE_EINS.flatMap((ein, i) => [
+      {
+        sql: "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id, in_pub78) VALUES (?1, 'QUORUMVILLE FUND', 1, '03', 1, ?2)",
+        args: [ein, i >= 999 ? 1 : 0],
+      },
+      {
+        sql: "INSERT INTO orgs_fts (rowid, name) VALUES (CAST(?1 AS INTEGER), 'QUORUMVILLE FUND')",
+        args: [ein],
+      },
+    ]),
+    "write",
+  );
+}
+
+describe("GET /v1/search for a word in more than 1,000 names", () => {
+  let broad: TestApi;
+
+  beforeAll(async () => {
+    broad = await testApi({ fill: alikeNames });
+  });
+
+  afterAll(async () => {
+    await broad.dispose();
+  });
+
+  test("ranks only the first 1,000 matches in EIN order: the 1,000th leads as a Pub 78 org, the 1,001st is never returned", async () => {
+    const response = await broad.app.request("/v1/search?q=quorumville", {
+      headers: freshClient(),
+    });
+    const eins = ((await response.json()) as OrgSearchResponse).results.map(
+      (r) => r.ein,
+    );
+
+    expect(eins[0]).toBe(ALIKE_EINS[999]);
+    expect(eins).not.toContain(ALIKE_EINS[1_000]);
+  });
+});

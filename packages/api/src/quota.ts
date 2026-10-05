@@ -46,18 +46,19 @@ export const ROWS_WRITTEN = { metered: 2, whitelisted: 1, refused: 0 };
 // Turso's free plan: 500M rows read and 10M rows written a month. A 31-day
 // month allows 16,129,032 reads and 322,580 writes a day.
 //
-// Reads bind. A search ranks up to MAX_CANDIDATES (10,000, org-searcher.ts)
-// FTS matches, reading per match its indexed length for bm25 and its `orgs`
-// primary-key entry and row: up to 3 x 10,000 = 30,000 rows, the matches'
-// doclists being packed many to a page. About 100 more cover the key check,
-// the counters and a lookup's handful. A caller picks its query, so a
-// ceiling assumes every request is that worst search: 30,100 rows read.
+// Reads bind. A search ranks up to MAX_CANDIDATES (1,000, org-searcher.ts)
+// FTS matches, visiting per match 3 rows: its FTS entry, its `orgs` row and
+// its `filings` row, measured with .scanstats: up to 3 x 1,000 = 3,000 rows.
+// About 100 more cover the key check, the counters and a lookup's handful. A
+// caller picks its query, so a ceiling assumes every request is that worst
+// search: 3,100 rows read.
 //
-// The two ceilings take 3/4 of the daily reads, 12,096,774 / 30,100 = 401
-// requests, split evenly: 200 + 200 = 400 a day, 12,040,000 rows read and
-// 400 x ROWS_WRITTEN.metered = 800 rows written, under 1% of the day's
-// writes. The other 4,089,032 reads a day (about 135 worst searches) are for
-// whitelisted keys, which no ceiling bounds, and the monthly import's checks.
+// The two ceilings take 3/4 of the daily reads, 12,096,774 / 3,100 = 3,902
+// requests, split evenly and rounded down: 1,900 + 1,900 = 3,800 a day,
+// 11,780,000 rows read and 3,800 x ROWS_WRITTEN.metered = 7,600 rows
+// written, under 3% of the day's writes. The other 4,349,032 reads a day
+// (about 1,400 worst searches) are for whitelisted keys, which no ceiling
+// bounds, and the monthly import's checks.
 //
 // That covers admitted traffic only. A refused request writes nothing but
 // still reads: a well-formed made-up key 1-3 rows (the `apikey` key index,
@@ -67,8 +68,8 @@ export const ROWS_WRITTEN = { metered: 2, whitelisted: 1, refused: 0 };
 // cap), and the in-memory ones count per instance until the platform's
 // limits run in front of the app.
 export const DEFAULT_SERVICE_DAILY_LIMIT: Record<MeteredTier, number> = {
-  anonymous: 200,
-  default: 200,
+  anonymous: 1_900,
+  default: 1_900,
 };
 
 /** A caller over one of its limits: a 429 with `Retry-After: retryAfterSeconds`. */

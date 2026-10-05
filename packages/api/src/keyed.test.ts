@@ -428,7 +428,7 @@ describe("the default-tier service ceiling", () => {
 
   test("with SERVICE_KEY_DAILY_LIMIT unset, the default ceiling applies: its last request is served and the next is 429", async () => {
     await start({ vars: { SERVICE_KEY_DAILY_LIMIT: undefined } });
-    await seedUsage(api, "*:key", "2026-10-05", 199);
+    await seedUsage(api, "*:key", "2026-10-05", 1899);
     const first = await insertKey(api);
     const second = await insertKey(api);
 

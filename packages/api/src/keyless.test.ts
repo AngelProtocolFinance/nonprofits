@@ -193,7 +193,7 @@ describe("keyless quota", () => {
 
   test("with the service-wide limit unset, the default ceiling applies: its last request is served and the next is 429", async () => {
     await start({ vars: { SERVICE_KEYLESS_DAILY_LIMIT: undefined } });
-    await seedUsage(api, "*:keyless", "2026-10-05", 199);
+    await seedUsage(api, "*:keyless", "2026-10-05", 1899);
 
     expect((await lookupFrom(from("203.0.113.76"))).status).toBe(200);
     const next = await lookupFrom(from("203.0.113.77"));

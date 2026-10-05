@@ -21,15 +21,17 @@ interface RunRow {
 }
 
 /**
- * Ranking reads each candidate's indexed length, org row and filing, so a
- * word in 912k names (`inc`) would read them all: only this many matches, in
- * EIN order, are ranked.
+ * Ranking reads each candidate's FTS entry, org row and filing, so a word in
+ * 912k names (`inc`) would read them all: only this many matches, in EIN
+ * order, are ranked, and a broad word's best match can fall past them. The
+ * service-wide daily ceilings in quota.ts are sized on it.
  */
-const MAX_CANDIDATES = 10_000;
+const MAX_CANDIDATES = 1_000;
 
 /**
- * Orgs in Pub 78 first, then the rest of the current BMF, then orgs the BMF
- * no longer lists; bm25 orders each tier. Every match holds every word, so
+ * Of the first MAX_CANDIDATES matches in EIN order: orgs in Pub 78 first,
+ * then the rest of the current BMF, then orgs the BMF no longer lists; bm25
+ * orders each tier. Every match holds every word, so
  * the tiers outweigh bm25's preference for short names: a dropped chapter
  * named AMERICAN RED CROSS would otherwise outscore the national org. At an
  * equal score the larger org leads, so UNITED WAY WORLDWIDE tops its chapters:
@@ -64,7 +66,7 @@ FROM import_runs WHERE id = (SELECT max(id) FROM import_runs WHERE source = 'pub
  * `searchNames` returns for the same words on the same build, its record
  * shape or its order, or a deploy serves the old answer for up to an hour.
  */
-export const SEARCH_RECORD_VERSION = 1;
+export const SEARCH_RECORD_VERSION = 2;
 
 /** Each word as a quoted FTS5 string, so no word reads as FTS5 syntax. */
 function matchExpression(words: string[]): string {
