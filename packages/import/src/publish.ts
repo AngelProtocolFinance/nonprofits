@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
 import type { Client } from "@libsql/client";
 import {
   holdsBuild,
@@ -10,8 +11,9 @@ import {
   type SwitchResult,
   switchServedDatabase,
 } from "@nonprofits/db";
+import { dataDbClient } from "@nonprofits/db/node";
 import { printable } from "./summary.ts";
-import { type Counts, RED_CROSS, readCounts } from "./verify.ts";
+import { RED_CROSS } from "./verify.ts";
 
 /**
  * Where data databases are made, filled and removed: Turso's Platform API, or
@@ -48,8 +50,6 @@ export interface PublishOptions {
   /** A built file that passed verify: `BuildReport.out`. */
   file: string;
   buildId: string;
-  /** The file's own counts, `BuildReport.counts`, which the uploaded copy must equal. */
-  counts: Counts;
   /** Receives one line per step, every one of `host.secrets` redacted. */
   log?: (line: string) => void;
   /** Stops the publish before the switch as a failure would, removing the new database; after it, leaves the previous database in place, with its removal command. */
@@ -108,7 +108,6 @@ async function publish(
     host,
     file,
     buildId,
-    counts,
     signal,
     sleep = (ms, stop) => delay(ms, undefined, { signal: stop }),
   }: PublishOptions,
@@ -119,6 +118,7 @@ async function publish(
       throw new Error(`stopped: ${errorMessage(signal.reason)}`);
   };
   await withinCap(file);
+  const tails = await readLocal(file, lastRows);
   const before = await readServedDatabase(app);
   const name = dataDatabaseName(buildId);
   unlessStopped();
@@ -144,10 +144,12 @@ async function publish(
   await orRemove(async () => {
     unlessStopped();
     await failsAs(`checking the uploaded ${name}`, async () =>
-      checkUploaded(await host.open(database), buildId, counts),
+      checkUploaded(await host.open(database), buildId, tails),
     );
   });
-  say(`checked ${name}: build ${buildId}, every count as the file's`);
+  say(
+    `checked ${name}: build ${buildId}, every table's last row as the file's`,
+  );
   await orRemove(async () => unlessStopped());
   let result: SwitchResult;
   try {
@@ -316,15 +318,49 @@ export function dataDatabaseName(buildId: string): string {
   return `${DATA_DATABASE_PREFIX}${buildId.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
 }
 
+/** The tables whose last row the uploaded copy must share with the file. */
+const TABLES = ["orgs", "filings", "programs"] as const;
+
+/** Each table's largest rowid, null when it is empty. */
+type LastRows = Record<(typeof TABLES)[number], number | null>;
+
 /**
- * Checks the uploaded copy is the file: it holds `buildId`, answers the Red
- * Cross, and counts what the file counted. The data itself was verified on
- * the file; this proves the upload.
+ * Each of `TABLES`' largest rowid, each read by one seek: a count scans every
+ * row, which on Turso, over millions, can outlast undici's 300 s
+ * headers timeout.
+ */
+async function lastRows(data: Client): Promise<LastRows> {
+  const rows = {} as LastRows;
+  for (const table of TABLES) {
+    const rs = await data.execute(`SELECT max(rowid) AS n FROM ${table}`);
+    const n = rs.rows[0]?.n;
+    rows[table] = n === null || n === undefined ? null : Number(n);
+  }
+  return rows;
+}
+
+/** Runs `read` on a client on the local `file`, closing it after. */
+async function readLocal<T>(
+  file: string,
+  read: (data: Client) => Promise<T>,
+): Promise<T> {
+  const data = dataDbClient(pathToFileURL(file).href, {});
+  try {
+    return await read(data);
+  } finally {
+    data.close();
+  }
+}
+
+/**
+ * Checks the uploaded copy is the file, by seeks alone: it holds `buildId`,
+ * answers the Red Cross, and ends each table on the file's last row. The data
+ * itself was verified, counts included, on the file; this proves the upload.
  */
 async function checkUploaded(
   data: Client,
   buildId: string,
-  counts: Counts,
+  tails: LastRows,
 ): Promise<void> {
   try {
     const meta = await readDataMeta(data);
@@ -341,16 +377,16 @@ async function checkUploaded(
     });
     if (redCross.rows.length === 0)
       throw new Error(`it has no org ${RED_CROSS}`);
-    const uploaded = await readCounts(
-      async <T>(sql: string) =>
-        (await data.execute(sql)).rows as unknown as T[],
+    const uploaded = await lastRows(data);
+    const differ = TABLES.filter(
+      (table) => uploaded[table] !== tails[table],
+    ).map(
+      (table) =>
+        `${table}: last rowid ${uploaded[table]}, the file's ${tails[table]}`,
     );
-    const differ = (Object.keys(counts) as (keyof Counts)[])
-      .filter((name) => uploaded[name] !== counts[name])
-      .map((name) => `${name}: ${uploaded[name]}, the file's ${counts[name]}`);
     if (differ.length > 0) {
       throw new Error(
-        `its counts differ from the file's: ${differ.join("; ")}`,
+        `its last rows differ from the file's: ${differ.join("; ")}`,
       );
     }
   } finally {

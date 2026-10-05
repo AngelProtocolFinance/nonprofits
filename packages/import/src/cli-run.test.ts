@@ -87,7 +87,6 @@ async function harness({
     host: localDatabases(databases),
     file: earlier.out,
     buildId: earlier.buildId,
-    counts: earlier.counts,
     sleep: async () => {},
   });
   const deps: CliDeps = {

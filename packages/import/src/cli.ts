@@ -281,7 +281,6 @@ async function runRefresh(values: Values, s: Session): Promise<void> {
           host,
           file: report.out,
           buildId: report.buildId,
-          counts: report.counts,
           log,
           signal,
           ...(s.deps.sleep === undefined ? {} : { sleep: s.deps.sleep }),

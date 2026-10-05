@@ -8,8 +8,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Client } from "@libsql/client";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { Client, InStatement } from "@libsql/client";
 import {
   holdsBuild,
   readDataMeta,
@@ -31,13 +31,11 @@ import {
   publishDataFile,
 } from "./publish.ts";
 import { renderSummary, runRecord } from "./summary.ts";
-import { type Counts, readCounts } from "./verify.ts";
 
 /** A built file: what `buildDataFile` hands publish. */
 interface Built {
   file: string;
   buildId: string;
-  counts: Counts;
 }
 
 let work: string;
@@ -74,15 +72,11 @@ afterEach(async () => {
 async function built(buildId: string): Promise<Built> {
   const fixture = await dataDbFixture(buildId);
   try {
-    const counts = await readCounts(
-      async <T>(sql: string) =>
-        (await fixture.client.execute(sql)).rows as unknown as T[],
-    );
     await fixture.client.execute("PRAGMA wal_checkpoint(TRUNCATE)");
     fixture.client.close();
     const file = join(work, `${buildId.replaceAll(":", "")}.db`);
     await copyFile(fileURLToPath(fixture.url), file);
-    return { file, buildId, counts };
+    return { file, buildId };
   } finally {
     await fixture.dispose();
   }
@@ -171,6 +165,50 @@ describe("publishing a verified file", () => {
       );
     } finally {
       served.close();
+    }
+  });
+
+  test("checks the uploaded copy by seeks alone: no query scans a table, whose time on Turso grows with its rows", async () => {
+    const build = await built("2026-10-01T00:00:00Z");
+    const local = localDatabases(join(work, "databases"));
+    const sent: InStatement[] = [];
+    const recording = holdingToken({
+      ...local,
+      async open(database) {
+        const client = await local.open(database);
+        const execute = client.execute.bind(client);
+        client.execute = (statement: InStatement) => {
+          sent.push(statement);
+          return execute(statement);
+        };
+        return client;
+      },
+    });
+
+    await publish(build, recording);
+
+    const file = dataDbClient(pathToFileURL(build.file).href, {});
+    try {
+      const scans: string[] = [];
+      for (const statement of sent) {
+        const { sql, args } =
+          typeof statement === "string"
+            ? { sql: statement, args: [] }
+            : statement;
+        const plan = await file.execute({
+          sql: `EXPLAIN QUERY PLAN ${sql}`,
+          args: args ?? [],
+        });
+        for (const row of plan.rows) {
+          if (String(row.detail).startsWith("SCAN")) {
+            scans.push(`${sql}: ${row.detail}`);
+          }
+        }
+      }
+      expect(sent.length).toBeGreaterThan(0);
+      expect(scans).toStrictEqual([]);
+    } finally {
+      file.close();
     }
   });
 });
@@ -392,15 +430,15 @@ describe("a publish that fails", () => {
     );
   });
 
-  test("when the copy's counts differ from the file's", async () => {
+  test("when the copy's last row of a table differs from the file's", async () => {
     await leavesServingAsItWas(
       publish(
         await built("2026-10-01T00:00:00Z"),
         landingWith(
-          "DELETE FROM programs WHERE rowid = (SELECT min(rowid) FROM programs)",
+          "DELETE FROM programs WHERE rowid = (SELECT max(rowid) FROM programs)",
         ),
       ),
-      /check.*programs: 2, the file's 3/,
+      /check.*programs: last rowid 2, the file's 3/,
     );
   });
 
