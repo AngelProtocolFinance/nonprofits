@@ -59,6 +59,13 @@ UNION ALL
 SELECT id, source, file_url, released_at, fetched_at
 FROM import_runs WHERE id = (SELECT max(id) FROM import_runs WHERE source = 'pub78')`;
 
+/**
+ * Part of every search cache key: bump it with any change to what
+ * `searchNames` returns for the same words on the same build, its record
+ * shape or its order, or a deploy serves the old answer for up to an hour.
+ */
+export const SEARCH_RECORD_VERSION = 1;
+
 /** Each word as a quoted FTS5 string, so no word reads as FTS5 syntax. */
 function matchExpression(words: string[]): string {
   return words.map((w) => `"${w.replaceAll('"', '""')}"`).join(" ");

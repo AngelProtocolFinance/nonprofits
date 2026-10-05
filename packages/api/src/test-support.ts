@@ -18,6 +18,7 @@ import {
   KEYLESS_LIMITS,
   KEYLESS_MCP_REQUESTS_PER_MINUTE,
 } from "./quota.ts";
+import { memorySearchCache, type SearchCache } from "./search-cache.ts";
 
 const FIXTURE_BUILD = "20260910T030000Z";
 
@@ -63,6 +64,10 @@ export interface TestApiOptions {
   serve?: boolean;
   /** The app database as the app sees it, e.g. one whose writes fail. */
   appDbAs?: (db: Client) => Client;
+  /** Each data database the app opens, as the app sees it. */
+  dataDbAs?: (db: Client) => Client;
+  /** In place of the in-memory cache on the test's clock. */
+  searchCache?: SearchCache;
 }
 
 /**
@@ -93,12 +98,13 @@ export async function testApi(options: TestApiOptions = {}): Promise<TestApi> {
     openDataDb: (url) => {
       const client = dataDbClient(url, {});
       clients.push(client);
-      return client;
+      return options.dataDbAs?.(client) ?? client;
     },
     keylessBurst: perMinute(KEYLESS_LIMITS.perMinute),
     keyBurst: perMinute(DEFAULT_LIMITS.perMinute),
     keyedRequests: perMinute(KEYED_REQUESTS_PER_MINUTE),
     keylessMcpRequests: perMinute(KEYLESS_MCP_REQUESTS_PER_MINUTE),
+    searchCache: options.searchCache ?? memorySearchCache(clock.now),
     now: clock.now,
     vars: { ...TEST_VARS, ...options.vars },
   });

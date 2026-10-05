@@ -12,6 +12,7 @@ import {
   KEYLESS_LIMITS,
   KEYLESS_MCP_REQUESTS_PER_MINUTE,
 } from "./quota.ts";
+import { memorySearchCache } from "./search-cache.ts";
 
 // Serves the api on localhost over fresh fixture databases in a temp directory,
 // deleted on exit: the app database, migrated, pointing at a data database
@@ -36,6 +37,7 @@ const app = createApp({
   keyBurst: perMinute(DEFAULT_LIMITS.perMinute),
   keyedRequests: perMinute(KEYED_REQUESTS_PER_MINUTE),
   keylessMcpRequests: perMinute(KEYLESS_MCP_REQUESTS_PER_MINUTE),
+  searchCache: memorySearchCache(now),
   now,
   vars: {
     // a fresh key per run: the usage rows it hashes are deleted with the run

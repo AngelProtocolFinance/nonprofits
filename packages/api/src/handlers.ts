@@ -27,7 +27,6 @@ import {
 import type { RateLimiter } from "./limiter.ts";
 import { logFailure } from "./log.ts";
 import { readOrg } from "./org-reader.ts";
-import { searchNames } from "./org-searcher.ts";
 import {
   countRequest,
   DEFAULT_SERVICE_DAILY_LIMIT,
@@ -36,6 +35,7 @@ import {
   meterMetered,
   type QuotaError,
 } from "./quota.ts";
+import { cachedSearch, type SearchCache } from "./search-cache.ts";
 
 /** A data read failed: a 503 the caller can retry, never a bare 500. */
 export type DataUnavailable = { code: "data_unavailable"; message: string };
@@ -71,6 +71,7 @@ export interface Service {
   keyBurst: RateLimiter;
   keyedRequests: RateLimiter;
   keylessMcpRequests: RateLimiter;
+  searchCache: SearchCache;
   vars: ApiVars;
 }
 
@@ -211,7 +212,7 @@ class Refused extends Error {
  */
 async function readServed<T>(
   caller: Caller,
-  read: (db: Client) => Promise<T>,
+  read: (served: ServedData) => Promise<T>,
 ): Promise<T> {
   const { servedData } = caller.service;
   let served: ServedData;
@@ -225,7 +226,7 @@ async function readServed<T>(
   const metered = await meter(caller);
   if (!metered.ok) throw new Refused(metered.error);
   try {
-    return await read(served.client);
+    return await read(served);
   } catch (error) {
     servedData.forget(served.client);
     throw error;
@@ -263,7 +264,8 @@ export async function lookupAs(
 ): Promise<Result<OrgResponse, HandlerError>> {
   const result = await answer(() =>
     lookupOrg(ein, {
-      read: (valid) => readServed(caller, (db) => readOrg(db, valid)),
+      read: (valid) =>
+        readServed(caller, ({ client }) => readOrg(client, valid)),
     }),
   );
   emit({
@@ -291,7 +293,9 @@ export async function searchAs(
   const result = await answer(() =>
     searchOrgs(input, {
       search: (words, limit) =>
-        readServed(caller, (db) => searchNames(db, words, limit)),
+        readServed(caller, (served) =>
+          cachedSearch(caller.service.searchCache, served, words, limit),
+        ),
     }),
   );
   emit({

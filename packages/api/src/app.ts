@@ -16,6 +16,7 @@ import { logFailure } from "./log.ts";
 import { mcpHandlers } from "./mcp.ts";
 import { problem } from "./problem.ts";
 import { refuse } from "./refusal.ts";
+import type { SearchCache } from "./search-cache.ts";
 
 export type { ApiVars } from "./handlers.ts";
 
@@ -33,6 +34,8 @@ export interface AppDeps {
   keyedRequests: RateLimiter;
   /** keyless HTTP requests to `/mcp` per client per minute, whatever messages each carries */
   keylessMcpRequests: RateLimiter;
+  /** searches answered again without ranking, after the caller is authorized and counted */
+  searchCache: SearchCache;
   now: () => Date;
   vars: ApiVars;
 }
@@ -52,6 +55,7 @@ export function createApp(deps: AppDeps) {
     keyBurst: deps.keyBurst,
     keyedRequests: deps.keyedRequests,
     keylessMcpRequests: deps.keylessMcpRequests,
+    searchCache: deps.searchCache,
     vars: deps.vars,
   };
   const contextOf = (c: Context): HandlerContext => ({
