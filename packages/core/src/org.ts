@@ -137,7 +137,7 @@ export interface OrgRecord {
   efile: { filing: FilingRecord | null } | null;
 }
 
-/** The storage seam: the Worker satisfies it with D1. */
+/** The storage seam: `packages/api`'s `org-reader.ts` satisfies it with the Turso data database. */
 export interface OrgReader {
   read(ein: string): Promise<OrgRecord | null>;
 }

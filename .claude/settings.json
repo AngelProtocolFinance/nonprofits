@@ -18,5 +18,15 @@
   },
   "enabledPlugins": {
     "turso@turso": true
+  },
+  "enabledMcpjsonServers": ["context7"],
+  "permissions": {
+    "additionalDirectories": ["/root/.kru"],
+    "allow": [
+      "Read(/root/.kru/**)",
+      "Edit(/root/.kru/**)",
+      "Bash(rm /root/.kru/audit/*)",
+      "Bash(rm /root/.kru/management/*/issues/*)"
+    ]
   }
 }
