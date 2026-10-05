@@ -27,10 +27,14 @@ export const TEST_VARS: ApiVars = {
   SERVICE_KEYLESS_DAILY_LIMIT: "200000",
   ADMIN_TOKEN: "test-only-admin-token-0123456789abcdef",
   BETTER_AUTH_SECRET: "test-only-better-auth-secret-0123456789abcdef",
+  CRON_SECRET: "test-only-cron-secret-0123456789abcdef",
 };
 
 /** The header every admin call in a test sends. */
 export const ADMIN_AUTHORIZATION = `Bearer ${TEST_VARS.ADMIN_TOKEN}`;
+
+/** The header Vercel's cron sends with `TEST_VARS.CRON_SECRET`. */
+export const CRON_AUTHORIZATION = `Bearer ${TEST_VARS.CRON_SECRET}`;
 
 /** A clock the test moves; it starts mid-day, clear of a UTC midnight. */
 export function testClock(start = "2026-10-05T12:00:00Z") {
@@ -66,6 +70,8 @@ export interface TestApiOptions {
   appDbAs?: (db: Client) => Client;
   /** Limiters in place of the in-memory ones, e.g. the Firewall's over a stubbed check. */
   limiters?: Partial<Limiters>;
+  /** The app's outbound fetch; by default every call rejects, so no test reaches the network. */
+  fetch?: typeof fetch;
 }
 
 /**
@@ -105,6 +111,11 @@ export async function testApi(options: TestApiOptions = {}): Promise<TestApi> {
     keylessMcpRequests: perMinute(KEYLESS_MCP_REQUESTS_PER_MINUTE),
     ...options.limiters,
     now: clock.now,
+    fetch:
+      options.fetch ??
+      (async (input) => {
+        throw new Error(`unexpected fetch in a test: ${String(input)}`);
+      }),
     vars: { ...TEST_VARS, ...options.vars },
   });
   return {

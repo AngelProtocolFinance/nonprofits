@@ -37,6 +37,7 @@ const app = createApp({
   keyedRequests: perMinute(KEYED_REQUESTS_PER_MINUTE),
   keylessMcpRequests: perMinute(KEYLESS_MCP_REQUESTS_PER_MINUTE),
   now,
+  fetch,
   vars: {
     // a fresh key per run: the usage rows it hashes are deleted with the run
     IP_HASH_SECRET:
@@ -45,6 +46,11 @@ const app = createApp({
     SERVICE_KEY_DAILY_LIMIT: process.env.SERVICE_KEY_DAILY_LIMIT,
     ADMIN_TOKEN: process.env.ADMIN_TOKEN,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+    CRON_SECRET: process.env.CRON_SECRET,
+    GITHUB_REPO: process.env.GITHUB_REPO,
+    STALE_AFTER_DAYS: process.env.STALE_AFTER_DAYS,
+    REDISPATCH_AFTER_HOURS: process.env.REDISPATCH_AFTER_HOURS,
+    GITHUB_DISPATCH_TOKEN: process.env.GITHUB_DISPATCH_TOKEN,
   },
 });
 

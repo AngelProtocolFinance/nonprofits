@@ -61,6 +61,16 @@ export interface ApiVars {
   ADMIN_TOKEN?: string | undefined;
   /** better-auth's signing secret; the admin routes stay off until it is set */
   BETTER_AUTH_SECRET?: string | undefined;
+  /** the bearer token Vercel's cron sends; the cron route stays off until it is set */
+  CRON_SECRET?: string | undefined;
+  /** owner/repo whose `import.yml` the daily cron starts on stale data */
+  GITHUB_REPO?: string | undefined;
+  /** days after a switch that the served data is stale */
+  STALE_AFTER_DAYS?: string | number | undefined;
+  /** hours the cron waits after a dispatch before it dispatches again */
+  REDISPATCH_AFTER_HOURS?: string | number | undefined;
+  /** a token allowed to enable and dispatch `GITHUB_REPO`'s workflows; the cron skips dispatching until it is set */
+  GITHUB_DISPATCH_TOKEN?: string | undefined;
 }
 
 /** What every handler reads besides its request, built once per app. */
