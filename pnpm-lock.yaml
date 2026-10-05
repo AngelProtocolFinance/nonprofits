@@ -185,6 +185,9 @@ catalogs:
     '@types/node':
       specifier: ^24.0.0
       version: 24.19.1
+    '@vercel/firewall':
+      specifier: 1.2.5
+      version: 1.2.5
     '@vercel/functions':
       specifier: 3.9.11
       version: 3.9.11
@@ -265,6 +268,9 @@ importers:
       '@nonprofits/db':
         specifier: workspace:*
         version: link:../db
+      '@vercel/firewall':
+        specifier: 'catalog:'
+        version: 1.2.5
       '@vercel/functions':
         specifier: 'catalog:'
         version: 3.9.11(ws@8.21.0)
@@ -1428,6 +1434,10 @@ packages:
   '@vercel/cli-exec@1.0.1':
     resolution: {integrity: sha512-g9XerViJ/paZujufXYcu5XYI2vU2rtB4sgdpjUHde5RnOkdmpu0ngH46LCFGHoPXO/C+qDPSczIHIRN+8Q2YKQ==}
     engines: {node: '>= 18'}
+
+  '@vercel/firewall@1.2.5':
+    resolution: {integrity: sha512-rylXD6sfUgJMtYGuILXZZPy1af2aLQbRIAQf5nr2vI84PdGNaPEu19VvMG05KOXZ2qwfwf99OsM8brO9VzN8Gg==}
+    engines: {node: '>= 20'}
 
   '@vercel/functions@3.9.11':
     resolution: {integrity: sha512-DbqKqcbUHGBTYgHZieSNDuF1/L2iSPZV0OGm0Xkm/t+s61lFk4VX8yGQ22Og3WYGxypW1l4Elx1NP8BL928u8Q==}
@@ -3083,6 +3093,8 @@ snapshots:
   '@vercel/cli-exec@1.0.1':
     dependencies:
       execa: 5.1.1
+
+  '@vercel/firewall@1.2.5': {}
 
   '@vercel/functions@3.9.11(ws@8.21.0)':
     dependencies:

@@ -10,6 +10,7 @@ import {
 import { dataDbClient } from "@nonprofits/db/node";
 import { type ApiVars, createApp } from "./app.ts";
 import { API_KEY_LETTERS, API_KEY_PREFIX } from "./authorize.ts";
+import type { Limiters } from "./firewall-limiter.ts";
 import { memoryRateLimiter } from "./limiter.ts";
 import {
   BURST_PERIOD_SECONDS,
@@ -63,11 +64,14 @@ export interface TestApiOptions {
   serve?: boolean;
   /** The app database as the app sees it, e.g. one whose writes fail. */
   appDbAs?: (db: Client) => Client;
+  /** Limiters in place of the in-memory ones, e.g. the Firewall's over a stubbed check. */
+  limiters?: Partial<Limiters>;
 }
 
 /**
  * The app over a migrated app database whose pointer serves the data
- * fixture, with the in-memory limiter on the test's clock.
+ * fixture, with in-memory limiters on the test's clock wherever `limiters`
+ * names none.
  */
 export async function testApi(options: TestApiOptions = {}): Promise<TestApi> {
   const appDb = await appDbFixture();
@@ -99,6 +103,7 @@ export async function testApi(options: TestApiOptions = {}): Promise<TestApi> {
     keyBurst: perMinute(DEFAULT_LIMITS.perMinute),
     keyedRequests: perMinute(KEYED_REQUESTS_PER_MINUTE),
     keylessMcpRequests: perMinute(KEYLESS_MCP_REQUESTS_PER_MINUTE),
+    ...options.limiters,
     now: clock.now,
     vars: { ...TEST_VARS, ...options.vars },
   });
