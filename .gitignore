@@ -7,6 +7,8 @@ dist/
 .env
 .env.*
 .wrangler/
+# local Turso databases (`pnpm --filter @nonprofits/db migrate` with no url)
+.turso/
 # downloaded IRS bulk data and generated SQL load files
 /data/
 *.sql.gz

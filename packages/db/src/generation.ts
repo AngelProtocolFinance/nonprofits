@@ -206,9 +206,6 @@ export interface DataMeta {
   state: "building" | "complete";
 }
 
-/** The pointer's `build_id` until the first build flips it (`0003_data_generation.sql`). */
-export const NEVER_BUILT = "empty";
-
 /** Against `APP_DB`: the slot the Worker serves, as a `Pointer`. */
 export const READ_ACTIVE_SLOT_SQL =
   "SELECT active, build_id, flipped_at FROM data_generation WHERE id = 1";

@@ -1,4 +1,11 @@
 export {
+  createDataDatabase,
+  type DataBuild,
+  finishDataDatabase,
+  readDataMeta,
+  servesBuild,
+} from "./data-database.ts";
+export {
   type Claim,
   claimSlotSql,
   DATA_DB_BINDING,
@@ -9,7 +16,6 @@ export {
   fenceSql,
   flipActiveSlotSql,
   isServable,
-  NEVER_BUILT,
   otherSlot,
   POINTER_TTL_MS,
   type Pointer,
@@ -26,3 +32,11 @@ export {
   type ImportSource,
 } from "./schema.ts";
 export { rebuildSearchIndexSql } from "./search-index.ts";
+export {
+  NEVER_BUILT,
+  readServedDatabase,
+  type ServedDatabase,
+  type ServedPointer,
+  type SwitchResult,
+  switchServedDatabase,
+} from "./served.ts";

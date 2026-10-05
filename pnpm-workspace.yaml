@@ -8,6 +8,7 @@ allowBuilds:
 catalog:
   "@better-auth/api-key": 1.7.7
   "@biomejs/biome": 2.5.15
+  "@libsql/client": 0.18.0
   "@modelcontextprotocol/client": 2.2.0
   "@modelcontextprotocol/server": 2.2.0
   "@types/node": ^24.0.0
