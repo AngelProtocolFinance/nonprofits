@@ -36,7 +36,18 @@ pnpm --filter @nonprofits/api dev                    # http://localhost:8787 (PO
 curl http://localhost:8787/v1/orgs/530196605         # the American Red Cross; keyless, so 1 a minute
 ```
 
-The dev server makes fresh databases in a temp directory and deletes them on exit: an app database, migrated, whose pointer serves a data database holding the eight orgs of `packages/db/fixtures/seed.sql`, the Red Cross among them. It reads nothing under `.turso/`, so a month you build or refresh locally ([Import](#import)) is not what it serves. Its per-minute limits and search cache are in memory, and with no `IP_HASH_SECRET` set each run hashes clients with a fresh key.
+What the dev server serves, in order, logged at start:
+
+1. `TURSO_APP_DB_URL` set: that app database's pointer (it refuses to start if the pointer names no build yet).
+2. `.turso/app.db` holds a pointer to a build, as it does after a local `irs refresh` ([Import](#import)): that build. So the whole month, locally:
+   ```sh
+   pnpm --filter @nonprofits/db migrate
+   pnpm --filter @nonprofits/import irs refresh
+   pnpm --filter @nonprofits/api dev
+   ```
+3. Otherwise: fresh databases in a temp directory, deleted on exit, serving the eight orgs of `packages/db/fixtures/seed.sql`, the Red Cross among them.
+
+Its per-minute limits and search cache are in memory, and with no `IP_HASH_SECRET` set each run hashes clients with a fresh key, so keyless counts reset on restart.
 
 A request with no `Authorization` header is served keyless: 5 requests per UTC day and 1 per minute per client. A client is its IP from Vercel's `x-real-ip` header (an IPv6 address counts as its /64), stored only as an HMAC keyed by the `IP_HASH_SECRET` secret, never the raw IP. A key lifts the keyless limits, sent as `Authorization: Bearer <key>`; a malformed, unknown or revoked key is a 401, never served keyless. Keys are issued and revoked through the api's admin endpoints, which stay off until `packages/api/.env.local` (gitignored; the CLI reads it too) sets `ADMIN_TOKEN` and `BETTER_AUTH_SECRET`. Write it, then restart the dev server:
 
