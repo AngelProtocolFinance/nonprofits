@@ -6,10 +6,10 @@ Look up IRS exempt organizations by EIN, over REST and MCP.
 
 pnpm workspace, one package per deliverable plus shared code:
 
-- `packages/core`: response types and handlers shared by REST and MCP
-- `packages/db`: app DB migrations, the data DBs' schema and generation SQL (reset, seal, flip), and table/column constants shared by worker and import
-- `packages/worker`: Cloudflare Worker serving REST + MCP
-- `packages/import`: Node job that ingests IRS data
+- `packages/core`: response types, lookup and search shared by REST and MCP
+- `packages/db`: the app database's migrations and the served-database pointer, the data databases' schema and search index, and the table/column constants shared by api and import
+- `packages/api`: Hono app on Vercel serving REST, MCP, the admin endpoints the CLI calls, and the daily cron
+- `packages/import`: Node job that builds each month's IRS data into one SQLite file and publishes it to Turso
 - `packages/cli`: API key admin
 
 Node 24 (`.nvmrc`), pnpm pinned via `packageManager`. Dependency versions live in the `catalog` in `pnpm-workspace.yaml`.
@@ -25,69 +25,62 @@ See [TESTING.md](TESTING.md) for how the suite is laid out. `pnpm format <paths>
 
 ## Deploy your own
 
-From a fork, on your own Cloudflare account (Workers Paid, $5 a month): the Worker serving REST and MCP, three D1 databases holding the IRS data, a monthly GitHub Actions import that rebuilds them, and API keys you issue with the CLI. [docs/deploy.md](docs/deploy.md) walks through it in order.
+From a fork, on your own Vercel (Pro) and Turso (free plan) accounts: the api serving REST and MCP on a `vercel.app` address, Turso databases holding the keys and the IRS data, a monthly GitHub Actions import that rebuilds the data, and API keys you issue with the CLI. [docs/deploy.md](docs/deploy.md) walks through it in order.
 
-## Worker, locally
+## API, locally
 
-From `packages/worker`, against local D1 seeded with fixture rows:
+From the repository root, after `pnpm install --frozen-lockfile`:
 
 ```sh
-cp .dev.vars.example .dev.vars   # then fill each secret as the file says
-pnpm db:migrate:local            # APP_DB: auth, key limits and usage, the data pointer (on slot a, empty)
-pnpm db:reset:local b            # claim slot b and rebuild its data tables, empty
-pnpm db:seed:local b
-pnpm db:search-index:local b
-pnpm db:seal:local b             # read-only from here until its next reset
-pnpm db:flip:local b             # serve it
-pnpm dev
+pnpm --filter @nonprofits/api dev                    # http://localhost:8787 (PORT to change)
+curl http://localhost:8787/v1/orgs/530196605         # the American Red Cross; keyless, so 1 a minute
 ```
 
-The Worker reads IRS data from one of two data databases, `DATA_DB_A` or `DATA_DB_B` (slots `a` and `b`), whichever the one-row `data_generation` table in `APP_DB` names. Keys and usage live in `APP_DB`, so resetting a data slot never touches them. A data DB has no migrations: `db:reset:local <slot>` claims the slot in `data_generation` and drops and rebuilds its tables empty. The served slot can't be claimed, so a build always goes into the other one, and neither can the slot a flip left, for 60 s, while Workers may still serve it. A local reset's claim lapses after 10 minutes if the build is abandoned. `db:seal:local <slot>` marks the build complete, after which the slot refuses every write until its next reset. `db:flip:local <slot>` serves a sealed slot, and flipping back to the previous slot is a rollback, for as long as nothing has reset it. Each Worker isolate rereads the pointer at most every 30 s, and it switches only to a slot whose own `data_meta` is sealed for the build the pointer names; until then it keeps serving the slot it had. A flip therefore reaches every request within 30 s, and each lookup or search is answered whole from one slot or the other.
+The dev server makes fresh databases in a temp directory and deletes them on exit: an app database, migrated, whose pointer serves a data database holding the eight orgs of `packages/db/fixtures/seed.sql`, the Red Cross among them. It reads nothing under `.turso/`, so a month you build or refresh locally ([Import](#import)) is not what it serves. Its per-minute limits and search cache are in memory, and with no `IP_HASH_SECRET` set each run hashes clients with a fresh key.
 
-`/v1/search` reads a full-text index that a reset creates empty and `irs refresh` rebuilds once, after its last load; a local load run rebuilds it too. After seeding a slot that holds orgs, rebuild its index with `pnpm db:search-index:local <slot>` before sealing it.
-
-A request with no `Authorization` header is served keyless: 5 requests per UTC day and 1 per minute per client. A client is its IP from `CF-Connecting-IP` (an IPv6 address counts as its /64), plus the `CF-Worker` zone when another zone's Worker sent the request. It is stored only as an HMAC keyed by the `IP_HASH_SECRET` secret, never the raw IP. Worker-hosted integrators should use a key: requests from other zones' Workers may all reach us from one Cloudflare IP. A key lifts the keyless limits, sent as `Authorization: Bearer <key>`; a malformed, unknown or revoked key is a 401, never served keyless. Keys are issued and revoked through the Worker's admin endpoints, with `ADMIN_TOKEN` read from `.dev.vars`:
+A request with no `Authorization` header is served keyless: 5 requests per UTC day and 1 per minute per client. A client is its IP from Vercel's `x-real-ip` header (an IPv6 address counts as its /64), stored only as an HMAC keyed by the `IP_HASH_SECRET` secret, never the raw IP. A key lifts the keyless limits, sent as `Authorization: Bearer <key>`; a malformed, unknown or revoked key is a 401, never served keyless. Keys are issued and revoked through the api's admin endpoints, which stay off until `packages/api/.env.local` (gitignored; the CLI reads it too) sets `ADMIN_TOKEN` and `BETTER_AUTH_SECRET`. Write it, then restart the dev server:
 
 ```sh
+printf 'ADMIN_TOKEN=%s\nBETTER_AUTH_SECRET=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > packages/api/.env.local
 pnpm --filter @nonprofits/cli keys create --email <owner-email> [--name <name>]   # prints the key once
-curl http://localhost:8787/v1/orgs/530196605                                       # keyless
 curl -H "Authorization: Bearer <key>" http://localhost:8787/v1/orgs/530196605
-pnpm --filter @nonprofits/cli keys revoke <key-id>
+curl -H "Authorization: Bearer <key>" "http://localhost:8787/v1/search?q=red%20cross"
 pnpm --filter @nonprofits/cli keys list                 # status, tier, limits, today's usage; never a key
 pnpm --filter @nonprofits/cli keys set-limit <key-id> --daily 500 --per-minute 60
 pnpm --filter @nonprofits/cli keys set-limit <key-id> --default
+pnpm --filter @nonprofits/cli keys revoke <key-id>
 ```
 
-Each key gets 50 requests per UTC day and 10 per minute; lookups and searches count alike. A request refused by a limit is not counted, and neither is one refused for its input (a malformed EIN or query) or one answered 503 because no data is loaded. Repeated searches are answered from the Workers cache for up to an hour, keyed by the served data build, and still count; the cache only stores on a custom domain, not on workers.dev. Every 429 is problem details with `Retry-After`:
+`packages/api/.env.example` lists every variable the deployed api reads; the dev server reads the same names from `.env.local`, and an empty one or a placeholder counts as unset.
+
+Each key gets 50 requests per UTC day and 10 per minute; lookups and searches count alike. A request refused by a limit is not counted, and neither is one refused for its input (a malformed EIN or query) or one answered 503 because no data is served. Repeated searches are answered from Vercel's Runtime Cache for up to an hour, keyed by the served data build, and still count. Every 429 is problem details with `Retry-After`:
 
 | `code` | When |
 | --- | --- |
-| `per_minute_limit_exceeded` | Past a per-minute limit. For default keys and keyless callers it is the `KEY_BURST_LIMITER` / `KEYLESS_BURST_LIMITER` Rate Limiting binding, approximate by design (per Cloudflare location, eventually consistent); `Retry-After: 60`. Any request carrying a key, valid or not, also meets `KEYED_REQUEST_LIMITER`: 600 a minute per client, before the key is read. |
+| `per_minute_limit_exceeded` | Past a per-minute limit. Deployed, default keys and keyless callers meet the `key-burst` and `keyless-burst` Vercel Firewall rules (fixed 60 s windows); `Retry-After: 60`. Any request carrying a key, valid or not, also meets `keyed-requests`: 600 a minute per client, before the key is read. Locally the same limits are counted in memory. |
 | `daily_quota_exceeded` | Past the caller's daily quota; `Retry-After` to the next UTC midnight. |
-| `service_daily_limit_reached` | A tier is past its service-wide daily limit, a var in `wrangler.jsonc`: `SERVICE_KEY_DAILY_LIMIT` (50,000) for default keys, `SERVICE_KEYLESS_DAILY_LIMIT` (200,000) for keyless callers, so neither tier can use up the other's. `Retry-After` to the next UTC midnight. A var that isn't a positive integer refuses that tier with 503 until fixed. |
+| `service_daily_limit_reached` | A tier is past its service-wide daily limit, an environment variable: `SERVICE_KEY_DAILY_LIMIT` for default keys, `SERVICE_KEYLESS_DAILY_LIMIT` for keyless callers, so neither tier can use up the other's. Each defaults to `DEFAULT_SERVICE_DAILY_LIMIT` in `packages/api/src/quota.ts`, sized to the free Turso plan's reads. `Retry-After` to the next UTC midnight. A value that isn't a positive integer refuses that tier with 503 until fixed. |
 
-`set-limit` whitelists a key with its own daily and per-minute limits, counted exactly per clock minute in D1, outside the burst bindings and the service-wide limits; `--default` puts it back. The per-minute limit is at most 600: `KEYED_REQUEST_LIMITER` caps every client there first, so the admin endpoint refuses a higher one. Usage lives in `key_usage`, one row per key or hashed client per day plus each tier's service row (`*:key`, `*:keyless`), which imports never touch; a daily cron (`17 3 * * *`) deletes rows more than 7 days old, then runs the [freshness guard](#freshness-guard).
+`set-limit` whitelists a key with its own daily and per-minute limits, counted exactly per clock minute in the app database, outside the Firewall rules and the service-wide limits; `--default` puts it back. The per-minute limit is at most 600: `keyed-requests` caps every client there first, so the admin endpoint refuses a higher one. Usage lives in `key_usage`, one row per key or hashed client per day plus each tier's service row (`*:key`, `*:keyless`), which imports never touch; a daily Vercel Cron job (`17 3 * * *`, `GET /cron/daily` with `Authorization: Bearer <CRON_SECRET>`) deletes rows more than 7 days old, then runs the [freshness guard](#freshness-guard).
 
-Against a deployed Worker, set `NONPROFITS_URL` and `ADMIN_TOKEN` in the shell. The CLI sends `ADMIN_TOKEN` only over `https://`, or plain `http://` to `localhost`, `127.0.0.1` or `[::1]`; it never follows a redirect, and a path prefix in `NONPROFITS_URL` is kept. The admin endpoints answer 503 `admin_disabled` until both `ADMIN_TOKEN` and `BETTER_AUTH_SECRET` are set to at least 32 characters other than the `.dev.vars.example` placeholder. `pnpm auth:generate` writes better-auth's schema for the current plugins to `.wrangler/auth-schema.sql`, the source for any new auth migration.
-
-Rerun `pnpm types` after editing `wrangler.jsonc`.
+Against the deployed api, set `NONPROFITS_URL` and `ADMIN_TOKEN` in the shell; they win over `.env.local`. The CLI sends `ADMIN_TOKEN` only over `https://`, or plain `http://` to `localhost`, `127.0.0.1` or `[::1]`; it never follows a redirect, and a path prefix in `NONPROFITS_URL` is kept. The admin endpoints answer 503 `admin_disabled` until both `ADMIN_TOKEN` and `BETTER_AUTH_SECRET` are set to at least 32 characters other than the `.env.example` placeholder. `pnpm --filter @nonprofits/api auth:generate` prints the SQL for the next migration in `packages/db/migrations/app/` when better-auth's schema for the current plugins needs one.
 
 ## MCP
 
-The same Worker serves `/mcp` (streamable HTTP, stateless) with two tools: `lookup_nonprofit` (`ein`) and `search_nonprofits` (`query`, optional `limit`). Each answers with the REST JSON as structured content, and as text after a short rendering. A REST error comes back as a tool error (`isError: true`) carrying the REST problem body, plus `retryAfterSeconds` on a 429. Connect Claude Code:
+The api also serves `/mcp` (streamable HTTP, stateless) with two tools: `lookup_nonprofit` (`ein`) and `search_nonprofits` (`query`, optional `limit`). Each answers with the REST JSON as structured content, and as text after a short rendering. A REST error comes back as a tool error (`isError: true`) carrying the REST problem body, plus `retryAfterSeconds` on a 429. Connect Claude Code:
 
 ```sh
-claude mcp add --transport http nonprofits <worker-url>/mcp --header "Authorization: Bearer <key>"
-claude mcp add --transport http nonprofits <worker-url>/mcp   # keyless
+claude mcp add --transport http nonprofits <api-url>/mcp --header "Authorization: Bearer <key>"
+claude mcp add --transport http nonprofits <api-url>/mcp   # keyless
 ```
 
 Keyless `/mcp` is limited per IP address, so it suits a client running on one machine. A hosted connector (claude.ai, ChatGPT and the like) calls from its provider's servers, so all of its users would share one IP's keyless limits: it isn't a supported keyless client. Configure it with a key instead (ask the operator for one).
 
-Auth and limits are REST's: a malformed, unknown or revoked key is the same 401 problem before any MCP message is read, no `Authorization` header is the keyless tier, and each tool call counts as one request on the same counters as REST. Protocol messages (the handshake, tool listings) count toward no quota, but HTTP requests are capped per client whatever messages each carries: those carrying a key by `KEYED_REQUEST_LIMITER`, keyless ones by `KEYLESS_MCP_LIMITER` (60 HTTP requests a minute, then `per_minute_limit_exceeded`). A batch of tool calls in one request counts each call. `subscriptions/listen` is refused: the tools never change.
+Auth and limits are REST's: a malformed, unknown or revoked key is the same 401 problem before any MCP message is read, no `Authorization` header is the keyless tier, and each tool call counts as one request on the same counters as REST. Protocol messages (the handshake, tool listings) count toward no quota, but HTTP requests are capped per client whatever messages each carries: those carrying a key by `keyed-requests`, keyless ones by `keyless-mcp-requests` (60 HTTP requests a minute, then `per_minute_limit_exceeded`). A batch of tool calls in one request counts each call. `subscriptions/listen` is refused: the tools never change.
 
 A 401 carries a `Bearer` challenge, which some MCP clients show as an OAuth or login prompt. Here it always means the key is wrong: check it was copied whole, or ask the operator for a new one.
 
-To try it against `pnpm dev`:
+To try it against `pnpm --filter @nonprofits/api dev`:
 
 ```sh
 npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp --method tools/list
@@ -104,7 +97,7 @@ pnpm --filter @nonprofits/import irs build               # the same file, data/n
 pnpm --filter @nonprofits/import irs build --efile-batch 2026_TEOS_XML_03A   # e-file from these batches alone: a partial file
 ```
 
-Where it publishes follows `TURSO_APP_DB_URL`. Unset, or any URL but a Turso Cloud one, the app database is that local one (`.turso/app.db` when unset) and each data database is a file under `.turso/data/`, which the api's local server reads through the pointer. A Turso Cloud app database (`libsql://` or `https://`) publishes through Turso's Platform API and needs `TURSO_APP_DB_TOKEN`, `TURSO_PLATFORM_TOKEN`, `TURSO_ORG` and `TURSO_GROUP`; a run missing one fails before it downloads anything, naming each.
+Where it publishes follows `TURSO_APP_DB_URL`. Unset, or any URL but a Turso Cloud one, the app database is that local one (`.turso/app.db` when unset) and each data database is a file under `.turso/data/`: a stand-in for Turso that the dev server doesn't read ([API, locally](#api-locally)). A Turso Cloud app database (`libsql://` or `https://`) publishes through Turso's Platform API and needs `TURSO_APP_DB_TOKEN`, `TURSO_PLATFORM_TOKEN`, `TURSO_ORG` and `TURSO_GROUP`; a run missing one fails before it downloads anything, naming each.
 
 `--summary <file>` on `refresh` appends a markdown summary of the run to the file, failed or stopped too: the database and build served before and after, each source's rows and release date (each e-file index's, by year), the e-file release years read and why, each form's yields, every verify check with its numbers and time, and each step's time. A failure is one line starting `**Failed:**`, a stop one starting `**Stopped:**` followed by what its cleanup did, a failed or stopped run that left the pointer as it was one starting `**Nothing switched:**`, and a database left behind one starting `**Cleanup:**` with the command that removes it. Free text is cut to fit GitHub's step summary: a line to its first 1,000 characters, a failure's later lines to their last 100 lines or 16 KiB, each saying what was cut. The values of `TURSO_APP_DB_TOKEN` and `TURSO_PLATFORM_TOKEN`, every token minted during the run, and those values trimmed, are replaced with `[redacted]`, there and in what the CLI prints.
 
@@ -148,9 +141,9 @@ The job runs on a Blacksmith runner (`blacksmith-4vcpu-ubuntu-2404`, as CI does)
 
 ## Freshness guard
 
-GitHub disables a public repository's scheduled workflows after 60 days without repository activity, and can drop a scheduled run, with no alert either way. So the Worker's daily cron also checks the served data's age, on `APP_DB`'s clock: when the build in `data_generation` was flipped to more than `STALE_AFTER_DAYS` (35) days ago, or no build was ever served, it enables `import.yml` through GitHub's API, which also brings back its monthly schedule if GitHub disabled it, then dispatches it on `main` with no inputs. It doesn't while a refresh holds an unexpired claim, or within `REDISPATCH_AFTER_HOURS` (72) of its last dispatch. That dispatch's time and GitHub's HTTP status (the enable call's, when that failed and nothing was dispatched) are kept in `data_generation` (`last_dispatch_at`, `last_dispatch_status`), stamped before the calls, so a failing token is retried every 72 hours rather than daily. Each run logs one line: `data_fresh`, `import_dispatched` with GitHub's status (and the start of its answer when not 2xx), `import_enable_failed` likewise, or `import_dispatch_skipped` with a `reason` (`claim_held`, `dispatched_recently`, `token_unset`, `invalid_config`, or `no_longer_due` when another run of the cron dispatched first); a check that throws logs `freshness_check_failed` instead.
+GitHub disables a public repository's scheduled workflows after 60 days without repository activity, and can drop a scheduled run, with no alert either way. So the api's daily cron also checks the served data's age, on the app database's clock: when the database `served_database` names was switched to more than `STALE_AFTER_DAYS` (35) days ago, or no build was ever served, it enables `import.yml` through GitHub's API, which also brings back its monthly schedule if GitHub disabled it, then dispatches it on `main` with no inputs; a run already going queues the new one. It doesn't within `REDISPATCH_AFTER_HOURS` (72) of its last dispatch. That dispatch's time and GitHub's HTTP status (the enable call's, when that failed and nothing was dispatched) are kept in `served_database` (`last_dispatch_at`, `last_dispatch_status`), stamped before the calls, so a failing token is retried every 72 hours rather than daily. Each run logs one line: `data_fresh`, `import_dispatched` with GitHub's status (and the start of its answer when not 2xx), `import_enable_failed` likewise, or `import_dispatch_skipped` with a `reason` (`dispatched_recently`, `token_unset`, `invalid_config`, or `no_longer_due` when another run of the cron dispatched first); a check that throws logs `freshness_check_failed` instead.
 
-It needs the `GITHUB_DISPATCH_TOKEN` secret: a fine-grained personal access token limited to this repository, with the **Actions** repository permission set to read and write. Set it with `wrangler secret put GITHUB_DISPATCH_TOKEN` from `packages/worker`: it is in `secrets.required`, so `wrangler deploy` refuses until it is. Where it is missing, shorter than 32 characters or still the `.dev.vars.example` placeholder, as in a local `.dev.vars`, a run that finds the data stale skips with a `token_unset` warning. `GITHUB_REPO`, `STALE_AFTER_DAYS` and `REDISPATCH_AFTER_HOURS` are vars in `wrangler.jsonc`; one that isn't valid skips the check with an `invalid_config` line naming it.
+It needs the `GITHUB_DISPATCH_TOKEN` environment variable: a fine-grained personal access token limited to this repository, with the **Actions** repository permission set to read and write. Where it is unset, shorter than 32 characters or still the `.env.example` placeholder, a run that finds the data stale skips with a `token_unset` warning. `GITHUB_REPO` defaults to the GitHub repository Vercel deployed from; `STALE_AFTER_DAYS` and `REDISPATCH_AFTER_HOURS` default to the values above. One that isn't valid skips the check with an `invalid_config` line naming it.
 
 ## License
 

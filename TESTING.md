@@ -1,28 +1,23 @@
 # Testing
 
-`pnpm check` runs Biome, every package's typecheck and the whole Vitest suite. Most of its time is spent in tests that start workerd (worker, cli).
+`pnpm check` runs Biome, every package's typecheck and the whole Vitest suite.
 
 ## Layout
 
-Two Vitest projects in `vitest.config.ts`:
+One Vitest project in `vitest.config.ts`: every `packages/*/{src,test}/**/*.test.ts`, in Node, on Vitest's defaults unless a file says otherwise. Databases in tests are local libSQL files: `appDbFixture()` and `dataDbFixture(buildId)` from `@nonprofits/db/fixture` make a migrated app database and a data database holding `packages/db/fixtures/seed.sql`, each deleted by its `dispose()`.
 
-- **`workerd`**: `packages/worker/test/**` and `packages/cli/test/**`. Each file boots workerd, through wrangler's `createTestHarness()` or a `wrangler` child process, so test and hook timeouts are 60 s.
-- **`node`**: everything else (core, db, import), on Vitest's defaults unless a file says otherwise.
+API tests:
 
-Worker tests come in two tiers:
+- `testApi()` (`packages/api/src/test-support.ts`) builds the app over those fixtures, the pointer serving the data fixture, with in-memory limiters and search cache on a `testClock()` the test moves. A test sends its requests with `api.app.request`: no server, no port. Options swap in a failing database (`failingDb`), the Firewall limiters over a stubbed check (`limiters`), a fake `fetch` for GitHub's API (the default rejects every call, so no test reaches the network), or a pointer that serves nothing (`serve: false`).
+- `firewall-limiter.test.ts` covers the four Vercel Firewall limiters with the Firewall's verdict stubbed. Off Vercel the SDK-backed limiter throws instead of calling anything, so the suite never reaches Vercel.
+- `deploy.test.ts` reads `packages/api/vercel.json` (region, cron path and schedule), runs `build.ts` and boots the bundle in plain Node against an app database fixture, and checks `.env.example` names exactly the variables `PRODUCTION_ENV` (`src/production.ts`) reads.
 
-- `packages/worker/test/*.test.ts` talk HTTP to the Worker in the harness.
-- `packages/worker/test/direct/*.test.ts` call the handlers with the harness's bindings, which is cheaper and lets a test swap in fakes (a failing D1, a counting limiter). They have their own tsconfig: Worker types, no Node types.
+`packages/cli/test/cli.test.ts` serves `testApi()` over `@hono/node-server` on a free port and runs the CLI's `run()` against it.
 
 ## Clocks
 
-- Key and IP usage is counted per UTC day. Tests that need a particular day use `virtualDay(n)` / `virtualAt(n)` from `test/virtual-clock.ts`: days in 2001, which the real clock never reaches.
-- A test that has to use the real clock calls `clearOfUtcMidnight()` first, and `startOfMinuteWindow(margin)` / `startOfBurstWindow()` from `test/clock-windows.ts` before a burst that has to fit inside one minute.
-
-## Rate limits
-
-- The Rate Limiting bindings are exact in miniflare and approximate in production. Most tests use `countingLimiter(limit)` or `noBurstLimit` from `test/direct/limiters.ts`; each binding keeps one real burst test.
-- `test/direct/ratelimits-config.test.ts` checks that the limits in `wrangler.jsonc` match the constants in `quota.ts`.
+- Key and IP usage is counted per UTC day. `testClock()` starts at 2026-10-05T12:00:00Z, clear of a UTC midnight; `set` and `advance` move it, and the limiters, quotas and search cache all read it.
+- `freshClient()` gives a keyless request an `x-real-ip` no other request in the run uses, so one test's keyless quota never spends another's.
 
 ## Import CLI tiers
 
@@ -37,8 +32,6 @@ No test spawns the CLI: the signal handlers and `process.exit` in its entry are 
 
 ## Things that bite
 
-- `server.getLogs()` has no flush barrier: wrap log assertions in `vi.waitFor` and filter by `event`.
-- Wrangler prints a warning on stderr when proxy environment variables are set, so never assert on the whole of stderr.
-- `scripts/local-data.ts` writes `.wrangler/<name>.sql` under the worker package, so its tests live in one file to avoid racing on it.
 - A refresh's build id is its start time to the second, so a test that runs two builds fakes `Date`.
 - The loader tests (bmf, lists, efile) and `build.test.ts` load into a local libSQL file: `loadTarget`, `resetDataDb` and `query` in `test-support.ts`. `query` runs one statement; libSQL's `execute` silently drops any after the first.
+- The bundle test in `deploy.test.ts` runs esbuild and a child Node, so it has its own 30 s timeout.
