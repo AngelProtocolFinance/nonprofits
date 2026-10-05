@@ -1,13 +1,9 @@
 node_modules/
 dist/
 *.tsbuildinfo
-.dev.vars
-.dev.vars.*
-!.dev.vars.example
 .env
 .env.*
 !.env.example
-.wrangler/
 # `vercel link` / `vercel pull` / `vercel build` state
 .vercel/
 # local Turso databases (`pnpm --filter @nonprofits/db migrate` with no url)

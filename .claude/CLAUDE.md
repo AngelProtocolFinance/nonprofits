@@ -16,4 +16,4 @@ team works.
 A slice reaching a stack no seat above covers is a question for the user, naming the seat it would
 need — never a nearby seat pressed into the gap.
 
-**The repo is public.** Secrets live only in Vercel environment variables, GitHub Actions secrets, or the ignored `.dev.vars` and `.env.*` files; API keys are stored hashed, never in plain text. `.gitignore` is the only thing that checks this.
+**The repo is public.** Secrets live only in Vercel environment variables, GitHub Actions secrets, or the ignored `.env.*` files; API keys are stored hashed, never in plain text. `.gitignore` is the only thing that checks this.
