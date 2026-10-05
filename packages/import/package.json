@@ -17,6 +17,7 @@
     "csv-parse": "catalog:",
     "fflate": "catalog:",
     "saxes": "catalog:",
+    "undici": "catalog:",
     "wrangler": "catalog:"
   }
 }

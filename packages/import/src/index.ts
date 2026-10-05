@@ -13,6 +13,14 @@ export {
   createDataFile,
 } from "./build.ts";
 export {
+  databaseHostFor,
+  type HostEnv,
+  LOCAL_DATA_DIR,
+  localDatabases,
+  type TursoPlatform,
+  tursoDatabases,
+} from "./database-host.ts";
+export {
   EFILE_BASE_URL,
   EFILE_FLOORS,
   type EfileFloors,
@@ -34,6 +42,16 @@ export {
   type ListImportSummary,
   type ListName,
 } from "./lists.ts";
+export {
+  DATA_DATABASE_PREFIX,
+  type DatabaseHost,
+  dataDatabaseName,
+  MAX_FILE_BYTES,
+  POINTER_GRACE_MS,
+  type PublishOptions,
+  type PublishReport,
+  publishDataFile,
+} from "./publish.ts";
 export {
   irsSources,
   SOURCES,

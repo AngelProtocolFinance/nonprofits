@@ -37,7 +37,7 @@ export const TABLE_FLOORS: TableFloors = {
 };
 
 /** The org every build must hold with a mission. */
-const RED_CROSS = "530196605";
+export const RED_CROSS = "530196605";
 
 export interface Check {
   name: string;

@@ -212,6 +212,9 @@ catalogs:
     typescript:
       specifier: ^7.0.2
       version: 7.0.2
+    undici:
+      specifier: 7.29.1
+      version: 7.29.1
     vitest:
       specifier: ^5.0.3
       version: 5.0.3
@@ -294,6 +297,9 @@ importers:
       saxes:
         specifier: 'catalog:'
         version: 6.0.0
+      undici:
+        specifier: 'catalog:'
+        version: 7.29.1
       wrangler:
         specifier: 'catalog:'
         version: 4.146.0(@types/node@24.19.1)
