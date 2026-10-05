@@ -3,7 +3,6 @@ packages:
 
 allowBuilds:
   esbuild: true
-  workerd: true
 
 catalog:
   "@better-auth/api-key": 1.7.7
@@ -16,7 +15,6 @@ catalog:
   "@vercel/firewall": 1.2.5
   "@vercel/functions": 3.9.11
   "@zip.js/zip.js": 2.18.2
-  auth: 1.7.7
   better-auth: 1.7.7
   csv-parse: 7.0.3
   fflate: 0.8.3
@@ -26,5 +24,4 @@ catalog:
   typescript: ^7.0.2
   undici: 7.29.1
   vitest: ^5.0.3
-  wrangler: 4.146.0
   zod: 4.6.5

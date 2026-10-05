@@ -1,7 +1,6 @@
 /**
- * A per-minute limiter, shaped like Cloudflare's Rate Limiting binding: one
- * call counts one request against `key`, and `success` is false once `key`
- * is over its limit for the current period.
+ * A per-minute limiter: one call counts one request against `key`, and
+ * `success` is false once `key` is over its limit for the current period.
  */
 export interface RateLimiter {
   limit(options: { key: string }): Promise<{ success: boolean }>;

@@ -44,8 +44,8 @@ export function authDatabase(client: Client) {
 /**
  * A better-auth instance for one request; never cache it across requests. The
  * key plugin leaves its expired-key sweep running after `createApiKey` and
- * `updateApiKey` return. On workerd that query, still in flight when its
- * request ended, wedged every later query through the same instance; that it
+ * `updateApiKey` return. That query, still in flight when its request ended,
+ * has been seen to wedge every later query through the same instance; that it
  * can't on Vercel's Node runtime is unproven. The cost: each instance introspects the app
  * database's tables (its schema check) before its first call, paid per admin
  * request, which is fine for operator-only traffic.
