@@ -37,7 +37,7 @@ export interface ClientRequest {
  * Any other value is sent the wrong way, so it comes back as "", which
  * `authorize` refuses as malformed rather than serving it keyless.
  */
-export function bearerCredential(authorization: string | null): string | null {
+function bearerCredential(authorization: string | null): string | null {
   if (authorization === null) return null;
   return /^Bearer +(\S+)$/i.exec(authorization)?.[1] ?? "";
 }

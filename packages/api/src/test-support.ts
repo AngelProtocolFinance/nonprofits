@@ -9,6 +9,7 @@ import {
 } from "@nonprofits/db/fixture";
 import { dataDbClient } from "@nonprofits/db/node";
 import { type ApiVars, createApp } from "./app.ts";
+import { API_KEY_LETTERS, API_KEY_PREFIX } from "./authorize.ts";
 import { memoryRateLimiter } from "./limiter.ts";
 import {
   BURST_PERIOD_SECONDS,
@@ -168,7 +169,7 @@ export async function insertKey(
 ): Promise<TestKey> {
   nextKey += 1;
   const id = `test-key-${nextKey}`;
-  const key = `npk_${Array.from({ length: 64 }, () => LETTERS[randomInt(LETTERS.length)]).join("")}`;
+  const key = `${API_KEY_PREFIX}${Array.from({ length: API_KEY_LETTERS }, () => LETTERS[randomInt(LETTERS.length)]).join("")}`;
   const at = api.clock.now().toISOString();
   const statements: InStatement[] = [
     {

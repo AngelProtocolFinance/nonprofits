@@ -479,6 +479,16 @@ describe("rows written per request, which the ceilings' arithmetic uses", () => 
     expect(ROWS_WRITTEN.refused).toBe(0);
   });
 
+  test("a default key's last request of the day writes both rows, and the refused one after it writes none", async () => {
+    await start();
+    const { id, key } = await insertKey(api);
+    await seedUsage(api, id, "2026-10-05", 49);
+    const lookup = () => lookupWith(`Bearer ${key}`);
+
+    expect(await rowsWrittenBy(api, lookup)).toBe(ROWS_WRITTEN.metered);
+    expect(await rowsWrittenBy(api, lookup)).toBe(ROWS_WRITTEN.refused);
+  });
+
   test("a default key's request refused by its per-minute limiter writes none", async () => {
     await start();
     const { key } = await insertKey(api);

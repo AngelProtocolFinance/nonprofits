@@ -58,6 +58,14 @@ export const ROWS_WRITTEN = { metered: 2, whitelisted: 1, refused: 0 };
 // 400 x ROWS_WRITTEN.metered = 800 rows written, under 1% of the day's
 // writes. The other 4,089,032 reads a day (about 135 worst searches) are for
 // whitelisted keys, which no ceiling bounds, and the monthly import's checks.
+//
+// That covers admitted traffic only. A refused request writes nothing but
+// still reads: a well-formed made-up key 1-3 rows (the `apikey` key index,
+// the row, `key_limits`), a quota or ceiling refusal about 5 (the counters).
+// No ceiling bounds those reads; only the per-minute limiters do, per
+// client (a made-up key's only bound is the 600-a-minute `keyedRequests`
+// cap), and the in-memory ones count per instance until the platform's
+// limits run in front of the app.
 export const DEFAULT_SERVICE_DAILY_LIMIT: Record<MeteredTier, number> = {
   anonymous: 200,
   default: 200,
