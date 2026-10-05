@@ -4,5 +4,5 @@
     // `node src/dev.ts` strips types without transforming: no enums or parameter properties
     "erasableSyntaxOnly": true
   },
-  "include": ["src"]
+  "include": ["src", "server.ts", "build.ts"]
 }

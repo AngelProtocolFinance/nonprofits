@@ -17,6 +17,7 @@ catalog:
   "@zip.js/zip.js": 2.18.2
   better-auth: 1.7.7
   csv-parse: 7.0.3
+  esbuild: 0.28.1
   fflate: 0.8.3
   hono: 4.13.13
   kysely: 0.29.6

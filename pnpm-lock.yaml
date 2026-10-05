@@ -200,6 +200,9 @@ catalogs:
     csv-parse:
       specifier: 7.0.3
       version: 7.0.3
+    esbuild:
+      specifier: 0.28.1
+      version: 0.28.1
     fflate:
       specifier: 0.8.3
       version: 0.8.3
@@ -284,6 +287,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
         version: 2.2.0
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.1
 
   packages/cli:
     devDependencies:

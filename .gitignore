@@ -6,7 +6,10 @@ dist/
 !.dev.vars.example
 .env
 .env.*
+!.env.example
 .wrangler/
+# `vercel link` / `vercel pull` / `vercel build` state
+.vercel/
 # local Turso databases (`pnpm --filter @nonprofits/db migrate` with no url)
 .turso/
 # downloaded IRS bulk data and generated SQL load files

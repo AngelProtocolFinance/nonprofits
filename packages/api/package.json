@@ -2,10 +2,14 @@
   "name": "@nonprofits/api",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
   "exports": {
     "./test-support": "./src/test-support.ts"
   },
   "scripts": {
+    "build": "node build.ts",
     "dev": "node --env-file-if-exists=.env.local src/dev.ts",
     "auth:generate": "node src/auth.generate.ts",
     "typecheck": "tsc --noEmit"
@@ -25,6 +29,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "catalog:"
+    "@modelcontextprotocol/client": "catalog:",
+    "esbuild": "catalog:"
   }
 }
