@@ -246,6 +246,9 @@ importers:
 
   packages/import:
     dependencies:
+      '@libsql/client':
+        specifier: 'catalog:'
+        version: 0.18.0
       '@nonprofits/db':
         specifier: workspace:*
         version: link:../db

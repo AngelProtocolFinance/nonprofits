@@ -3,12 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import {
-  COLUMNS,
-  type DataTable,
-  fenceSql,
-  type ImportSource,
-} from "@nonprofits/db";
+import { COLUMNS, type DataTable, type ImportSource } from "@nonprofits/db";
 import { CsvError, type Options as CsvOptions, parse } from "csv-parse";
 import { RETRY, type RetryPolicy, TransientError } from "./retry.ts";
 
@@ -20,7 +15,7 @@ export const run = (column: RunColumn) => column;
 export const ORGS: DataTable = "orgs";
 export const IMPORT_RUNS: DataTable = "import_runs";
 
-/** D1 rejects a statement over 100 KB. */
+/** D1 rejects a statement over 100 KB; a local file takes any, but the D1 refresh shares these loads. */
 export const MAX_STATEMENT_BYTES = 90_000;
 
 /** An IRS file being imported: its source, and what error messages call it. */
@@ -31,24 +26,16 @@ export interface ImportFile {
 }
 
 /**
- * Writes `sql` to `out` statement by statement, behind the fence for
- * `buildId`. Anything `sql` throws removes the partial file and rethrows, so
- * a failed import leaves nothing to apply.
+ * Writes `sql` to `out` statement by statement. Anything `sql` throws removes
+ * the partial file and rethrows, so a failed import leaves nothing to apply.
  */
 export async function writeLoad(
   out: string,
-  buildId: string,
   sql: AsyncIterable<string>,
 ): Promise<void> {
   await mkdir(dirname(out), { recursive: true });
   try {
-    await pipeline(
-      (async function* () {
-        yield fenceSql(buildId);
-        yield* sql;
-      })(),
-      createWriteStream(out),
-    );
+    await pipeline(sql, createWriteStream(out));
   } catch (error) {
     await rm(out, { force: true });
     throw error;

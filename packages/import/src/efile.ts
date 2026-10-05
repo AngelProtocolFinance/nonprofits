@@ -36,7 +36,7 @@ import {
   writeLoad,
 } from "./load.ts";
 import { retrying } from "./retry.ts";
-import type { D1Target } from "./wrangler.ts";
+import type { LoadTarget } from "./target.ts";
 import { zipEntries } from "./zip.ts";
 
 export const EFILE_BASE_URL = "https://apps.irs.gov/pub/epostcard/990/xml/";
@@ -120,7 +120,7 @@ export interface EfileImportOptions {
   workDir: string;
   /** Where the generated SQL load file is written. */
   out: string;
-  target: D1Target;
+  target: LoadTarget;
   /** Largest statement written, in bytes; defaults under D1's 100 KB limit. A filing too large for one aborts the run. */
   maxStatementBytes?: number;
   /** A failed index download reads the indexes over, a failed zip download fetches that zip over; defaults to `DOWNLOAD_RETRY`. */
@@ -186,14 +186,14 @@ const PROGRAM_COLUMNS = [
 /**
  * Reads the 990 e-file index of each release year, picks each EIN's latest
  * filing, and parses those filings out of the batch zips into one SQL load
- * file, applied to D1 in a single `wrangler d1 execute --file`. A return
+ * file, applied to the target as one load. A return
  * whose EIN, form type, an amount or its TaxYr can't be read, or whose XML is
  * malformed, cut off or fails to inflate, is rejected and skipped, and its
  * EIN's runner-up filing is read in its place; when that is rejected too, the
- * EIN keeps what it had stored, which in a fresh slot is no filing. A drifted
+ * EIN keeps what it had stored, which in a fresh build is no filing. A drifted
  * index, a filing missing from its batch or too large for a statement, a
  * failed download, too many rejects or a yield under the floors throws before
- * the apply, leaving D1 untouched and no load file behind.
+ * the apply, leaving the target untouched and no load file behind.
  */
 export async function importEfile(
   options: EfileImportOptions,
@@ -201,12 +201,11 @@ export async function importEfile(
   let summary: EfileImportSummary | undefined;
   await writeLoad(
     options.out,
-    options.target.buildId,
     (async function* () {
       summary = yield* efileSql(options);
     })(),
   );
-  await options.target.ops.applyFile(options.target.binding, options.out);
+  await options.target.apply(options.out);
   return summary as EfileImportSummary;
 }
 

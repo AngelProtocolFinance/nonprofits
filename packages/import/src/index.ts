@@ -7,6 +7,12 @@ export {
   importBmf,
 } from "./bmf.ts";
 export {
+  type BuildOptions,
+  type BuildReport,
+  buildDataFile,
+  createDataFile,
+} from "./build.ts";
+export {
   EFILE_BASE_URL,
   EFILE_FLOORS,
   type EfileFloors,
@@ -16,7 +22,6 @@ export {
   importEfile,
 } from "./efile.ts";
 export {
-  type Check,
   type RefreshOptions,
   type RefreshReport,
   refresh,
@@ -35,4 +40,19 @@ export {
   type Source,
   type SourceConfig,
 } from "./sources.ts";
-export { type D1Ops, type D1Target, localD1, remoteD1 } from "./wrangler.ts";
+export { fileTarget, type LoadTarget } from "./target.ts";
+export {
+  type Check,
+  type Counts,
+  type ReadData,
+  readCounts,
+  TABLE_FLOORS,
+  type TableFloors,
+} from "./verify.ts";
+export {
+  type D1Ops,
+  type D1Target,
+  d1LoadTarget,
+  localD1,
+  remoteD1,
+} from "./wrangler.ts";

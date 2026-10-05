@@ -7,7 +7,7 @@ import { importBmf } from "./bmf.ts";
 import type { DownloadRetry } from "./load.ts";
 import {
   loadTarget,
-  query as queryD1,
+  query as queryData,
   quickRetry,
   type Route,
   resetDataDb,
@@ -46,7 +46,7 @@ function editRow(
 let server: Server;
 let base: string;
 let work: string;
-let persistTo: string;
+let dataDir: string;
 const requests = { flaky: 0, forbidden: 0 };
 
 function urls(names: readonly string[]): string[] {
@@ -66,7 +66,7 @@ function importFixture(
     urls: urls(names),
     minOrgs: options.minOrgs ?? 1,
     out: join(work, out),
-    target: loadTarget(persistTo),
+    target: loadTarget(dataDir),
     retry: options.retry ?? quickRetry(),
     ...(options.maxStatementBytes === undefined
       ? {}
@@ -81,7 +81,7 @@ async function counts() {
 }
 
 function query<T>(sql: string): Promise<T[]> {
-  return queryD1<T>(persistTo, sql);
+  return queryData<T>(dataDir, sql);
 }
 
 beforeAll(async () => {
@@ -125,8 +125,8 @@ beforeAll(async () => {
 
   ({ server, base } = await serve(routes, RELEASED));
   work = await mkdtemp(join(tmpdir(), "bmf-import-"));
-  persistTo = join(work, "d1");
-  await resetDataDb(persistTo);
+  dataDir = join(work, "data");
+  await resetDataDb(dataDir);
   await importFixture(FIXTURE_FILES, "bmf.load.sql");
 }, 60_000);
 
@@ -339,8 +339,8 @@ describe("importBmf", { timeout: 60_000 }, () => {
     beforeAll(async () => {
       await query(`INSERT INTO import_runs (source, file_url, released_at, fetched_at, row_count)
         VALUES ('revocation', 'https://apps.irs.gov/pub/epostcard/data-download-revocation.zip',
-          '2026-09-30T00:00:00.000Z', '2026-10-03T00:00:00.000Z', 2);
-        UPDATE orgs SET name = 'IFMA VANCOUVER CHAPTER',
+          '2026-09-30T00:00:00.000Z', '2026-10-03T00:00:00.000Z', 2)`);
+      await query(`UPDATE orgs SET name = 'IFMA VANCOUVER CHAPTER',
           name_run_id = (SELECT max(id) FROM import_runs WHERE source = 'revocation'),
           street = '1 HARBOUR ST', city = 'VANCOUVER', state = 'BC', zip = 'V6A 4G2',
           address_run_id = (SELECT max(id) FROM import_runs WHERE source = 'revocation')

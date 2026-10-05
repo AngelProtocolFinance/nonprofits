@@ -18,7 +18,7 @@ import {
   type ListImportSummary,
   type ListName,
 } from "./lists.ts";
-import type { D1Target } from "./wrangler.ts";
+import type { LoadTarget } from "./target.ts";
 
 /** Every IRS source, in the order a full build loads them. */
 export const SOURCES = [
@@ -72,7 +72,7 @@ export type Loaded = { lines: string[] } & (
 export async function loadSource(
   source: Source,
   config: SourceConfig,
-  target: D1Target,
+  target: LoadTarget,
   out: string,
 ): Promise<Loaded> {
   if (source === "efile") {

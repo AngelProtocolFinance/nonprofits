@@ -113,7 +113,7 @@ A refresh logs one line per step, with its time:
 1. Wait until the last flip is 60 s old: Worker isolates cache the pointer for 30 s, so the slot a flip left may still be served until then, and `APP_DB` refuses a claim on it sooner.
 2. Claim the slot not served in `APP_DB`'s `data_generation`; refused while another build's claim runs.
 3. Reset that slot's database empty (`resetGenerationSql`), its `data_meta` saying `building`.
-4. Load bmf, pub78, revocation, epostcard and efile (the full run), in that order. Each streams into its own SQL file under `load/` and is applied with one `wrangler d1 execute --file`, holding its own floors first: a drifted layout or a short count aborts before the apply. Every load file, the search index rebuild's too, opens with the build's fence (`fenceSql`), so a file applied after another build reset the slot, or after the seal, writes nothing.
+4. Load bmf, pub78, revocation, epostcard and efile (the full run), in that order. Each streams into its own SQL file under `load/` and is applied with one `wrangler d1 execute --file`, holding its own floors first: a drifted layout or a short count aborts before the apply. The files under `load/` hold no fence: `d1LoadTarget` in `wrangler.ts` adds the build's fence (`fenceSql`) when it applies one, through a fenced copy beside it, and the search index rebuild's file opens with the fence too, so a load applied after another build reset the slot, or after the seal, writes nothing.
 5. Rebuild the search index, once.
 6. Verify, one query per check, each logged with its time:
    - `data_meta` names this slot and build;

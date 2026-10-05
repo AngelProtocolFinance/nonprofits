@@ -20,6 +20,7 @@ import {
   resetGenerationSql,
   sealGenerationSql,
 } from "@nonprofits/db";
+import { buildIdNow } from "./build.ts";
 import { loadSource, SOURCES, type SourceConfig } from "./sources.ts";
 import {
   type KeptClaim,
@@ -27,45 +28,21 @@ import {
   runRecord,
   type Step,
 } from "./summary.ts";
-import { type D1Ops, type D1Target, ImportMayBeRunning } from "./wrangler.ts";
-
-/** A new generation's row counts may differ from the served one's by this share and still flip. */
-const COUNT_TOLERANCE = 0.1;
-/** What verify counts, each the rows `count(*)` reads: every table's, and the orgs each list fact landed on. */
-const COUNTED = {
-  orgs: "orgs",
-  filings: "filings",
-  programs: "programs",
-  in_pub78: "orgs WHERE in_pub78 = 1",
-  revocation_date: "orgs WHERE revocation_date IS NOT NULL",
-  files_990n: "orgs WHERE files_990n = 1",
-  bmf_run_id: "orgs WHERE bmf_run_id IS NOT NULL",
-} as const;
-type Counted = keyof typeof COUNTED;
-
-/** The fewest of each count a generation may hold: a first build's only count check, as it has no served counts to compare with. */
-export type TableFloors = Record<Counted, number>;
-
-export const TABLE_FLOORS: TableFloors = {
-  // 90% of the 3,275,963 orgs of the 2026-10-03 local build (Sep 2026 BMF and lists)
-  orgs: 2_948_000,
-  // 90% of the 760,592 latest filings a full run selects from the 2024–2026 indexes of 2026-10-03
-  filings: 684_000,
-  // 80% of ~939,500: 1.50 programs per 990 and 990-EZ filing in batch 2026_TEOS_XML_03A
-  // (57,624 for 38,404) times the 626,151 a full run selects; an extrapolation, hence the wider margin
-  programs: 750_000,
-  // 90% of the 2026-10-03 local build's 1,419,989 orgs in Pub 78 (Sep 2026 list)
-  in_pub78: 1_277_000,
-  // 90% of its 1,227,606 orgs with a revocation date (Sep 2026 list)
-  revocation_date: 1_104_000,
-  // 90% of its 1,546,723 990-N filers (Sep 2026 e-Postcard list)
-  files_990n: 1_392_000,
-  // 90% of its 1,964,958 orgs from the Sep 2026 BMF
-  bmf_run_id: 1_768_000,
-};
-
-/** The org every generation must hold with a mission. */
-const RED_CROSS = "530196605";
+import {
+  type Check,
+  type Counts,
+  checker,
+  readCounts,
+  type TableFloors,
+  verifyData,
+  verifyFailure,
+} from "./verify.ts";
+import {
+  type D1Ops,
+  type D1Target,
+  d1LoadTarget,
+  ImportMayBeRunning,
+} from "./wrangler.ts";
 
 export interface RefreshOptions {
   sources: SourceConfig;
@@ -82,20 +59,13 @@ export interface RefreshOptions {
   record?: RunRecord;
 }
 
-export interface Check {
-  name: string;
-  ok: boolean;
-  detail: string;
-  seconds: number;
-}
-
 export interface RefreshReport {
   buildId: string;
   /** The slot built and now served. */
   slot: DataSlot;
   /** The slot served before, still complete: what `rollback` flips back to. */
   previous: DataSlot;
-  counts: Record<Counted, number>;
+  counts: Counts;
   checks: Check[];
 }
 
@@ -171,7 +141,7 @@ export async function refresh(
   const { steps } = record;
   await settleLastFlip(pointer, slot, log, steps);
   // the start time, so a failed build's id says where Time Travel restores to
-  const buildId = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const buildId = buildIdNow();
   onClaim?.(buildId);
   try {
     await timed(quiet, steps, `claimed slot ${slot}`, async () => {
@@ -259,7 +229,7 @@ async function build(
       const loaded = await loadSource(
         source,
         sources,
-        { ops, binding, buildId },
+        d1LoadTarget({ ops, binding, buildId }),
         out,
       );
       record.loads.push(loaded);
@@ -281,12 +251,8 @@ async function build(
       checks,
       log,
     });
-    const failed = checks.filter((check) => !check.ok);
-    if (failed.length > 0) {
-      throw new Error(
-        `verify failed for build ${buildId} in ${binding}: ${failed.map((c) => `${c.name} (${c.detail})`).join("; ")}`,
-      );
-    }
+    const failed = verifyFailure(`build ${buildId} in ${binding}`, checks);
+    if (failed !== null) throw failed;
     return counts;
   });
 
@@ -493,7 +459,7 @@ export async function releaseClaim(
   return released.length === 1 ? (claim ?? null) : null;
 }
 
-/** One query per check, so each stays under D1's per-query limit and its time shows in the log. */
+/** The slot check, then `verifyData`'s, comparing counts with the served slot's unless this is the first build. */
 async function verify(
   ops: D1Ops,
   {
@@ -514,28 +480,9 @@ async function verify(
     checks: Check[];
     log: (line: string) => void;
   },
-): Promise<Record<Counted, number>> {
+): Promise<Counts> {
   const binding = DATA_DB_BINDING[slot];
-  const servedBinding = DATA_DB_BINDING[pointer.active];
-  const firstBuild = pointer.build_id === NEVER_BUILT;
-  async function check(
-    name: string,
-    run: () => Promise<{ ok: boolean; detail: string }>,
-  ): Promise<void> {
-    const started = performance.now();
-    const result = await run();
-    const seconds = (performance.now() - started) / 1000;
-    checks.push({ name, ...result, seconds });
-    log(
-      `check ${name}: ${result.ok ? "ok" : "FAILED"}, ${result.detail} (${seconds.toFixed(1)} s)`,
-    );
-  }
-  const count = async (db: DataDbBinding, sql: string): Promise<number> => {
-    const [row] = await ops.query<{ n: number }>(db, sql);
-    if (row === undefined) throw new Error(`${db} returned no count`);
-    return row.n;
-  };
-
+  const check = checker(checks, log);
   await check("slot", async () => {
     const meta = await readMeta(ops, binding);
     return {
@@ -549,78 +496,19 @@ async function verify(
           : `${binding} says slot ${meta.slot}, build ${meta.build_id}, ${meta.state}`,
     };
   });
-  const counts = {} as Record<Counted, number>;
-  for (const [name, rows] of Object.entries(COUNTED) as [Counted, string][]) {
-    await check(`${name} floor`, async () => {
-      counts[name] = await count(binding, `SELECT count(*) AS n FROM ${rows}`);
-      return {
-        ok: counts[name] >= floors[name],
-        detail: `${name}: ${counts[name]}, floor ${floors[name]}`,
-      };
-    });
-    if (firstBuild) continue;
-    await check(`${name} vs served`, async () => {
-      const served = await count(
-        servedBinding,
-        `SELECT count(*) AS n FROM ${rows}`,
-      );
-      return {
-        ok: Math.abs(counts[name] - served) <= COUNT_TOLERANCE * served,
-        detail: `${name}: ${counts[name]}, served ${served}`,
-      };
-    });
-  }
-  if (firstBuild) log("no served build to compare counts with");
-  await check("red cross", async () => {
-    const [row] = await ops.query<{ mission: string | null }>(
-      binding,
-      `SELECT f.mission FROM orgs o JOIN filings f ON f.ein = o.ein WHERE o.ein = '${RED_CROSS}'`,
-    );
-    const ok = Boolean(row?.mission?.trim());
-    return {
-      ok,
-      detail: ok
-        ? `${RED_CROSS} has its mission`
-        : `${RED_CROSS} has no filing with a mission`,
-    };
+  const served =
+    pointer.build_id === NEVER_BUILT
+      ? undefined
+      : await readCounts((sql) =>
+          ops.query(DATA_DB_BINDING[pointer.active], sql),
+        );
+  return verifyData((sql) => ops.query(binding, sql), {
+    floors,
+    served,
+    forceVerifyFailure,
+    check,
+    log,
   });
-  await check("red cross deductible", async () => {
-    const [row] = await ops.query<{ in_pub78: number }>(
-      binding,
-      `SELECT in_pub78 FROM orgs WHERE ein = '${RED_CROSS}'`,
-    );
-    const ok = row?.in_pub78 === 1;
-    return {
-      ok,
-      detail: ok
-        ? `${RED_CROSS} is in Pub 78`
-        : `${RED_CROSS} is not in Pub 78`,
-    };
-  });
-  await check("search index", async () => {
-    const [row] = await ops.query<{ index_rows: number; named_orgs: number }>(
-      binding,
-      "SELECT (SELECT count(*) FROM orgs_fts) AS index_rows, (SELECT count(*) FROM orgs WHERE name IS NOT NULL) AS named_orgs",
-    );
-    return {
-      ok: row !== undefined && row.index_rows === row.named_orgs,
-      detail: `${row?.index_rows} index rows, ${row?.named_orgs} named orgs`,
-    };
-  });
-  await check("null eins", async () => {
-    const n = await count(
-      binding,
-      "SELECT (SELECT count(*) FROM orgs WHERE ein IS NULL) + (SELECT count(*) FROM filings WHERE ein IS NULL) + (SELECT count(*) FROM programs WHERE ein IS NULL) AS n",
-    );
-    return { ok: n === 0, detail: `${n} rows without an EIN` };
-  });
-  if (forceVerifyFailure) {
-    await check("forced failure", async () => ({
-      ok: false,
-      detail: "--force-verify-failure was given",
-    }));
-  }
-  return counts;
 }
 
 /** Indexes every named org in the target's generation, replacing what its search index held. */

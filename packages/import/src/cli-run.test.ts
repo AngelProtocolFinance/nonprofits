@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   DATA_DB_BINDING,
   READ_ACTIVE_SLOT_SQL,
@@ -425,6 +426,40 @@ describe("run --force-verify-failure", { timeout: 60_000 }, () => {
     expect(md).toMatch(/^\| orgs floor \| FAILED \| orgs: 260, floor \d+/m);
     expect(md).not.toContain("forced failure");
     expect(await h.pointer()).toStrictEqual(before);
+  });
+});
+
+describe("run build", { timeout: 60_000 }, () => {
+  test("--force-verify-failure fails the full build, exit 1, leaving no file at --out, not even an earlier one", async () => {
+    const h = harness({ sources: fixtures });
+    const out = join(work, "build-forced", "data.db");
+    await mkdir(dirname(out), { recursive: true });
+    await writeFile(out, "an earlier build");
+    const printedBy = quiet();
+
+    const code = await run(
+      ["build", "--out", out, "--force-verify-failure"],
+      {},
+      h.deps,
+    );
+
+    expect(code).toBe(1);
+    expect(printed(printedBy.log)).toMatch(/^loaded efile \(\d+\.\d s\)$/m);
+    expect(printed(printedBy.error)).toMatch(
+      /^verify failed for build \S+: .*forced failure \(--force-verify-failure was given\)$/m,
+    );
+    expect(existsSync(out)).toBe(false);
+    expect(existsSync(`${out}.building`)).toBe(false);
+  });
+
+  test("is local: --remote and --persist-to are usage errors", async () => {
+    const h = harness({});
+    const printedBy = quiet();
+
+    expect(await run(["build", "--remote"], {}, h.deps)).toBe(2);
+    expect(await run(["build", "--persist-to", work], {}, h.deps)).toBe(2);
+    expect(printed(printedBy.error)).toContain("build takes no --remote");
+    expect(printed(printedBy.error)).toContain("build takes no --persist-to");
   });
 });
 

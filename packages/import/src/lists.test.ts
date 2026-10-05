@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DATA_DB_BINDING, resetGenerationSql } from "@nonprofits/db";
 import { zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
@@ -15,7 +16,9 @@ import {
   type Route,
   resetDataDb,
   serve,
+  sqliteWrangler,
 } from "./test-support.ts";
+import { d1LoadTarget, localD1 } from "./wrangler.ts";
 
 const BMF_FIXTURES = new URL("../fixtures/bmf/", import.meta.url);
 const BMF_FILES = ["eo1.csv", "eo2.csv", "eo3.csv", "eo4.csv"];
@@ -157,24 +160,24 @@ afterAll(async () => {
   if (work) await rm(work, { recursive: true, force: true });
 });
 
-/** A fresh local data DB under `work`, reset. */
-async function freshD1(name: string): Promise<string> {
-  const persistTo = join(work, name);
-  await resetDataDb(persistTo);
-  return persistTo;
+/** The directory of a new empty data file under `work`. */
+async function freshDataDir(name: string): Promise<string> {
+  const dataDir = join(work, name);
+  await resetDataDb(dataDir);
+  return dataDir;
 }
 
-function loadBmf(persistTo: string) {
+function loadBmf(dataDir: string) {
   return importBmf({
     urls: BMF_FILES.map((name) => `${base}/${name}`),
     minOrgs: 1,
     out: join(work, "bmf.load.sql"),
-    target: loadTarget(persistTo),
+    target: loadTarget(dataDir),
   });
 }
 
 function loadList(
-  persistTo: string,
+  dataDir: string,
   list: ListName,
   options: {
     path?: string;
@@ -187,7 +190,7 @@ function loadList(
     url: `${base}${options.path ?? `/${list}.zip`}`,
     minRows: options.minRows ?? 1,
     out: join(work, `${list}.load.sql`),
-    target: loadTarget(persistTo),
+    target: loadTarget(dataDir),
     retry: options.retry ?? quickRetry(),
     ...(options.maxStatementBytes === undefined
       ? {}
@@ -198,19 +201,19 @@ function loadList(
 describe("after the BMF and all three lists are imported", {
   timeout: 60_000,
 }, () => {
-  let d1: string;
+  let dir: string;
 
   beforeAll(async () => {
-    d1 = await freshD1("all");
-    await loadBmf(d1);
-    await loadList(d1, "pub78");
-    await loadList(d1, "revocation");
-    await loadList(d1, "epostcard");
+    dir = await freshDataDir("all");
+    await loadBmf(dir);
+    await loadList(dir, "pub78");
+    await loadList(dir, "revocation");
+    await loadList(dir, "epostcard");
   }, 120_000);
 
   test("the Red Cross is listed in Pub 78, as of the Pub 78 file", async () => {
     const rows = await query(
-      d1,
+      dir,
       `SELECT o.in_pub78, r.source, r.file_url, r.released_at
       FROM orgs o, import_runs r
       WHERE o.ein = '530196605' AND r.id = (SELECT max(id) FROM import_runs WHERE source = 'pub78')`,
@@ -226,7 +229,7 @@ describe("after the BMF and all three lists are imported", {
   });
 
   test("an EIN only Pub 78 lists gets its name and city from Pub 78", async () => {
-    const rows = await query(d1, orgWithSources("999999010"));
+    const rows = await query(dir, orgWithSources("999999010"));
     expect(rows).toStrictEqual([
       {
         name: "Association of Fundraising Professionals",
@@ -244,7 +247,7 @@ describe("after the BMF and all three lists are imported", {
 
   test("a revoked EIN absent from the BMF gets its revocation and org facts from the revocation list", async () => {
     const rows = await query(
-      d1,
+      dir,
       `SELECT o.name, o.street, o.city, o.state, o.zip, o.revocation_date, o.reinstatement_date,
         n.file_url AS name_file, a.file_url AS address_file, o.bmf_run_id,
         (SELECT file_url FROM import_runs WHERE id = (SELECT max(id) FROM import_runs WHERE source = 'revocation')) AS revocation_file
@@ -272,7 +275,7 @@ describe("after the BMF and all three lists are imported", {
 
   test("an EIN listed twice keeps its latest revocation and that one's reinstatement", async () => {
     const rows = await query(
-      d1,
+      dir,
       "SELECT revocation_date, reinstatement_date FROM orgs WHERE ein = '010043788'",
     );
     expect(rows).toStrictEqual([
@@ -282,7 +285,7 @@ describe("after the BMF and all three lists are imported", {
 
   test("a 990-N filer is flagged with its e-Postcard website, as of the e-Postcard file", async () => {
     const rows = await query(
-      d1,
+      dir,
       `SELECT o.files_990n, o.epostcard_website, r.source, r.file_url
       FROM orgs o, import_runs r
       WHERE o.ein = '010494386' AND r.id = (SELECT max(id) FROM import_runs WHERE source = 'epostcard')`,
@@ -299,7 +302,7 @@ describe("after the BMF and all three lists are imported", {
 
   test("an e-Postcard website that isn't a web address is stored as null, the org still flagged", async () => {
     const rows = await query(
-      d1,
+      dir,
       `SELECT ein, files_990n, epostcard_website FROM orgs
       WHERE ein IN ('010019709', '010024155', '010265029', '010414383', '010418163', '232592298')
       ORDER BY ein`,
@@ -320,7 +323,7 @@ describe("after the BMF and all three lists are imported", {
 
   test("an EIN only the e-Postcard lists gets a row with the 990-N flag and nothing else", async () => {
     const rows = await query(
-      d1,
+      dir,
       "SELECT name, name_run_id, address_run_id, bmf_run_id, in_pub78, revocation_date, files_990n FROM orgs WHERE ein = '000100514'",
     );
     expect(rows).toStrictEqual([
@@ -338,7 +341,7 @@ describe("after the BMF and all three lists are imported", {
 
   test("each list's run records its file, its release and its row count", async () => {
     const rows = await query(
-      d1,
+      dir,
       "SELECT source, file_url, released_at, row_count FROM import_runs WHERE source <> 'bmf' ORDER BY id",
     );
     expect(rows).toStrictEqual(
@@ -358,12 +361,12 @@ describe("after the BMF and all three lists are imported", {
   ] as const)(
     "a %s file short of its floor aborts, loading nothing",
     async (list, label) => {
-      const before = await counts(d1);
+      const before = await counts(dir);
       const rows = FIXTURE_ROWS[list];
-      await expect(loadList(d1, list, { minRows: rows + 1 })).rejects.toThrow(
+      await expect(loadList(dir, list, { minRows: rows + 1 })).rejects.toThrow(
         `${label} import aborted: ${rows} rows is below the floor of ${rows + 1}; nothing was loaded`,
       );
-      expect(await counts(d1)).toStrictEqual(before);
+      expect(await counts(dir)).toStrictEqual(before);
     },
   );
 
@@ -377,57 +380,57 @@ describe("after the BMF and all three lists are imported", {
   ])(
     "%s aborts, loading nothing and leaving no load file",
     async (_, path, detail) => {
-      const before = await counts(d1);
-      await expect(loadList(d1, "pub78", { path })).rejects.toThrow(
+      const before = await counts(dir);
+      await expect(loadList(dir, "pub78", { path })).rejects.toThrow(
         `Pub 78 download failed: ${base}${path}: ${detail}`,
       );
       await expect(access(join(work, "pub78.load.sql"))).rejects.toThrow(
         "ENOENT",
       );
-      expect(await counts(d1)).toStrictEqual(before);
+      expect(await counts(dir)).toStrictEqual(before);
     },
   );
 
   test("a file answered without a Last-Modified aborts, loading nothing", async () => {
-    const before = await counts(d1);
+    const before = await counts(dir);
     await expect(
-      loadList(d1, "pub78", { path: "/undated/pub78.zip" }),
+      loadList(dir, "pub78", { path: "/undated/pub78.zip" }),
     ).rejects.toThrow(
       `Pub 78 download failed: ${base}/undated/pub78.zip: no Last-Modified header`,
     );
-    expect(await counts(d1)).toStrictEqual(before);
+    expect(await counts(dir)).toStrictEqual(before);
   });
 
   test("a file answered 403 aborts at once, without retrying, loading nothing", async () => {
-    const before = await counts(d1);
+    const before = await counts(dir);
     const retry = quickRetry();
     await expect(
-      loadList(d1, "pub78", { path: "/forbidden/pub78.zip", retry }),
+      loadList(dir, "pub78", { path: "/forbidden/pub78.zip", retry }),
     ).rejects.toThrow(
       `Pub 78 download failed: ${base}/forbidden/pub78.zip: HTTP 403`,
     );
     expect(retry.lines).toStrictEqual([]);
-    expect(await counts(d1)).toStrictEqual(before);
+    expect(await counts(dir)).toStrictEqual(before);
   });
 
   test("a row whose EIN isn't 9 digits aborts, loading nothing", async () => {
-    const before = await counts(d1);
+    const before = await counts(dir);
     await expect(
-      loadList(d1, "pub78", { path: "/short-ein/pub78.zip" }),
+      loadList(dir, "pub78", { path: "/short-ein/pub78.zip" }),
     ).rejects.toThrow(
       `Pub 78 layout changed in ${base}/short-ein/pub78.zip: row 2: field 1 is "00635913", expected a 9-digit EIN`,
     );
-    expect(await counts(d1)).toStrictEqual(before);
+    expect(await counts(dir)).toStrictEqual(before);
   });
 
   test("a list out of EIN order aborts, loading nothing", async () => {
-    const before = await counts(d1);
+    const before = await counts(dir);
     await expect(
-      loadList(d1, "pub78", { path: "/unsorted/pub78.zip" }),
+      loadList(dir, "pub78", { path: "/unsorted/pub78.zip" }),
     ).rejects.toThrow(
       `Pub 78 layout changed in ${base}/unsorted/pub78.zip: row 2: EIN 000587764 follows 000635913, expected EIN order`,
     );
-    expect(await counts(d1)).toStrictEqual(before);
+    expect(await counts(dir)).toStrictEqual(before);
   });
 
   test.each([
@@ -437,16 +440,16 @@ describe("after the BMF and all three lists are imported", {
   ] as const)(
     "a %s file missing a column aborts, loading nothing",
     async (list, label, found, expected) => {
-      const before = await counts(d1);
+      const before = await counts(dir);
       await expect(
-        loadList(d1, list, { path: `/dropped/${list}.zip` }),
+        loadList(dir, list, { path: `/dropped/${list}.zip` }),
       ).rejects.toThrow(
         `${label} layout changed in ${base}/dropped/${list}.zip: row 1 has ${found} fields, expected ${expected}`,
       );
       await expect(access(join(work, `${list}.load.sql`))).rejects.toThrow(
         "ENOENT",
       );
-      expect(await counts(d1)).toStrictEqual(before);
+      expect(await counts(dir)).toStrictEqual(before);
     },
   );
 });
@@ -458,13 +461,13 @@ describe("a list's next run", { timeout: 60_000 }, () => {
     revocation: "revocation_date IS NOT NULL",
     epostcard: "files_990n = 1",
   };
-  let d1: string;
+  let dir: string;
 
   beforeAll(async () => {
-    d1 = await freshD1("relisted");
+    dir = await freshDataDir("relisted");
     for (const list of ["pub78", "revocation", "epostcard"] as const) {
-      await loadList(d1, list);
-      await loadList(d1, list, {
+      await loadList(dir, list);
+      await loadList(dir, list, {
         path: `/unlisted/${list}.zip`,
         maxStatementBytes: 2_000,
       });
@@ -481,13 +484,13 @@ describe("a list's next run", { timeout: 60_000 }, () => {
       const unlisted = UNLISTED[list].map((ein) => `'${ein}'`).join(", ");
       expect(
         await query(
-          d1,
+          dir,
           `SELECT ein, ${LISTED[list]} AS listed FROM orgs WHERE ein IN (${unlisted}) ORDER BY ein`,
         ),
       ).toStrictEqual(UNLISTED[list].map((ein) => ({ ein, listed: 0 })));
       expect(
         await query(
-          d1,
+          dir,
           `SELECT count(*) AS listed FROM orgs WHERE ${LISTED[list]}`,
         ),
       ).toStrictEqual([{ listed: stillListed }]);
@@ -501,14 +504,14 @@ describe("shared facts", { timeout: 60_000 }, () => {
   let forward: string;
   let backward: string;
 
-  function load(persistTo: string, source: Source) {
-    return source === "bmf" ? loadBmf(persistTo) : loadList(persistTo, source);
+  function load(dataDir: string, source: Source) {
+    return source === "bmf" ? loadBmf(dataDir) : loadList(dataDir, source);
   }
 
   beforeAll(async () => {
     [forward, backward] = await Promise.all([
-      freshD1("forward"),
-      freshD1("backward"),
+      freshDataDir("forward"),
+      freshDataDir("backward"),
     ]);
     for (const source of SOURCES) await load(forward, source);
     for (const source of [...SOURCES].reverse()) await load(backward, source);
@@ -571,9 +574,9 @@ describe("shared facts", { timeout: 60_000 }, () => {
 });
 
 /** Every org, each fact with the source that wrote it rather than its run id. */
-function everyOrg(persistTo: string) {
+function everyOrg(dataDir: string) {
   return query(
-    persistTo,
+    dataDir,
     `SELECT o.ein, o.name, n.source AS name_source, o.street, o.city, o.state, o.zip,
       a.source AS address_source, b.source AS bmf_source, o.subsection, o.ntee, o.ruling_date,
       o.deductibility_code, o.filing_requirement_code, o.in_pub78, o.revocation_date,
@@ -589,10 +592,10 @@ function everyOrg(persistTo: string) {
 test("an EIN listed twice keeps its latest revocation whichever row comes first", {
   timeout: 60_000,
 }, async () => {
-  const d1 = await freshD1("swapped");
-  await loadList(d1, "revocation", { path: "/swapped/revocation.zip" });
+  const dir = await freshDataDir("swapped");
+  await loadList(dir, "revocation", { path: "/swapped/revocation.zip" });
   const rows = await query(
-    d1,
+    dir,
     "SELECT revocation_date, reinstatement_date FROM orgs WHERE ein = '010043788'",
   );
   expect(rows).toStrictEqual([
@@ -603,10 +606,10 @@ test("an EIN listed twice keeps its latest revocation whichever row comes first"
 test("a download that stalls is cut off and the load restarted, saying so", {
   timeout: 60_000,
 }, async () => {
-  const d1 = await freshD1("stall-once");
+  const dir = await freshDataDir("stall-once");
   const retry = quickRetry();
 
-  const summary = await loadList(d1, "pub78", {
+  const summary = await loadList(dir, "pub78", {
     path: "/stall-once/pub78.zip",
     retry,
   });
@@ -617,26 +620,36 @@ test("a download that stalls is cut off and the load restarted, saying so", {
   ]);
 });
 
-test("a load fenced for another build than the slot is building aborts, writing nothing", {
+test("a D1 load fenced for another build than the slot is building aborts, writing nothing, while its own build's loads", {
   timeout: 60_000,
 }, async () => {
-  const d1 = await freshD1("fenced");
-  const before = await counts(d1);
-
-  await expect(
+  const ops = localD1(undefined, { run: sqliteWrangler() });
+  const binding = DATA_DB_BINDING.a;
+  const reset = join(work, "fenced-reset.sql");
+  await writeFile(reset, resetGenerationSql("a", "building"));
+  await ops.applyFile(binding, reset);
+  const load = (buildId: string) =>
     importList("pub78", {
       url: `${base}/pub78.zip`,
       minRows: 1,
       out: join(work, "fenced.load.sql"),
-      target: { ...loadTarget(d1), buildId: "a-later-build" },
-    }),
-  ).rejects.toThrow("load refused: this slot is not building the load's build");
-  expect(await counts(d1)).toStrictEqual(before);
+      target: d1LoadTarget({ ops, binding, buildId }),
+    });
+  const runs = () =>
+    ops.query(binding, "SELECT count(*) AS runs FROM import_runs");
+
+  await expect(load("a-later-build")).rejects.toThrow(
+    "load refused: this slot is not building the load's build",
+  );
+  expect(await runs()).toStrictEqual([{ runs: 0 }]);
+
+  await load("building");
+  expect(await runs()).toStrictEqual([{ runs: 1 }]);
 });
 
-function counts(persistTo: string) {
+function counts(dataDir: string) {
   return query(
-    persistTo,
+    dataDir,
     "SELECT (SELECT count(*) FROM orgs) AS orgs, (SELECT count(*) FROM import_runs) AS runs",
   );
 }
@@ -644,11 +657,11 @@ function counts(persistTo: string) {
 test("a later release keeping only an EIN's older revocation takes that one and its reinstatement", {
   timeout: 60_000,
 }, async () => {
-  const d1 = await freshD1("older");
-  await loadList(d1, "revocation");
-  await loadList(d1, "revocation", { path: "/older/revocation.zip" });
+  const dir = await freshDataDir("older");
+  await loadList(dir, "revocation");
+  await loadList(dir, "revocation", { path: "/older/revocation.zip" });
   const rows = await query(
-    d1,
+    dir,
     "SELECT revocation_date, reinstatement_date FROM orgs WHERE ein = '010043788'",
   );
   expect(rows).toStrictEqual([
@@ -659,8 +672,8 @@ test("a later release keeping only an EIN's older revocation takes that one and 
 test("a zip's first file loads without waiting on the rest of the archive", {
   timeout: 30_000,
 }, async () => {
-  const d1 = await freshD1("trailing");
-  const summary = await loadList(d1, "pub78", { path: "/trailing/pub78.zip" });
+  const dir = await freshDataDir("trailing");
+  const summary = await loadList(dir, "pub78", { path: "/trailing/pub78.zip" });
   expect(summary.rows).toBe(FIXTURE_ROWS.pub78);
 });
 

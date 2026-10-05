@@ -19,7 +19,7 @@ import {
   writeLoad,
 } from "./load.ts";
 import { retrying } from "./retry.ts";
-import type { D1Target } from "./wrangler.ts";
+import type { LoadTarget } from "./target.ts";
 import { firstZipEntry } from "./zip.ts";
 
 const EPOSTCARD_DOWNLOADS = "https://apps.irs.gov/pub/epostcard/";
@@ -175,7 +175,7 @@ export interface ListImportOptions {
   minRows: number;
   /** Where the generated SQL load file is written. */
   out: string;
-  target: D1Target;
+  target: LoadTarget;
   /** Largest upsert statement written, in bytes; defaults under D1's 100 KB limit. */
   maxStatementBytes?: number;
   /** A download that failed transiently restarts the load; defaults to `DOWNLOAD_RETRY`. */
@@ -190,11 +190,11 @@ export interface ListImportSummary {
 }
 
 /**
- * Streams one list's zip into a SQL load file, then applies it to D1 in a
- * single `wrangler d1 execute --file`, so its rows and its `import_runs` row
+ * Streams one list's zip into a SQL load file, then applies it to the target
+ * as one load, so its rows and its `import_runs` row
  * commit together; the search index is left for the caller to rebuild. A
  * failed download, any layout drift or a short count throws before the apply,
- * leaving D1 untouched and no load file behind.
+ * leaving the target untouched and no load file behind.
  */
 export async function importList(
   list: ListName,
@@ -211,13 +211,12 @@ export async function importList(
   await retrying(`${layout.label} load`, retry, () =>
     writeLoad(
       options.out,
-      options.target.buildId,
       (async function* () {
         summary = yield* listSql(layout, file, options, retry.stallMs);
       })(),
     ),
   );
-  await options.target.ops.applyFile(options.target.binding, options.out);
+  await options.target.apply(options.out);
   return summary as ListImportSummary;
 }
 

@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { DATA_DB_BINDING, type DataSlot, otherSlot } from "@nonprofits/db";
+import { buildDataFile } from "./build.ts";
 import {
   importAmong,
   keepsClaim,
@@ -13,7 +14,6 @@ import {
   releaseClaim,
   releaseCommand,
   rollback,
-  TABLE_FLOORS,
 } from "./generation.ts";
 import {
   irsSources,
@@ -32,8 +32,10 @@ import {
   summarized,
   summaryWriter,
 } from "./summary.ts";
+import { TABLE_FLOORS } from "./verify.ts";
 import {
   type D1Ops,
+  d1LoadTarget,
   localD1,
   remoteD1,
   runningWrangler,
@@ -43,7 +45,16 @@ import {
 /** What `all` loads, in order. Not efile: a full 990 run downloads ~10 GB and takes about an hour, so it is asked for by name. */
 const ALL = SOURCES.filter((source) => source !== "efile");
 
+/** Where `build` puts its file unless --out says otherwise, from the repo root. */
+const DATA_FILE_NAME = "data/nonprofits.db";
+
 const USAGE = `usage: node src/cli.ts <command>
+  build [--out <file>] [--efile-batch <XML_BATCH_ID>]... [--force-verify-failure]
+      build every IRS source into one new SQLite file in Turso's upload format
+      (default ${DATA_FILE_NAME}) and verify it; a file that fails verify is
+      deleted, and a build first deletes the file already at --out;
+      --efile-batch loads just those e-file batches, a partial file never to
+      publish; --force-verify-failure fails verify after the full build
   refresh [--remote] [--efile-batch <XML_BATCH_ID>]... [--force-verify-failure] [--summary <file>]
       build the data slot not served from every IRS source, verify it, seal it
       and serve it; --efile-batch (local only) loads just those e-file batches;
@@ -61,8 +72,9 @@ const USAGE = `usage: node src/cli.ts <command>
   --summary <file>    append a markdown summary of the run to <file>, failed or stopped too
   --persist-to <dir>  local D1 state under <dir> instead of wrangler's default`;
 
-/** The flags each command takes, beside --persist-to. */
+/** The flags each command takes; every command but build also takes --persist-to. */
 const FLAGS = {
+  build: ["out", "efile-batch", "force-verify-failure"],
   refresh: ["remote", "efile-batch", "force-verify-failure", "summary"],
   rollback: ["remote", "summary"],
   release: ["remote", "build"],
@@ -85,6 +97,7 @@ function args(argv: readonly string[]) {
       options: {
         remote: { type: "boolean" },
         "persist-to": { type: "string" },
+        out: { type: "string" },
         batch: { type: "string", multiple: true },
         "efile-batch": { type: "string", multiple: true },
         slot: { type: "string" },
@@ -178,17 +191,27 @@ async function command(
   const [name, ...rest] = positionals;
   if (name === undefined || rest.length > 0) throw new UsageError();
   const flags =
-    name === "refresh" || name === "rollback" || name === "release"
+    name === "build" ||
+    name === "refresh" ||
+    name === "rollback" ||
+    name === "release"
       ? FLAGS[name]
       : FLAGS.load;
   const given = Object.entries(values)
-    .filter(([flag, value]) => value !== undefined && flag !== "persist-to")
+    .filter(
+      ([flag, value]) =>
+        value !== undefined && (name === "build" || flag !== "persist-to"),
+    )
     .map(([flag]) => flag);
   const unexpected = given.filter(
     (flag) => !(flags as readonly string[]).includes(flag),
   );
   if (unexpected.length > 0) {
     throw new UsageError(`${name} takes no --${unexpected.join(", --")}`);
+  }
+  if (name === "build") {
+    await runBuild(values, deps, terminal.log);
+    return 0;
   }
   const remote = values.remote === true;
   if (remote && values["persist-to"] !== undefined) {
@@ -284,6 +307,25 @@ async function runRefresh(
   console.log(
     `refresh: serving slot ${report.slot}, build ${report.buildId} (${counts}); irs rollback serves slot ${report.previous} again`,
   );
+}
+
+async function runBuild(
+  values: Values,
+  deps: CliDeps,
+  log: (line: string) => void,
+): Promise<void> {
+  const report = await buildDataFile({
+    sources: deps.sources(values["efile-batch"]),
+    floors: TABLE_FLOORS,
+    out: values.out ?? repoPath(DATA_FILE_NAME),
+    loadDir: deps.loadDir,
+    forceVerifyFailure: values["force-verify-failure"] === true,
+    log,
+  });
+  const counts = Object.entries(report.counts)
+    .map(([table, n]) => `${n} ${table}`)
+    .join(", ");
+  console.log(`build: ${report.out}, build ${report.buildId} (${counts})`);
 }
 
 async function runRollback(
@@ -413,13 +455,14 @@ async function loadSources(
     );
   }
   const target = { ops, binding, buildId: meta.build_id };
+  const load = d1LoadTarget(target);
   const config = deps.sources(batches);
   const failed: Source[] = [];
   for (const source of sources) {
     const out = join(deps.loadDir, `${source}.load.sql`);
     console.error(`importing ${source} into local ${binding} via ${out}`);
     try {
-      const { lines } = await loadSource(source, config, target, out);
+      const { lines } = await loadSource(source, config, load, out);
       for (const line of lines) {
         console.log(line);
       }

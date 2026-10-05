@@ -1,22 +1,19 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
-import { DATA_DB_BINDING, resetGenerationSql } from "@nonprofits/db";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { Client } from "@libsql/client";
+import { dataDbClient } from "@nonprofits/db/node";
 import { type Zippable, zipSync } from "fflate";
+import { createDataFile } from "./build.ts";
 import { EFILE_FLOORS } from "./efile.ts";
 import type { DownloadRetry } from "./load.ts";
 import type { SourceConfig } from "./sources.ts";
-import {
-  type D1Target,
-  localD1,
-  QUERY_TIMEOUT_MS,
-  type WranglerRun,
-  wrangler,
-} from "./wrangler.ts";
+import { fileTarget, type LoadTarget } from "./target.ts";
+import { QUERY_TIMEOUT_MS, type WranglerRun, wrangler } from "./wrangler.ts";
 
 /** Retries at once, at most twice more, giving up on a body silent for 500 ms; records each retry's line. */
 export function quickRetry(): DownloadRetry & { lines: string[] } {
@@ -175,31 +172,39 @@ export function fixtureSources(
   };
 }
 
-/** The build `resetDataDb` leaves building. */
-const TEST_BUILD = "test";
+/** The data file under `dir` that the load tests apply to. */
+const dataFile = (dir: string) => join(dir, "data.db");
 
-/** The local data DB under `persistTo` that the load tests apply to. */
-export function loadTarget(persistTo: string): D1Target {
+/** A client on the data file under `dir`, closed once `use` settles. */
+async function withDataFile<T>(
+  dir: string,
+  use: (data: Client) => Promise<T>,
+): Promise<T> {
+  const data = dataDbClient(pathToFileURL(dataFile(dir)).href, {});
+  try {
+    return await use(data);
+  } finally {
+    data.close();
+  }
+}
+
+/** The data file under `dir` as the load tests' target. */
+export function loadTarget(dir: string): LoadTarget {
   return {
-    ops: localD1(persistTo),
-    binding: DATA_DB_BINDING.a,
-    buildId: TEST_BUILD,
+    apply: (file) => withDataFile(dir, (data) => fileTarget(data).apply(file)),
   };
 }
 
-/** Builds an empty data generation in the local load DB under `persistTo`. */
-export async function resetDataDb(persistTo: string): Promise<void> {
-  await mkdir(persistTo, { recursive: true });
-  const file = join(persistTo, "reset-generation.sql");
-  await writeFile(file, resetGenerationSql("a", TEST_BUILD));
-  const { ops, binding } = loadTarget(persistTo);
-  await ops.applyFile(binding, file);
+/** Builds an empty data file under `dir`, as a build starts one. */
+export async function resetDataDb(dir: string): Promise<void> {
+  (await createDataFile(dataFile(dir))).close();
 }
 
-/** Runs `sql` against the local load DB under `persistTo`; resolves with the last statement's rows. */
-export function query<T>(persistTo: string, sql: string): Promise<T[]> {
-  const { ops, binding } = loadTarget(persistTo);
-  return ops.query<T>(binding, sql);
+/** Runs the one statement `sql` against the data file under `dir`; resolves with its rows, as plain objects. */
+export function query<T>(dir: string, sql: string): Promise<T[]> {
+  return withDataFile(dir, async (data) =>
+    (await data.execute(sql)).rows.map((row) => ({ ...row }) as T),
+  );
 }
 
 /** Applies the app migrations to the local `APP_DB` under `persistTo`, seeding the pointer at slot a, build `empty`. */

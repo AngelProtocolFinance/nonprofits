@@ -23,7 +23,7 @@ import {
   writeLoad,
 } from "./load.ts";
 import { retrying } from "./retry.ts";
-import type { D1Target } from "./wrangler.ts";
+import type { LoadTarget } from "./target.ts";
 
 /** The EO BMF, split by IRS region. */
 export const BMF_URLS = [1, 2, 3, 4].map(
@@ -99,7 +99,7 @@ export interface BmfImportOptions {
   minOrgs: number;
   /** Where the generated SQL load file is written. */
   out: string;
-  target: D1Target;
+  target: LoadTarget;
   /** Largest upsert statement written, in bytes; defaults under D1's 100 KB limit. */
   maxStatementBytes?: number;
   /** A file that failed transiently restarts the load from the first file; defaults to `DOWNLOAD_RETRY`. */
@@ -119,17 +119,17 @@ export interface BmfImportSummary {
 }
 
 /**
- * Streams each BMF file into one SQL load file, then applies it to D1 in a
- * single `wrangler d1 execute --file`, so the orgs and their `import_runs` rows
+ * Streams each BMF file into one SQL load file, then applies it to the target
+ * as one load, so the orgs and their `import_runs` rows
  * commit together; the search index is left for the caller to rebuild. A
  * failed download, any layout drift or a short count throws before the apply,
- * leaving D1 untouched and no load file behind.
+ * leaving the target untouched and no load file behind.
  */
 export async function importBmf(
   options: BmfImportOptions,
 ): Promise<BmfImportSummary> {
   const summary = await writeBmfLoad(options);
-  await options.target.ops.applyFile(options.target.binding, options.out);
+  await options.target.apply(options.out);
   return summary;
 }
 
@@ -137,7 +137,6 @@ async function writeBmfLoad({
   urls,
   minOrgs,
   out,
-  target,
   maxStatementBytes = MAX_STATEMENT_BYTES,
   retry = DOWNLOAD_RETRY,
 }: BmfImportOptions): Promise<BmfImportSummary> {
@@ -147,7 +146,6 @@ async function writeBmfLoad({
     files.length = 0;
     return writeLoad(
       out,
-      target.buildId,
       loadSql(urls, minOrgs, maxStatementBytes, retry.stallMs, files),
     );
   });

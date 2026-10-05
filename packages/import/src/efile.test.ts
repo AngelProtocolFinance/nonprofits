@@ -388,17 +388,17 @@ afterAll(async () => {
   if (work) await rm(work, { recursive: true, force: true });
 });
 
-/** A fresh local data DB under `work`, reset and loaded with the BMF fixture. */
-async function d1WithBmf(name: string): Promise<string> {
-  const persistTo = join(work, name);
-  await resetDataDb(persistTo);
+/** The directory of a new data file under `work`, loaded with the BMF fixture. */
+async function dataDirWithBmf(name: string): Promise<string> {
+  const dataDir = join(work, name);
+  await resetDataDb(dataDir);
   await importBmf({
     urls: BMF_FILES.map((file) => `${base}/${file}`),
     minOrgs: 1,
     out: join(work, `${name}-bmf.load.sql`),
-    target: loadTarget(persistTo),
+    target: loadTarget(dataDir),
   });
-  return persistTo;
+  return dataDir;
 }
 
 /** Every form's yield floors at `share`. */
@@ -414,17 +414,14 @@ function floorsAt(
   };
 }
 
-function loadEfile(
-  persistTo: string,
-  options: Partial<EfileImportOptions> = {},
-) {
+function loadEfile(dataDir: string, options: Partial<EfileImportOptions> = {}) {
   return importEfile({
     baseUrl: `${base}/xml/`,
     latestYear: 2026,
     floors: floorsAt(0.9, { versionFrom: 200, rejects: 0.01 }),
     workDir: join(work, "batches"),
     out: join(work, "efile.load.sql"),
-    target: loadTarget(persistTo),
+    target: loadTarget(dataDir),
     retry: quickRetry(),
     ...options,
   });
@@ -432,14 +429,14 @@ function loadEfile(
 
 /** Each stored filing's object id and the zip its run cites, by EIN. */
 async function storedFilings(
-  d1: string,
+  dir: string,
 ): Promise<Record<string, [string, string]>> {
   const rows = await query<{
     ein: string;
     object_id: string;
     file_url: string;
   }>(
-    d1,
+    dir,
     "SELECT f.ein, f.object_id, r.file_url FROM filings f JOIN import_runs r ON r.id = f.run_id ORDER BY f.ein",
   );
   return Object.fromEntries(
@@ -453,16 +450,16 @@ async function storedFilings(
 describe("importing the batch that holds the Red Cross's latest 990", {
   timeout: 60_000,
 }, () => {
-  let d1: string;
+  let dir: string;
 
   beforeAll(async () => {
-    d1 = await d1WithBmf("red-cross");
-    await loadEfile(d1, { batches: ["2026_TEOS_XML_03A"] });
+    dir = await dataDirWithBmf("red-cross");
+    await loadEfile(dir, { batches: ["2026_TEOS_XML_03A"] });
   }, 120_000);
 
   test("stores its filing facts, citing the batch zip it came from", async () => {
     const rows = await query(
-      d1,
+      dir,
       `SELECT f.object_id, f.return_id, f.form_type, f.tax_period, f.tax_year,
         f.mission, f.website, f.total_revenue, f.total_expenses, f.total_assets_eoy,
         r.source, r.file_url, r.released_at, r.row_count
@@ -492,7 +489,7 @@ describe("importing the batch that holds the Red Cross's latest 990", {
 
   test("stores its top 3 programs by expense", async () => {
     const rows = await query(
-      d1,
+      dir,
       `SELECT object_id, rank, substr(description, 1, 20) AS description, expense, grants, revenue
       FROM programs WHERE ein = '530196605' ORDER BY rank`,
     );
@@ -526,7 +523,7 @@ describe("importing the batch that holds the Red Cross's latest 990", {
 
   test("stores a 990-PF's filing facts under a nameless org for an EIN no other source lists", async () => {
     const rows = await query(
-      d1,
+      dir,
       `SELECT o.name, o.bmf_run_id, f.object_id, f.form_type, f.tax_period, f.tax_year, f.mission, f.total_revenue,
         (SELECT count(*) FROM programs p WHERE p.ein = o.ein) AS programs
       FROM orgs o JOIN filings f ON f.ein = o.ein WHERE o.ein = '934054155'`,
@@ -547,7 +544,7 @@ describe("importing the batch that holds the Red Cross's latest 990", {
   });
 
   test("stores no filing from another batch", async () => {
-    expect(Object.keys(await storedFilings(d1))).toEqual([
+    expect(Object.keys(await storedFilings(dir))).toEqual([
       "530196605",
       "934054155",
     ]);
@@ -555,7 +552,7 @@ describe("importing the batch that holds the Red Cross's latest 990", {
 
   test("records each year's index as a run with its row count", async () => {
     const rows = await query(
-      d1,
+      dir,
       "SELECT file_url, row_count FROM import_runs WHERE source = 'efile_index' ORDER BY id",
     );
     expect(rows).toStrictEqual([
@@ -573,16 +570,16 @@ describe("importing the batch that holds the Red Cross's latest 990", {
 describe("importing a batch holding a 990-EZ and a 990-PF", {
   timeout: 60_000,
 }, () => {
-  let d1: string;
+  let dir: string;
 
   beforeAll(async () => {
-    d1 = await d1WithBmf("ez-pf");
-    await loadEfile(d1, { batches: ["2026_TEOS_XML_01A"] });
+    dir = await dataDirWithBmf("ez-pf");
+    await loadEfile(dir, { batches: ["2026_TEOS_XML_01A"] });
   }, 120_000);
 
   async function storedFiling(ein: string) {
     return query(
-      d1,
+      dir,
       `SELECT f.object_id, f.form_type, f.tax_period, f.tax_year, f.mission, f.activity_summary, f.website,
         f.total_revenue, f.total_expenses, f.total_assets_eoy, r.file_url,
         (SELECT count(*) FROM programs p WHERE p.ein = f.ein) AS programs
@@ -636,12 +633,12 @@ describe("importing a filing whose mission only points to Schedule O", {
     baseUrl: `${base}/schedule-o/`,
     batches: ["2026_TEOS_XML_01A"],
   });
-  let d1: string;
+  let dir: string;
   let summary: Awaited<ReturnType<typeof importEfile>>;
 
   beforeAll(async () => {
-    d1 = await d1WithBmf("schedule-o");
-    summary = await loadEfile(d1, {
+    dir = await dataDirWithBmf("schedule-o");
+    summary = await loadEfile(dir, {
       ...scheduleO(),
       // one of the two 990-EZs states no mission
       floors: floorsAt(0.5, { versionFrom: 200, rejects: 0.01 }),
@@ -651,7 +648,7 @@ describe("importing a filing whose mission only points to Schedule O", {
   test("flags it, and not a filing stating its mission", async () => {
     expect(
       await query(
-        d1,
+        dir,
         "SELECT ein, mission, mission_on_schedule_o FROM filings WHERE ein IN ('310899051', '316050644') ORDER BY ein",
       ),
     ).toStrictEqual([
@@ -670,7 +667,7 @@ describe("importing a filing whose mission only points to Schedule O", {
   });
 
   test("aborts the run when the mission floor is above that share, loading nothing", async () => {
-    const empty = await d1WithBmf("schedule-o-floor");
+    const empty = await dataDirWithBmf("schedule-o-floor");
     const out = join(work, "schedule-o-floor.load.sql");
     const floors: EfileFloors = {
       ...floorsAt(0, { versionFrom: 200, rejects: 0.01 }),
@@ -691,10 +688,10 @@ describe("importing a filing whose mission only points to Schedule O", {
 
 describe("importing a second batch", { timeout: 60_000 }, () => {
   test("adds its filings and keeps the first batch's", async () => {
-    const d1 = await d1WithBmf("two-batches");
-    await loadEfile(d1, { batches: ["2026_TEOS_XML_03A"] });
-    await loadEfile(d1, { batches: ["2026_TEOS_XML_02A"] });
-    expect(await storedFilings(d1)).toStrictEqual({
+    const dir = await dataDirWithBmf("two-batches");
+    await loadEfile(dir, { batches: ["2026_TEOS_XML_03A"] });
+    await loadEfile(dir, { batches: ["2026_TEOS_XML_02A"] });
+    expect(await storedFilings(dir)).toStrictEqual({
       "530196605": [RED_CROSS_990, "2026_TEOS_XML_03A.zip"],
       "920724925": [DELTA_TRITON_NEW, "2026_TEOS_XML_02A.zip"],
       "934054155": [PF, "2026_TEOS_XML_03A.zip"],
@@ -703,16 +700,16 @@ describe("importing a second batch", { timeout: 60_000 }, () => {
 });
 
 describe("a full run after an earlier one", { timeout: 60_000 }, () => {
-  let d1: string;
+  let dir: string;
 
   beforeAll(async () => {
-    d1 = await d1WithBmf("full");
-    await loadEfile(d1, { baseUrl: `${base}/older/` });
-    await loadEfile(d1);
+    dir = await dataDirWithBmf("full");
+    await loadEfile(dir, { baseUrl: `${base}/older/` });
+    await loadEfile(dir);
   }, 120_000);
 
   test("stores every EIN's latest filing, from a batch's second zip, a lowercase batch id and a prefixed return too", async () => {
-    expect(await storedFilings(d1)).toStrictEqual({
+    expect(await storedFilings(dir)).toStrictEqual({
       "131520977": ["202630139349301998", "2026_TEOS_XML_01A.zip"],
       "203349625": ["202620149349301082", "2026_TEOS_XML_01A.zip"],
       "316050644": [EZ, "2026_TEOS_XML_01A.zip"],
@@ -728,7 +725,7 @@ describe("a full run after an earlier one", { timeout: 60_000 }, () => {
 
   test("replaces a superseded filing's programs with the new one's", async () => {
     const rows = await query(
-      d1,
+      dir,
       "SELECT object_id, rank, description FROM programs WHERE ein = '920724925' AND rank = 1",
     );
     expect(rows).toStrictEqual([
@@ -743,7 +740,7 @@ describe("a full run after an earlier one", { timeout: 60_000 }, () => {
 
   test("deletes the nameless org whose only fact was the dropped filing, keeping orgs with a fact or a filing", async () => {
     const rows = await query(
-      d1,
+      dir,
       "SELECT ein FROM orgs WHERE ein IN ('813192688', '934054155', '000019818') ORDER BY ein",
     );
     // 934054155 is nameless but has a filing; 000019818 is a BMF org with no filing
@@ -752,7 +749,7 @@ describe("a full run after an earlier one", { timeout: 60_000 }, () => {
 
   test("deletes the filing and programs of an EIN the indexes no longer list", async () => {
     const rows = await query(
-      d1,
+      dir,
       "SELECT (SELECT count(*) FROM filings WHERE ein = '813192688') AS filings, (SELECT count(*) FROM programs WHERE ein = '813192688') AS programs",
     );
     expect(rows).toStrictEqual([{ filings: 0, programs: 0 }]);
@@ -760,16 +757,16 @@ describe("a full run after an earlier one", { timeout: 60_000 }, () => {
 });
 
 describe("a run that loads nothing", { timeout: 60_000 }, () => {
-  let d1: string;
+  let dir: string;
 
   beforeAll(async () => {
-    d1 = await d1WithBmf("aborted");
+    dir = await dataDirWithBmf("aborted");
   }, 60_000);
 
   async function expectNothingLoaded(out: string): Promise<void> {
     expect(
       await query(
-        d1,
+        dir,
         "SELECT (SELECT count(*) FROM filings) AS filings, (SELECT count(*) FROM import_runs WHERE source LIKE 'efile%') AS runs",
       ),
     ).toStrictEqual([{ filings: 0, runs: 0 }]);
@@ -779,7 +776,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("reads an index whose layout drifted, naming its row", async () => {
     const out = join(work, "layout-drift.load.sql");
     await expect(
-      loadEfile(d1, { baseUrl: `${base}/layout-drift/`, out }),
+      loadEfile(dir, { baseUrl: `${base}/layout-drift/`, out }),
     ).rejects.toThrow(
       `990 index layout changed in ${base}/layout-drift/2026/index_2026.csv: row 3: EIN is "20334962"`,
     );
@@ -789,7 +786,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("falls below the yield floor, naming the yields", async () => {
     const out = join(work, "drifted.load.sql");
     await expect(
-      loadEfile(d1, { baseUrl: `${base}/drifted/`, out }),
+      loadEfile(dir, { baseUrl: `${base}/drifted/`, out }),
     ).rejects.toThrow(
       "990 import aborted: of 1 Form 990s, 0.0% state a mission and 0.0% a total revenue, below the floor of 90.0% and 90.0%; nothing was loaded",
     );
@@ -799,7 +796,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("misses a latest filing in every zip of its batch, naming it", async () => {
     const out = join(work, "missing.load.sql");
     await expect(
-      loadEfile(d1, { baseUrl: `${base}/missing/`, out }),
+      loadEfile(dir, { baseUrl: `${base}/missing/`, out }),
     ).rejects.toThrow(
       `990 import aborted: 1 latest filings listed in batch 2026_TEOS_XML_06* are in none of its zips (${PREFIXED}); nothing was loaded`,
     );
@@ -809,7 +806,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("rejects more than the allowed share of its filings, naming the reasons", async () => {
     const out = join(work, "rejecting.load.sql");
     await expect(
-      loadEfile(d1, {
+      loadEfile(dir, {
         baseUrl: `${base}/rejecting/`,
         out,
         floors: floorsAt(0.5, { versionFrom: 200, rejects: 0.01 }),
@@ -823,7 +820,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("holds a returnVersion with enough 990s to the floor, naming it", async () => {
     const out = join(work, "version-drift.load.sql");
     await expect(
-      loadEfile(d1, {
+      loadEfile(dir, {
         baseUrl: `${base}/version-drift/`,
         out,
         floors: floorsAt(0.5, { versionFrom: 1, rejects: 0.01 }),
@@ -837,7 +834,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("falls below a 990-EZ yield floor, naming the yields", async () => {
     const out = join(work, "ez-drift.load.sql");
     await expect(
-      loadEfile(d1, { baseUrl: `${base}/form-drift/`, out }),
+      loadEfile(dir, { baseUrl: `${base}/form-drift/`, out }),
     ).rejects.toThrow(
       "990 import aborted: of 1 990-EZs, 0.0% state a mission and 0.0% total revenue, expenses and assets, below the floor of 90.0% and 90.0%; nothing was loaded",
     );
@@ -847,7 +844,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("holds a returnVersion with enough 990-PFs to the floor, naming it", async () => {
     const out = join(work, "pf-drift.load.sql");
     await expect(
-      loadEfile(d1, {
+      loadEfile(dir, {
         baseUrl: `${base}/form-drift/`,
         out,
         floors: {
@@ -864,7 +861,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("is a full run whose indexes list no Form 990 under a code it knows", async () => {
     const out = join(work, "renamed-990.load.sql");
     await expect(
-      loadEfile(d1, { baseUrl: `${base}/renamed-990/`, out }),
+      loadEfile(dir, { baseUrl: `${base}/renamed-990/`, out }),
     ).rejects.toThrow(
       "990 import aborted: the run selected no Form 990s, below the floor of 90.0% and 90.0%; nothing was loaded",
     );
@@ -874,7 +871,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("has a filing too large for one statement, naming it", async () => {
     const out = join(work, "oversize.load.sql");
     await expect(
-      loadEfile(d1, {
+      loadEfile(dir, {
         batches: ["2026_TEOS_XML_03A"],
         out,
         maxStatementBytes: 3_000,
@@ -887,7 +884,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
 
   test("finds neither this year's index nor last year's", async () => {
     const out = join(work, "unpublished.load.sql");
-    await expect(loadEfile(d1, { latestYear: 2028, out })).rejects.toThrow(
+    await expect(loadEfile(dir, { latestYear: 2028, out })).rejects.toThrow(
       `990 index download failed: ${base}/xml/2027/index_2027.csv: HTTP 404`,
     );
     await expectNothingLoaded(out);
@@ -896,7 +893,7 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
   test("names a batch holding no latest filing", async () => {
     const out = join(work, "unlisted.load.sql");
     await expect(
-      loadEfile(d1, { batches: ["2026_TEOS_XML_04A"], out }),
+      loadEfile(dir, { batches: ["2026_TEOS_XML_04A"], out }),
     ).rejects.toThrow(
       "990 import aborted: no latest filing is listed in a batch 2026_TEOS_XML_04*; nothing was loaded",
     );
@@ -905,13 +902,13 @@ describe("a run that loads nothing", { timeout: 60_000 }, () => {
 });
 
 describe("a full run with rejected returns", { timeout: 60_000 }, () => {
-  let d1: string;
+  let dir: string;
   let summary: Awaited<ReturnType<typeof importEfile>>;
 
   beforeAll(async () => {
-    d1 = await d1WithBmf("rejecting");
-    await loadEfile(d1, { baseUrl: `${base}/older/` });
-    summary = await loadEfile(d1, {
+    dir = await dataDirWithBmf("rejecting");
+    await loadEfile(dir, { baseUrl: `${base}/older/` });
+    summary = await loadEfile(dir, {
       baseUrl: `${base}/rejecting/`,
       floors: {
         ...floorsAt(0.5, { versionFrom: 200, rejects: 0.5 }),
@@ -928,7 +925,7 @@ describe("a full run with rejected returns", { timeout: 60_000 }, () => {
   });
 
   test("keeps the stored filing of an EIN whose latest return was rejected and has no runner-up", async () => {
-    expect((await storedFilings(d1))["316050644"]).toEqual([
+    expect((await storedFilings(dir))["316050644"]).toEqual([
       EZ,
       "2026_TEOS_XML_01A.zip",
     ]);
@@ -950,9 +947,9 @@ describe("a return whose form differs from the form its index row lists", {
   timeout: 60_000,
 }, () => {
   test("is rejected, and an EIN's other filings load beside it", async () => {
-    const d1 = await d1WithBmf("form-mismatch");
+    const dir = await dataDirWithBmf("form-mismatch");
 
-    const summary = await loadEfile(d1, {
+    const summary = await loadEfile(dir, {
       baseUrl: `${base}/form-mismatch/`,
       batches: ["2026_TEOS_XML_01A"],
       floors: {
@@ -963,7 +960,7 @@ describe("a return whose form differs from the form its index row lists", {
 
     // listed as a 990-EZ, the return itself is a 990-PF
     expect(summary.rejects).toStrictEqual({ "form type mismatch": [PF_01A] });
-    const stored = await storedFilings(d1);
+    const stored = await storedFilings(dir);
     expect(stored).not.toHaveProperty("920372947");
     expect(stored).toHaveProperty("316050644");
   });
@@ -973,15 +970,15 @@ describe("a return followed by a schedule too large to read", {
   timeout: 60_000,
 }, () => {
   test("loads from its form alone, and the zip's next return after it", async () => {
-    const d1 = await d1WithBmf("padded");
+    const dir = await dataDirWithBmf("padded");
 
-    const summary = await loadEfile(d1, {
+    const summary = await loadEfile(dir, {
       baseUrl: `${base}/padded/`,
       batches: ["2026_TEOS_XML_03A"],
     });
 
     expect(summary.rejects).toStrictEqual({});
-    expect(await storedFilings(d1)).toStrictEqual({
+    expect(await storedFilings(dir)).toStrictEqual({
       "530196605": [RED_CROSS_990, "2026_TEOS_XML_03A.zip"],
       "934054155": [PF, "2026_TEOS_XML_03A.zip"],
     });
@@ -992,8 +989,8 @@ describe("a returnVersion whose 990s fall below the floor", {
   timeout: 60_000,
 }, () => {
   test("loads while the version has fewer 990s than the floor applies from", async () => {
-    const d1 = await d1WithBmf("version-few");
-    const summary = await loadEfile(d1, {
+    const dir = await dataDirWithBmf("version-few");
+    const summary = await loadEfile(dir, {
       baseUrl: `${base}/version-drift/`,
       floors: floorsAt(0.5, { versionFrom: 2, rejects: 0.01 }),
     });
@@ -1005,8 +1002,8 @@ describe("an index listing a return type the import doesn't store", {
   timeout: 60_000,
 }, () => {
   test("counts its rows in the run summary by type, beside the 990-Ts", async () => {
-    const d1 = await d1WithBmf("new-type");
-    const summary = await loadEfile(d1, {
+    const dir = await dataDirWithBmf("new-type");
+    const summary = await loadEfile(dir, {
       baseUrl: `${base}/new-type/`,
       batches: ["2026_TEOS_XML_03A"],
     });
@@ -1016,8 +1013,8 @@ describe("an index listing a return type the import doesn't store", {
 
 describe("a --batch run holding no 990-EZ", { timeout: 60_000 }, () => {
   test("loads, reporting no yields for that form", async () => {
-    const d1 = await d1WithBmf("no-ez");
-    const summary = await loadEfile(d1, { batches: ["2026_TEOS_XML_03A"] });
+    const dir = await dataDirWithBmf("no-ez");
+    const summary = await loadEfile(dir, { batches: ["2026_TEOS_XML_03A"] });
     expect(summary.returns["990-EZ"]).toBe(0);
     expect(summary.yields["990-EZ"]).toBeNull();
     expect(summary.yields["990-PF"]).toStrictEqual({ finances: 1 });
@@ -1028,8 +1025,8 @@ describe("a run in January, before the year's index is out", {
   timeout: 60_000,
 }, () => {
   test("reads the three years before it, naming them", async () => {
-    const d1 = await d1WithBmf("january");
-    const summary = await loadEfile(d1, {
+    const dir = await dataDirWithBmf("january");
+    const summary = await loadEfile(dir, {
       latestYear: 2027,
       batches: ["2026_TEOS_XML_03A"],
     });
@@ -1037,12 +1034,12 @@ describe("a run in January, before the year's index is out", {
       YEARS.map((year) => `${base}/xml/${year}/index_${year}.csv`),
     );
     expect(summary.unpublished).toBe(2027);
-    expect(Object.keys(await storedFilings(d1))).toContain("530196605");
+    expect(Object.keys(await storedFilings(dir))).toContain("530196605");
   });
 
   test("takes a redirect to the not-found page as the year's index unpublished", async () => {
-    const d1 = await d1WithBmf("redirected");
-    const summary = await loadEfile(d1, {
+    const dir = await dataDirWithBmf("redirected");
+    const summary = await loadEfile(dir, {
       baseUrl: `${base}/redirected/`,
       latestYear: 2027,
       batches: ["2026_TEOS_XML_03A"],
@@ -1055,17 +1052,17 @@ describe("a run in January, before the year's index is out", {
 
 describe("a run whose downloads fail once", { timeout: 60_000 }, () => {
   test("reads the indexes again after a 503, and the zip again after a reset, saying so", async () => {
-    const d1 = await d1WithBmf("flaky");
+    const dir = await dataDirWithBmf("flaky");
     const retry = quickRetry();
 
-    const summary = await loadEfile(d1, {
+    const summary = await loadEfile(dir, {
       baseUrl: `${base}/flaky/`,
       batches: ["2026_TEOS_XML_03A"],
       retry,
     });
 
     expect(summary.indexes.map((i) => i.year)).toEqual([2026, 2025, 2024]);
-    expect(Object.keys(await storedFilings(d1))).toContain("530196605");
+    expect(Object.keys(await storedFilings(dir))).toContain("530196605");
     expect(retry.lines).toHaveLength(2);
     expect(retry.lines[0]).toBe(
       `990 index read failed (990 index download failed: ${base}/flaky/2026/index_2026.csv: HTTP 503); try 2 of 3 in 0.0 s`,
@@ -1083,8 +1080,8 @@ describe("a run while the newest index is filling", { timeout: 60_000 }, () => {
     summary.indexes.map((i) => i.year);
 
   test("reads a fourth release year while the newest lists under half the prior year's rows, saying why", async () => {
-    const d1 = await d1WithBmf("thin");
-    const summary = await loadEfile(d1, {
+    const dir = await dataDirWithBmf("thin");
+    const summary = await loadEfile(dir, {
       baseUrl: `${base}/thin/`,
       latestYear: 2027,
       batches: ["2024_TEOS_XML_05A"],
@@ -1094,12 +1091,12 @@ describe("a run while the newest index is filling", { timeout: 60_000 }, () => {
     expect(summary.windowReason).toBe(
       "index_2027.csv lists 0 rows, under half of index_2026.csv's 11: 4 release years read",
     );
-    expect(Object.keys(await storedFilings(d1))).toContain("470269340");
+    expect(Object.keys(await storedFilings(dir))).toContain("470269340");
   });
 
   test("reads three once the newest lists half the prior year's rows", async () => {
-    const d1 = await d1WithBmf("half");
-    const summary = await loadEfile(d1, {
+    const dir = await dataDirWithBmf("half");
+    const summary = await loadEfile(dir, {
       baseUrl: `${base}/half/`,
       latestYear: 2025,
       batches: ["2024_TEOS_XML_05A"],
@@ -1119,12 +1116,12 @@ describe("a run into an empty slot rejecting an EIN's latest return", {
     ...floorsAt(0.5, { versionFrom: 200, rejects: 0.5 }),
     "990-EZ": { mission: 0, finances: 0 },
   };
-  let d1: string;
+  let dir: string;
   let summary: Awaited<ReturnType<typeof importEfile>>;
 
   beforeAll(async () => {
-    d1 = await d1WithBmf("fallback");
-    summary = await loadEfile(d1, { baseUrl: `${base}/fallback/`, floors });
+    dir = await dataDirWithBmf("fallback");
+    summary = await loadEfile(dir, { baseUrl: `${base}/fallback/`, floors });
   }, 60_000);
 
   test("rejects an unreadable return on its own, beside one with a bad amount", () => {
@@ -1136,24 +1133,24 @@ describe("a run into an empty slot rejecting an EIN's latest return", {
 
   test("stores the runner-up filing and its programs instead", async () => {
     expect(summary.runnersUp).toStrictEqual({ loaded: 1, rejects: {} });
-    expect((await storedFilings(d1))["920724925"]).toEqual([
+    expect((await storedFilings(dir))["920724925"]).toEqual([
       DELTA_TRITON_OLD,
       "2026_TEOS_XML_02A.zip",
     ]);
     expect(
       await query(
-        d1,
+        dir,
         "SELECT DISTINCT object_id FROM programs WHERE ein = '920724925'",
       ),
     ).toStrictEqual([{ object_id: DELTA_TRITON_OLD }]);
   });
 
   test("stores nothing for an EIN with no runner-up", async () => {
-    expect(await storedFilings(d1)).not.toHaveProperty("316050644");
+    expect(await storedFilings(dir)).not.toHaveProperty("316050644");
   });
 
   test("stores nothing when the runner-up's zip entry is unreadable too", async () => {
-    const empty = await d1WithBmf("no-fallback");
+    const empty = await dataDirWithBmf("no-fallback");
     const run = await loadEfile(empty, {
       baseUrl: `${base}/no-fallback/`,
       floors,

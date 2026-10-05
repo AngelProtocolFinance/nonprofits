@@ -41,3 +41,4 @@ Worker tests come in two tiers:
 - `scripts/local-data.ts` writes `.wrangler/<name>.sql` under the worker package, so its tests live in one file to avoid racing on it.
 - The import's refresh and verify tests run on in-memory SQLite through `sqliteWrangler()` (`packages/import/src/test-support.ts`), which stands in for the wrangler process only; one real-wrangler refresh and rollback stay. Process behaviour (timeouts, kills, argv, JSON output) is tested against `fixtures/fake-wrangler.mjs` behind a mocked `execFile`.
 - A refresh's build id is its start time to the second, so a test that runs two builds fakes `Date`.
+- The loader tests (bmf, lists, efile) and `build.test.ts` load into a local libSQL file, not D1: `loadTarget`, `resetDataDb` and `query` in `test-support.ts`. `query` runs one statement; libSQL's `execute` silently drops any after the first.

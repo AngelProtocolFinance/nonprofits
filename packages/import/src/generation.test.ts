@@ -26,7 +26,6 @@ import {
   releaseAfterStop,
   releaseClaim,
   rollback,
-  type TableFloors,
 } from "./generation.ts";
 import type { SourceConfig } from "./sources.ts";
 import {
@@ -43,6 +42,7 @@ import {
   migrateAppDb,
   sqliteWrangler,
 } from "./test-support.ts";
+import type { TableFloors } from "./verify.ts";
 import { type D1Ops, localD1, remoteD1 } from "./wrangler.ts";
 
 const RED_CROSS =

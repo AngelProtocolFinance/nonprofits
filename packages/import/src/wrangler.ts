@@ -1,10 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { type ChildProcess, execFile } from "node:child_process";
+import { createReadStream, createWriteStream } from "node:fs";
+import { rm } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { basename, dirname, join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
-import type { DataDbBinding } from "@nonprofits/db";
+import { type DataDbBinding, fenceSql } from "@nonprofits/db";
 import { RETRY, type RetryPolicy, retrying } from "./retry.ts";
+import type { LoadTarget } from "./target.ts";
 
 // wrangler's exports map hides bin/, so resolve the manifest beside it
 const WRANGLER_BIN = fileURLToPath(
@@ -184,12 +189,36 @@ export class ImportMayBeRunning extends Error {
   }
 }
 
-/** Where a load is applied: a data database, through `ops`. */
+/** A data database slot, through `ops`, and the build it is `building`. */
 export interface D1Target {
   ops: D1Ops;
   binding: DataDbBinding;
-  /** The build the database is `building`: each load file opens with its fence, so it writes nothing into any other. */
   buildId: string;
+}
+
+/**
+ * The slot `target` names as a load target: each load file is applied behind
+ * the fence for its build, so it writes nothing into a slot building another.
+ * The fenced copy is written beside the file and removed once applied.
+ */
+export function d1LoadTarget({ ops, binding, buildId }: D1Target): LoadTarget {
+  return {
+    async apply(file) {
+      const fenced = join(dirname(file), `fenced-${basename(file)}`);
+      try {
+        await pipeline(
+          (async function* () {
+            yield fenceSql(buildId);
+            yield* createReadStream(file);
+          })(),
+          createWriteStream(fenced),
+        );
+        await ops.applyFile(binding, fenced);
+      } finally {
+        await rm(fenced, { force: true });
+      }
+    },
+  };
 }
 
 /** Runs one wrangler command, as `wrangler` does. */

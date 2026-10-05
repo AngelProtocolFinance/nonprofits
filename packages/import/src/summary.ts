@@ -1,8 +1,9 @@
 import { appendFileSync } from "node:fs";
 import type { Pointer } from "@nonprofits/db";
 import { percent } from "./efile.ts";
-import { type Check, keepsClaim, readPointer } from "./generation.ts";
+import { keepsClaim, readPointer } from "./generation.ts";
 import type { Loaded } from "./sources.ts";
+import type { Check } from "./verify.ts";
 import type { D1Ops } from "./wrangler.ts";
 
 export interface Step {
