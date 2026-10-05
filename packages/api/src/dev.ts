@@ -14,11 +14,12 @@ import {
 import { memorySearchCache } from "./search-cache.ts";
 import { PLACEHOLDER_PREFIX } from "./secret.ts";
 
-// Serves the api on localhost over the app database TURSO_APP_DB_URL names
-// (`file:<repo>/.turso/app.db` after `irs refresh`), or over fresh fixture
-// databases without one. The admin routes stay off until
-// `packages/api/.env.local` (ignored; the cli's `keys` script reads it too) sets
-// ADMIN_TOKEN and BETTER_AUTH_SECRET, each from `openssl rand -base64 32`.
+// Serves the api on localhost over the data database the pointer in
+// TURSO_APP_DB_URL names, else in `.turso/app.db` once `irs refresh` has
+// published one, else over fresh fixture databases; it logs which. The admin
+// routes stay off until `packages/api/.env.local` (ignored; the cli's `keys`
+// script reads it too) sets ADMIN_TOKEN and BETTER_AUTH_SECRET, each from
+// `openssl rand -base64 32`.
 const databases = await devDatabases({
   TURSO_APP_DB_URL: envVar("TURSO_APP_DB_URL"),
   TURSO_APP_DB_TOKEN: envVar("TURSO_APP_DB_TOKEN"),
@@ -63,7 +64,9 @@ const app = createApp({
 
 const port = Number(process.env.PORT ?? 8787);
 const server = serve({ fetch: app.fetch, port }, () => {
-  console.log(`api on http://localhost:${port} serving ${databases.serving}`);
+  console.log(
+    `api on http://localhost:${port} serving ${databases.serving} from ${databases.from}`,
+  );
 });
 
 async function shutdown() {
