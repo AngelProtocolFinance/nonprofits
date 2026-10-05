@@ -13,6 +13,7 @@ import {
   KEYLESS_MCP_REQUESTS_PER_MINUTE,
 } from "./quota.ts";
 import { memorySearchCache } from "./search-cache.ts";
+import { PLACEHOLDER_PREFIX } from "./secret.ts";
 
 // Serves the api on localhost over fresh fixture databases in a temp directory,
 // deleted on exit: the app database, migrated, pointing at a data database
@@ -26,6 +27,14 @@ await switchServedDatabase(appDb.client, {
   to: { name: "nonprofits-fixture", url: dataDb.url },
   buildId: "fixture",
 });
+
+/** An empty or placeholder value reads as unset, so a copy of `.env.example` serves as no file would. */
+function envVar(name: string): string | undefined {
+  const value = process.env[name];
+  return value === "" || value?.startsWith(PLACEHOLDER_PREFIX)
+    ? undefined
+    : value;
+}
 
 const now = () => new Date();
 const perMinute = (limit: number) =>
@@ -43,16 +52,16 @@ const app = createApp({
   vars: {
     // a fresh key per run: the usage rows it hashes are deleted with the run
     IP_HASH_SECRET:
-      process.env.IP_HASH_SECRET ?? randomBytes(32).toString("base64url"),
-    SERVICE_KEYLESS_DAILY_LIMIT: process.env.SERVICE_KEYLESS_DAILY_LIMIT,
-    SERVICE_KEY_DAILY_LIMIT: process.env.SERVICE_KEY_DAILY_LIMIT,
-    ADMIN_TOKEN: process.env.ADMIN_TOKEN,
-    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
-    CRON_SECRET: process.env.CRON_SECRET,
-    GITHUB_REPO: process.env.GITHUB_REPO,
-    STALE_AFTER_DAYS: process.env.STALE_AFTER_DAYS,
-    REDISPATCH_AFTER_HOURS: process.env.REDISPATCH_AFTER_HOURS,
-    GITHUB_DISPATCH_TOKEN: process.env.GITHUB_DISPATCH_TOKEN,
+      envVar("IP_HASH_SECRET") ?? randomBytes(32).toString("base64url"),
+    SERVICE_KEYLESS_DAILY_LIMIT: envVar("SERVICE_KEYLESS_DAILY_LIMIT"),
+    SERVICE_KEY_DAILY_LIMIT: envVar("SERVICE_KEY_DAILY_LIMIT"),
+    ADMIN_TOKEN: envVar("ADMIN_TOKEN"),
+    BETTER_AUTH_SECRET: envVar("BETTER_AUTH_SECRET"),
+    CRON_SECRET: envVar("CRON_SECRET"),
+    GITHUB_REPO: envVar("GITHUB_REPO"),
+    STALE_AFTER_DAYS: envVar("STALE_AFTER_DAYS"),
+    REDISPATCH_AFTER_HOURS: envVar("REDISPATCH_AFTER_HOURS"),
+    GITHUB_DISPATCH_TOKEN: envVar("GITHUB_DISPATCH_TOKEN"),
   },
 });
 

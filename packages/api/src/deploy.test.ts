@@ -181,6 +181,26 @@ describe("start-up check", () => {
     },
   );
 
+  test("a deployment without GITHUB_DISPATCH_TOKEN serves, and its cron skips the dispatch", async () => {
+    quiet();
+    const urls = stubGitHub();
+    appDb = await appDbFixture();
+    const server = await serverOver({
+      ...COMPLETE_ENV,
+      TURSO_APP_DB_URL: appDb.url,
+      GITHUB_DISPATCH_TOKEN: "",
+    });
+    const keys = await server.request("/admin/keys", {
+      headers: { authorization: `Bearer ${COMPLETE_ENV.ADMIN_TOKEN}` },
+    });
+    expect(keys.status).toBe(200);
+    const cron = await server.request("/cron/daily", {
+      headers: { authorization: `Bearer ${COMPLETE_ENV.CRON_SECRET}` },
+    });
+    expect(cron.status).toBe(204);
+    expect(urls).toEqual([]);
+  });
+
   test("passes an env holding every needed var", () => {
     expect(missingEnv(COMPLETE_ENV)).toEqual([]);
   });

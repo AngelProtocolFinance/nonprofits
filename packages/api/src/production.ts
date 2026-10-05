@@ -21,7 +21,7 @@ const APP_VARS = {
   BETTER_AUTH_SECRET: "secret",
   ADMIN_TOKEN: "secret",
   CRON_SECRET: "secret",
-  GITHUB_DISPATCH_TOKEN: "secret",
+  GITHUB_DISPATCH_TOKEN: "optional",
   GITHUB_REPO: "optional",
   STALE_AFTER_DAYS: "optional",
   REDISPATCH_AFTER_HOURS: "optional",
@@ -35,10 +35,14 @@ const DB_VARS = {
   TURSO_DATA_DB_TOKEN: "secret",
 } as const satisfies Record<keyof AppDbEnv | keyof DataDbEnv, Need>;
 
-/** read by `@vercel/firewall` itself: salts the rate-limit keys it sends to the Firewall */
+/** Read by `@vercel/firewall` itself: salts the rate-limit keys it sends to the Firewall. */
 const SDK_VARS = { RATE_LIMIT_SECRET: "optional" } as const;
 
-/** Every var the deployed app reads from the project's environment; `.env.example` lists the same names. */
+/**
+ * Every var an operator sets for the deployed app; `.env.example` lists the
+ * same names. Vars the platform provides (`VERCEL_GIT_*`, `NODE_ENV`,
+ * `RUNTIME_CACHE_*`, `@vercel/firewall`'s own) are left out on purpose.
+ */
 export const PRODUCTION_ENV: Readonly<Record<string, Need>> = {
   ...APP_VARS,
   ...DB_VARS,
