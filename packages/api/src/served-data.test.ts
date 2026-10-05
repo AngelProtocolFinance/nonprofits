@@ -1,6 +1,6 @@
 import { switchServedDatabase } from "@nonprofits/db";
 import { dataDbFixture, type LocalDb } from "@nonprofits/db/fixture";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { POINTER_TTL_MS } from "./data-db.ts";
 import {
   freshClient,
@@ -19,6 +19,7 @@ async function start(options?: TestApiOptions) {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await api.dispose();
   for (const db of extra.splice(0)) await db.dispose();
 });
@@ -108,21 +109,63 @@ describe("the served data database", () => {
 
   test("a switch to a new build is served once the pointer is read again, within 30 s", async () => {
     await start();
-    const next = await dataDbFixture("20261010T030000Z");
-    extra.push(next);
-    await next.client.execute(
-      "UPDATE orgs SET name = 'AMERICAN RED CROSS' WHERE ein = '530196605'",
-    );
+    const next = await nextBuild();
     expect(await nameOf(await lookup())).toBe("AMERICAN NATIONAL RED CROSS");
 
-    await serve({ name: "nonprofits-next", url: next.url }, "20261010T030000Z");
+    await serve(next, NEXT_BUILD);
     api.clock.advance(POINTER_TTL_MS - 1);
     expect(await nameOf(await lookup())).toBe("AMERICAN NATIONAL RED CROSS");
     api.clock.advance(1);
 
     expect(await nameOf(await lookup())).toBe("AMERICAN RED CROSS");
   });
+
+  test("a read that fails on the served database drops it: the next request reads the pointer again, inside 30 s", async () => {
+    await start();
+    expect(await nameOf(await lookup())).toBe("AMERICAN NATIONAL RED CROSS");
+    await api.dataDb.client.execute("DROP TABLE programs");
+    expect((await lookup()).status).toBe(503);
+
+    await serve(await nextBuild(), NEXT_BUILD);
+
+    expect(await nameOf(await lookup())).toBe("AMERICAN RED CROSS");
+  });
+
+  test("while the pointer can't be read, the database served last keeps serving, and the next request reads the pointer again", async () => {
+    await start();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await nameOf(await lookup())).toBe("AMERICAN NATIONAL RED CROSS");
+    const next = await nextBuild();
+    await api.appDb.client.execute(
+      "ALTER TABLE served_database RENAME TO served_database_away",
+    );
+    api.clock.advance(POINTER_TTL_MS);
+
+    expect(await nameOf(await lookup())).toBe("AMERICAN NATIONAL RED CROSS");
+    expect(errors.mock.calls.map(([line]) => JSON.parse(line).event)).toContain(
+      "data_pointer_unservable",
+    );
+
+    await api.appDb.client.execute(
+      "ALTER TABLE served_database_away RENAME TO served_database",
+    );
+    await serve(next, NEXT_BUILD);
+
+    expect(await nameOf(await lookup())).toBe("AMERICAN RED CROSS");
+  });
 });
+
+const NEXT_BUILD = "20261010T030000Z";
+
+/** A second build, whose Red Cross is named apart from the fixture's. */
+async function nextBuild(): Promise<{ name: string; url: string }> {
+  const next = await dataDbFixture(NEXT_BUILD);
+  extra.push(next);
+  await next.client.execute(
+    "UPDATE orgs SET name = 'AMERICAN RED CROSS' WHERE ein = '530196605'",
+  );
+  return { name: "nonprofits-next", url: next.url };
+}
 
 function search() {
   return api.app.request("/v1/search?q=red%20cross", {

@@ -17,7 +17,11 @@ import {
   unavailable,
 } from "./authorize.ts";
 import { countOf } from "./count.ts";
-import { DataNotLoaded, type ServedData } from "./data-db.ts";
+import {
+  DataNotLoaded,
+  type ServedData,
+  type ServedDataResolver,
+} from "./data-db.ts";
 import type { RateLimiter } from "./limiter.ts";
 import { logFailure } from "./log.ts";
 import { readOrg } from "./org-reader.ts";
@@ -46,7 +50,7 @@ export interface ApiVars {
 /** What every handler reads besides its request, built once per app. */
 export interface Service {
   appDb: Client;
-  servedData: (nowMs: number) => Promise<ServedData>;
+  servedData: ServedDataResolver;
   keylessBurst: RateLimiter;
   vars: ApiVars;
 }
@@ -126,14 +130,20 @@ class Refused extends Error {
 }
 
 /**
- * The served data database, for a call core has validated: resolved, then
- * the call counted. Invalid input never gets here, and a call no data
- * database can answer is refused before it is counted.
+ * Reads the served data database for a call core has validated: resolved,
+ * then the call counted, then `read`. Invalid input never gets here, and a
+ * call no data database resolves for is refused uncounted; a call whose read
+ * fails was counted already, and drops the client it read so the next call
+ * resolves again.
  */
-async function admit(caller: Caller): Promise<Client> {
+async function readServed<T>(
+  caller: Caller,
+  read: (db: Client) => Promise<T>,
+): Promise<T> {
+  const { servedData } = caller.service;
   let served: ServedData;
   try {
-    served = await caller.service.servedData(caller.now.getTime());
+    served = await servedData.serve(caller.now.getTime());
   } catch (error) {
     if (error instanceof DataNotLoaded) throw new Refused(DATA_NOT_LOADED);
     logFailure("data_unavailable", error);
@@ -141,11 +151,16 @@ async function admit(caller: Caller): Promise<Client> {
   }
   const metered = await meter(caller);
   if (!metered.ok) throw new Refused(metered.error);
-  return served.client;
+  try {
+    return await read(served.client);
+  } catch (error) {
+    servedData.forget(served.client);
+    throw error;
+  }
 }
 
 /**
- * Runs a core op whose reader calls `admit` before its first read, turning a
+ * Runs a core op whose reader goes through `readServed`, turning a
  * refusal into its result and a thrown read error into `data_unavailable`.
  */
 async function answer<T, E extends HandlerError>(
@@ -168,7 +183,7 @@ export async function lookup(
   if (!caller.ok) return caller;
   const result = await answer(() =>
     lookupOrg(ein, {
-      read: async (valid) => readOrg(await admit(caller.value), valid),
+      read: (valid) => readServed(caller.value, (db) => readOrg(db, valid)),
     }),
   );
   emit({
@@ -188,8 +203,8 @@ export async function search(
   if (!caller.ok) return caller;
   const result = await answer(() =>
     searchOrgs(input, {
-      search: async (words, limit) =>
-        searchNames(await admit(caller.value), words, limit),
+      search: (words, limit) =>
+        readServed(caller.value, (db) => searchNames(db, words, limit)),
     }),
   );
   emit({
