@@ -51,8 +51,9 @@ export type SwitchResult =
  * Against the app database: serves `to`, holding `buildId`, if `expected`
  * (a database name, or null for never built) is still the one served. A switch
  * that raced another one changes nothing and reports what is served now. The
- * time stamped is the database's clock. The caller verifies `to` first
- * (`servesBuild`): a switch can't read another database.
+ * time stamped is the database's clock. The caller verifies `to` first, with
+ * `holdsBuild(buildId, meta)` on `to`'s own `data_meta`: a switch can't read
+ * another database.
  */
 export async function switchServedDatabase(
   app: Client,

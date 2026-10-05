@@ -1,7 +1,6 @@
 import type { Client } from "@libsql/client";
 import { dataTablesDdl, dateCheck } from "./schema.ts";
 import { searchIndexDdl } from "./search-index.ts";
-import type { ServedPointer } from "./served.ts";
 
 const DATA_META_DDL = `-- The build that filled this database; one row, written by finishDataDatabase
 -- once the load is done. A database without it is unfinished and never served.
@@ -64,13 +63,14 @@ export async function readDataMeta(
 }
 
 /**
- * Whether the database `pointer` names may be served, given that database's
- * own `data_meta`: finished, by the build the pointer says it holds. A switch
- * to an unfinished or mismatched database is never served.
+ * Whether a data database whose `data_meta` reads `meta` holds `buildId`,
+ * finished. The import checks it on the uploaded database before switching to
+ * it; the api checks the served database against the pointer's `build_id`, so
+ * an unfinished or mismatched database is never served.
  */
-export function servesBuild(
-  pointer: ServedPointer,
+export function holdsBuild(
+  buildId: string,
   meta: DataBuild | undefined,
 ): boolean {
-  return pointer.database !== null && meta?.build_id === pointer.build_id;
+  return meta?.build_id === buildId;
 }

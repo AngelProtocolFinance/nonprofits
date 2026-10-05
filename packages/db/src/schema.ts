@@ -105,7 +105,7 @@ export function dateCheck(
   }
 }
 
-/** CREATE statements for the loaded data tables; part of what `resetGenerationSql` builds. */
+/** CREATE statements for the loaded data tables; part of what `resetGenerationSql` (a D1 slot) and `createDataDatabase` (a Turso database) build. */
 export function dataTablesDdl(): string {
   const sources = IMPORT_SOURCES.map((s) => `'${s}'`).join(", ");
   return `-- One row per IRS bulk file fetched, written when its import commits.

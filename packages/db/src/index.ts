@@ -2,8 +2,8 @@ export {
   createDataDatabase,
   type DataBuild,
   finishDataDatabase,
+  holdsBuild,
   readDataMeta,
-  servesBuild,
 } from "./data-database.ts";
 export {
   type Claim,

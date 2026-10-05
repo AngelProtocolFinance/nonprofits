@@ -3,9 +3,10 @@
  * names, only the index, keyed by the EIN as an integer rowid.
  */
 export function searchIndexDdl(): string {
-  return `-- Org names for search; rowid is the EIN as an integer. Rebuilt whole once
--- per refresh, or after a local load run (rebuildSearchIndexSql); never written
--- row by row.
+  return `-- Org names for search; rowid is the EIN as an integer. Filled whole once
+-- per build: by rebuildSearchIndexSql in a D1 slot, after a refresh or a local
+-- load run, or by finishDataDatabase in a Turso database; never written row by
+-- row.
 CREATE VIRTUAL TABLE orgs_fts USING fts5 (
   name,
   content = '',
