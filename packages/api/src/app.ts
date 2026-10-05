@@ -1,6 +1,7 @@
 import type { Client } from "@libsql/client";
 import { type Context, Hono } from "hono";
 import { methodNotAllowed } from "hono/method-not-allowed";
+import { adminRoutes } from "./admin.ts";
 import { clientRequestOf } from "./authorize.ts";
 import { servedDataResolver } from "./data-db.ts";
 import {
@@ -63,11 +64,14 @@ export function createApp(deps: AppDeps) {
   app.use(
     methodNotAllowed({
       app,
-      // `methods` starts with the path's first registered method: GET for /v1, POST for /mcp
+      // `methods` adds HEAD to every GET path, served from the GET handler unasked
       onMethodNotAllowed: (_, methods) =>
-        problem(405, "method_not_allowed", `Use ${methods[0]}.`, {
-          allow: methods.join(", "),
-        }),
+        problem(
+          405,
+          "method_not_allowed",
+          `Use ${methods.filter((method) => method !== "HEAD").join(" or ")}.`,
+          { allow: methods.join(", ") },
+        ),
     }),
   );
   app.notFound((c) =>
@@ -97,7 +101,11 @@ export function createApp(deps: AppDeps) {
       );
       return result.ok ? c.json(result.value, 200) : refuse(c, result.error);
     })
-    .post("/mcp", ...mcpHandlers(service, deps.now));
+    .post("/mcp", ...mcpHandlers(service, deps.now))
+    .route(
+      "/admin",
+      adminRoutes({ appDb: deps.appDb, vars: deps.vars, now: deps.now }),
+    );
 }
 
 /** The routes and the bodies and statuses each returns, for a typed client. */

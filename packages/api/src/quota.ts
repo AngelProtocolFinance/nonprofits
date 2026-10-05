@@ -164,7 +164,7 @@ const USED_TODAY_SQL =
   "SELECT requests FROM key_usage WHERE subject = ?1 AND day = ?2";
 
 /** The UTC day `at` falls in, as `key_usage.day` stores it. */
-function utcDay(at: Date): string {
+export function utcDay(at: Date): string {
   return at.toISOString().slice(0, 10);
 }
 

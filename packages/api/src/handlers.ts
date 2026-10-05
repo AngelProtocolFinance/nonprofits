@@ -57,6 +57,10 @@ export interface ApiVars {
   SERVICE_KEYLESS_DAILY_LIMIT?: string | number | undefined;
   /** default-tier key requests a UTC day, across every key; read as `SERVICE_KEYLESS_DAILY_LIMIT` is */
   SERVICE_KEY_DAILY_LIMIT?: string | number | undefined;
+  /** the bearer token the key CLI sends; the admin routes stay off until it is set */
+  ADMIN_TOKEN?: string | undefined;
+  /** better-auth's signing secret; the admin routes stay off until it is set */
+  BETTER_AUTH_SECRET?: string | undefined;
 }
 
 /** What every handler reads besides its request, built once per app. */

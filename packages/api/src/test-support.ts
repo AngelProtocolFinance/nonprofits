@@ -24,7 +24,12 @@ const FIXTURE_BUILD = "20260910T030000Z";
 export const TEST_VARS: ApiVars = {
   IP_HASH_SECRET: "test-only-ip-hash-secret-0123456789abcdef",
   SERVICE_KEYLESS_DAILY_LIMIT: "200000",
+  ADMIN_TOKEN: "test-only-admin-token-0123456789abcdef",
+  BETTER_AUTH_SECRET: "test-only-better-auth-secret-0123456789abcdef",
 };
+
+/** The header every admin call in a test sends. */
+export const ADMIN_AUTHORIZATION = `Bearer ${TEST_VARS.ADMIN_TOKEN}`;
 
 /** A clock the test moves; it starts mid-day, clear of a UTC midnight. */
 export function testClock(start = "2026-10-05T12:00:00Z") {

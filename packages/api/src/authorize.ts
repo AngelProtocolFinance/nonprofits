@@ -3,6 +3,11 @@ import type { Client } from "@libsql/client";
 import type { Result } from "@nonprofits/core";
 import { ipAddress } from "@vercel/functions";
 import { clientSubject } from "./client.ts";
+import {
+  readStoredKey,
+  type StoredKey,
+  unsupportedFields,
+} from "./key-store.ts";
 import type { RateLimiter } from "./limiter.ts";
 import { logFailure } from "./log.ts";
 import {
@@ -13,7 +18,6 @@ import {
   type QuotaError,
   type Tier,
 } from "./quota.ts";
-import { rowsOf } from "./rows.ts";
 import { isSecretSet } from "./secret.ts";
 
 /** Every issued key is this prefix plus `API_KEY_LETTERS` ASCII letters. */
@@ -108,52 +112,6 @@ export interface KeyGuard {
   ipHashSecret: string | undefined;
 }
 
-/**
- * The plugin's `apikey` row for a hashed key, with its limits, read directly:
- * the plugin's `verifyApiKey` writes the row on every call (`lastRequest`,
- * `updatedAt`) and has no option that stops it in database storage.
- * `enabled` is 0 once revoked.
- */
-const KEY_SQL = `
-SELECT k.id, k.enabled, k.expiresAt, k.configId, k.remaining, k.refillAmount,
-  k.refillInterval, k.rateLimitEnabled, k.permissions,
-  l.daily, l.per_minute AS perMinute
-FROM apikey k LEFT JOIN key_limits l ON l.key_id = k.id
-WHERE k.key = ?1`;
-
-/**
- * The `apikey` columns the plugin's `verifyApiKey` enforces and `authorize`
- * doesn't, at the values the plugin writes for a key issued with the
- * project's options (api-key 1.7.7). A row holding anything else carries a
- * rule this guard would skip, so it is refused.
- */
-const PLUGIN_DEFAULTS = {
-  configId: "default",
-  remaining: null,
-  refillAmount: null,
-  refillInterval: null,
-  rateLimitEnabled: 0,
-  permissions: null,
-} as const;
-
-type PluginFields = {
-  [field in keyof typeof PLUGIN_DEFAULTS]: string | number | null;
-};
-
-interface StoredKey extends PluginFields {
-  id: string;
-  enabled: number | null;
-  expiresAt: string | null;
-  daily: number | null;
-  perMinute: number | null;
-}
-
-function unsupportedFields(stored: StoredKey): string[] {
-  return Object.entries(PLUGIN_DEFAULTS)
-    .filter(([field, value]) => stored[field as keyof PluginFields] !== value)
-    .map(([field]) => field);
-}
-
 const KEY_FORMAT = new RegExp(
   `^${API_KEY_PREFIX}[A-Za-z]{${API_KEY_LETTERS}}$`,
 );
@@ -222,12 +180,11 @@ export async function authorize(
   }
   let stored: StoredKey | undefined;
   try {
-    const found = await guard.appDb.execute({
-      sql: KEY_SQL,
-      // the plugin's own hasher, whose output a test vector pins (keyed.test.ts)
-      args: [await defaultKeyHasher(credential)],
-    });
-    stored = rowsOf<StoredKey>(found)[0];
+    // the plugin's own hasher, whose output a test vector pins (keyed.test.ts)
+    stored = await readStoredKey(
+      guard.appDb,
+      await defaultKeyHasher(credential),
+    );
   } catch (error) {
     return unavailable(error, KEY_CHECK_UNAVAILABLE);
   }

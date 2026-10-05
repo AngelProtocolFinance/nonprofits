@@ -1,33 +1,36 @@
 import { createServer as createHttpServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { createServer } from "node:net";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { serve } from "@hono/node-server";
 import {
-  createWorkerHarness,
-  serveDataSlot,
-  TEST_SECRETS,
-  testEnv,
-} from "../../worker/test/harness.ts";
+  freshClient,
+  seedUsage,
+  TEST_VARS,
+  type TestApi,
+  testApi,
+} from "@nonprofits/api/test-support";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { run } from "../src/index.ts";
 
-const server = createWorkerHarness();
+const ADMIN_TOKEN = TEST_VARS.ADMIN_TOKEN ?? "";
+
+let api: TestApi;
+let apiServer: ReturnType<typeof serve>;
 let baseUrl: string;
 
 beforeAll(async () => {
-  baseUrl = (await server.listen()).url.href;
-  await server.getWorker().applyD1Migrations("APP_DB");
-  // the served data DB, empty: an authorized lookup is not_found
-  await serveDataSlot(server, "a", "empty-a");
+  api = await testApi();
+  apiServer = serve({ fetch: api.app.fetch, port: 0, hostname: "127.0.0.1" });
+  await new Promise((resolve) => apiServer.once("listening", resolve));
+  baseUrl = `http://127.0.0.1:${(apiServer.address() as AddressInfo).port}/`;
 });
 
 afterAll(async () => {
-  await server.close();
+  await new Promise((resolve) => apiServer.close(resolve));
+  await api.dispose();
 });
 
-async function cli(
-  args: string[],
-  adminToken = TEST_SECRETS.ADMIN_TOKEN,
-  url = baseUrl,
-) {
+async function cli(args: string[], adminToken = ADMIN_TOKEN, url = baseUrl) {
   let stdout = "";
   let stderr = "";
   const code = await run(args, {
@@ -56,7 +59,7 @@ async function closedPort(): Promise<number> {
   return address.port;
 }
 
-/** A stand-in Worker on loopback that records each request's path and answers with `respond`. */
+/** A stand-in api on loopback that records each request's path and answers with `respond`. */
 async function recordingServer(
   respond: (path: string) => {
     status: number;
@@ -89,13 +92,18 @@ async function recordingServer(
   };
 }
 
+/** The api's UTC day, as its usage rows store it. */
+function today(): string {
+  return api.clock.now().toISOString().slice(0, 10);
+}
+
 function idOf(createStderr: string): string {
   return /^Created key (\S+)/.exec(createStderr)?.[1] ?? "";
 }
 
 function lookupWith(key: string) {
-  return server.fetch("/v1/orgs/530196605", {
-    headers: { authorization: `Bearer ${key}` },
+  return api.app.request("/v1/orgs/530196605", {
+    headers: { ...freshClient(), authorization: `Bearer ${key}` },
   });
 }
 
@@ -115,10 +123,9 @@ describe("keys CLI", () => {
     expect(stderr).toMatch(
       /^Created key \S+ \("ci"\) for owner@example\.org\. It is shown once: store it now\.\n$/,
     );
-    // D1 here holds no orgs: not_found means the key got past the guard
-    expect(await (await lookupWith(key)).json()).toMatchObject({
-      code: "not_found",
-    });
+    const response = await lookupWith(key);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ein: "530196605" });
   });
 
   test("revoke <key-id> turns the key off on its next request", async () => {
@@ -147,32 +154,28 @@ describe("keys CLI", () => {
     );
   });
 
-  test("an unreachable local Worker exits 1 with one line naming NONPROFITS_URL, the network error and wrangler dev", async () => {
+  test("an unreachable local api exits 1 with one line naming NONPROFITS_URL, the network error and the api's dev command", async () => {
     const url = `http://127.0.0.1:${await closedPort()}/`;
     const { code, stdout, stderr } = await cli(
       ["revoke", "some-id"],
-      TEST_SECRETS.ADMIN_TOKEN,
+      ADMIN_TOKEN,
       url,
     );
     expect(code).toBe(1);
     expect(stdout).toBe("");
     expect(stderr).toBe(
-      `Can't reach the Worker at ${url} (NONPROFITS_URL): connect ECONNREFUSED ${url.slice("http://".length, -1)}. Start it locally with \`pnpm --filter @nonprofits/worker dev\` (wrangler dev), or point NONPROFITS_URL at the deployed Worker.\n`,
+      `Can't reach the api at ${url} (NONPROFITS_URL): connect ECONNREFUSED ${url.slice("http://".length, -1)}. Start it locally with \`pnpm --filter @nonprofits/api dev\`, or point NONPROFITS_URL at the deployed api.\n`,
     );
   });
 
-  test("an unreachable deployed Worker exits 1 with the network error and no wrangler dev hint", async () => {
+  test("an unreachable deployed api exits 1 with the network error and no dev-command hint", async () => {
     const url = "https://nonprofits.invalid/";
-    const { code, stdout, stderr } = await cli(
-      ["list"],
-      TEST_SECRETS.ADMIN_TOKEN,
-      url,
-    );
+    const { code, stdout, stderr } = await cli(["list"], ADMIN_TOKEN, url);
     expect(code).toBe(1);
     expect(stdout).toBe("");
     // .invalid never resolves (RFC 6761): the cause is the resolver's, or an egress proxy's refusal
     expect(stderr).toMatch(
-      /^Can't reach the Worker at https:\/\/nonprofits\.invalid\/ \(NONPROFITS_URL\): (getaddrinfo \w+ nonprofits\.invalid|Proxy response \(\d+\)[^\n]*)\.\n$/,
+      /^Can't reach the api at https:\/\/nonprofits\.invalid\/ \(NONPROFITS_URL\): (getaddrinfo \w+ nonprofits\.invalid|Proxy response \(\d+\)[^\n]*)\.\n$/,
     );
   });
 
@@ -185,11 +188,7 @@ describe("keys CLI", () => {
   ])(
     "refuses NONPROFITS_URL %j with exit 2 before any request",
     async (url, message) => {
-      const { code, stdout, stderr } = await cli(
-        ["list"],
-        TEST_SECRETS.ADMIN_TOKEN,
-        url,
-      );
+      const { code, stdout, stderr } = await cli(["list"], ADMIN_TOKEN, url);
       expect(code).toBe(2);
       expect(stdout).toBe("");
       expect(stderr).toBe(`${message}\n`);
@@ -197,7 +196,7 @@ describe("keys CLI", () => {
   );
 
   test("never follows a redirect, which would carry ADMIN_TOKEN elsewhere: exits 1 naming it", async () => {
-    const worker = await recordingServer((path) =>
+    const standIn = await recordingServer((path) =>
       path === "/admin/keys"
         ? { status: 302, headers: { location: "/elsewhere/admin/keys" } }
         : { status: 200, body: { day: "2026-10-03", keys: [] } },
@@ -205,54 +204,54 @@ describe("keys CLI", () => {
     try {
       const { code, stdout, stderr } = await cli(
         ["list"],
-        TEST_SECRETS.ADMIN_TOKEN,
-        `${worker.origin}/`,
+        ADMIN_TOKEN,
+        `${standIn.origin}/`,
       );
       expect(code).toBe(1);
       expect(stdout).toBe("");
       expect(stderr).toMatch(/\(NONPROFITS_URL\): unexpected redirect\. /);
-      expect(worker.paths).toStrictEqual(["/admin/keys"]);
+      expect(standIn.paths).toStrictEqual(["/admin/keys"]);
     } finally {
-      await worker.close();
+      await standIn.close();
     }
   });
 
   test.each(["/nonprofits", "/nonprofits/"])(
     "keeps a path prefix in NONPROFITS_URL (%s): admin calls go under it",
     async (prefix) => {
-      const worker = await recordingServer(() => ({
+      const standIn = await recordingServer(() => ({
         status: 200,
         body: { day: "2026-10-03", keys: [] },
       }));
       try {
         const { code } = await cli(
           ["list"],
-          TEST_SECRETS.ADMIN_TOKEN,
-          `${worker.origin}${prefix}`,
+          ADMIN_TOKEN,
+          `${standIn.origin}${prefix}`,
         );
         expect(code).toBe(0);
-        expect(worker.paths).toStrictEqual(["/nonprofits/admin/keys"]);
+        expect(standIn.paths).toStrictEqual(["/nonprofits/admin/keys"]);
       } finally {
-        await worker.close();
+        await standIn.close();
       }
     },
   );
 
   test("sends http:// to localhost: loopback is the one place plain http is allowed", async () => {
-    const worker = await recordingServer(() => ({
+    const standIn = await recordingServer(() => ({
       status: 200,
       body: { day: "2026-10-03", keys: [] },
     }));
     try {
       const { code } = await cli(
         ["list"],
-        TEST_SECRETS.ADMIN_TOKEN,
-        worker.origin.replace("127.0.0.1", "localhost"),
+        ADMIN_TOKEN,
+        standIn.origin.replace("127.0.0.1", "localhost"),
       );
       expect(code).toBe(0);
-      expect(worker.paths).toStrictEqual(["/admin/keys"]);
+      expect(standIn.paths).toStrictEqual(["/admin/keys"]);
     } finally {
-      await worker.close();
+      await standIn.close();
     }
   });
 
@@ -263,11 +262,7 @@ describe("keys CLI", () => {
   ])(
     "refuses to send ADMIN_TOKEN over plain http to %s, which isn't loopback: exit 2 before any request",
     async (url) => {
-      const { code, stdout, stderr } = await cli(
-        ["list"],
-        TEST_SECRETS.ADMIN_TOKEN,
-        url,
-      );
+      const { code, stdout, stderr } = await cli(["list"], ADMIN_TOKEN, url);
       expect(code).toBe(2);
       expect(stdout).toBe("");
       expect(stderr).toBe(
@@ -277,11 +272,11 @@ describe("keys CLI", () => {
   );
 
   test("without ADMIN_TOKEN it exits 2 saying what to set, before any request", async () => {
-    const worker = await recordingServer(() => ({ status: 200, body: {} }));
+    const standIn = await recordingServer(() => ({ status: 200, body: {} }));
     try {
       let stderr = "";
       const code = await run(["list"], {
-        env: { NONPROFITS_URL: worker.origin },
+        env: { NONPROFITS_URL: standIn.origin },
         stdout: () => {},
         stderr: (text) => {
           stderr += text;
@@ -289,12 +284,10 @@ describe("keys CLI", () => {
       });
 
       expect(code).toBe(2);
-      expect(stderr).toBe(
-        "Set ADMIN_TOKEN to the Worker's ADMIN_TOKEN secret.\n",
-      );
-      expect(worker.paths).toStrictEqual([]);
+      expect(stderr).toBe("Set ADMIN_TOKEN to the api's ADMIN_TOKEN secret.\n");
+      expect(standIn.paths).toStrictEqual([]);
     } finally {
-      await worker.close();
+      await standIn.close();
     }
   });
 
@@ -311,12 +304,12 @@ describe("keys CLI", () => {
   ])(
     "$args exits 2 with $message and the usage, before any request",
     async ({ args, message }) => {
-      const worker = await recordingServer(() => ({ status: 200, body: {} }));
+      const standIn = await recordingServer(() => ({ status: 200, body: {} }));
       try {
         const { code, stdout, stderr } = await cli(
           args,
-          TEST_SECRETS.ADMIN_TOKEN,
-          worker.origin,
+          ADMIN_TOKEN,
+          standIn.origin,
         );
 
         expect(code).toBe(2);
@@ -324,9 +317,9 @@ describe("keys CLI", () => {
         expect(stderr).toMatch(
           new RegExp(`^${message}\\n\\nUsage:\\n  keys create --email`),
         );
-        expect(worker.paths).toStrictEqual([]);
+        expect(standIn.paths).toStrictEqual([]);
       } finally {
-        await worker.close();
+        await standIn.close();
       }
     },
   );
@@ -336,42 +329,38 @@ describe("keys CLI", () => {
     { args: ["list", "--all"] },
     { args: ["create", "--email", "owner@example.org", "--bogus"] },
   ])("$args exits 2 with the usage, before any request", async ({ args }) => {
-    const worker = await recordingServer(() => ({ status: 200, body: {} }));
+    const standIn = await recordingServer(() => ({ status: 200, body: {} }));
     try {
-      const { code, stderr } = await cli(
-        args,
-        TEST_SECRETS.ADMIN_TOKEN,
-        worker.origin,
-      );
+      const { code, stderr } = await cli(args, ADMIN_TOKEN, standIn.origin);
 
       expect(code).toBe(2);
       expect(stderr).toContain("\n\nUsage:\n  keys create --email");
-      expect(worker.paths).toStrictEqual([]);
+      expect(standIn.paths).toStrictEqual([]);
     } finally {
-      await worker.close();
+      await standIn.close();
     }
   });
 
-  test("set-limit whitelists a key with its own limits, and --default puts it back", async () => {
+  test("set-limit --daily 500 --per-minute 60 lets the key pass request 51, and --default puts it back at 50 a day", async () => {
     const created = await cli(["create", "--email", "owner@example.org"]);
     const key = created.stdout.trim();
     const id = idOf(created.stderr);
+    await seedUsage(api, id, today(), 50);
 
     const raised = await cli([
       "set-limit",
       id,
       "--daily",
-      "1",
+      "500",
       "--per-minute",
       "60",
     ]);
     expect(raised).toStrictEqual({
       code: 0,
       stdout: "",
-      stderr: `Key ${id} is whitelisted: 1/day, 60/min.\n`,
+      stderr: `Key ${id} is whitelisted: 500/day, 60/min.\n`,
     });
-    expect((await lookupWith(key)).status).toBe(404);
-    expect((await lookupWith(key)).status).toBe(429);
+    expect((await lookupWith(key)).status).toBe(200);
 
     const reset = await cli(["set-limit", id, "--default"]);
     expect(reset).toStrictEqual({
@@ -379,7 +368,11 @@ describe("keys CLI", () => {
       stdout: "",
       stderr: `Key ${id} is on the default limits: 50/day, 10/min.\n`,
     });
-    expect((await lookupWith(key)).status).toBe(404);
+    const refused = await lookupWith(key);
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toMatchObject({
+      code: "daily_quota_exceeded",
+    });
   });
 
   test.each([
@@ -399,7 +392,7 @@ describe("keys CLI", () => {
       ],
     ],
   ])(
-    "set-limit refuses %j with usage, before calling the Worker",
+    "set-limit refuses %j with usage, before calling the api",
     async (args) => {
       const { code, stdout, stderr } = await cli(args);
       expect(code).toBe(2);
@@ -410,7 +403,7 @@ describe("keys CLI", () => {
     },
   );
 
-  test("set-limit past the per-client cap of 600 a minute exits 1 with the Worker's reason", async () => {
+  test("set-limit past the per-client cap of 600 a minute exits 1 with the api's reason", async () => {
     const created = await cli(["create", "--email", "owner@example.org"]);
 
     const { code, stdout, stderr } = await cli([
@@ -496,14 +489,11 @@ describe("keys CLI", () => {
       "10",
       "0",
     ]);
-    const { APP_DB } = await testEnv(server);
-    const stored = await APP_DB.prepare("SELECT key FROM apikey").all<{
-      key: string;
-    }>();
+    const stored = await api.appDb.client.execute("SELECT key FROM apikey");
     for (const secret of [
       used.stdout.trim(),
       revoked.stdout.trim(),
-      ...stored.results.map((r) => r.key),
+      ...stored.rows.map((row) => String(row.key)),
     ]) {
       expect(stdout).not.toContain(secret);
     }

@@ -15,7 +15,9 @@ import {
 
 // Serves the api on localhost over fresh fixture databases in a temp directory,
 // deleted on exit: the app database, migrated, pointing at a data database
-// holding `packages/db/fixtures/seed.sql`.
+// holding `packages/db/fixtures/seed.sql`. The admin routes stay off until
+// `packages/api/.env.local` (ignored; the cli's `keys` script reads it too) sets
+// ADMIN_TOKEN and BETTER_AUTH_SECRET, each from `openssl rand -base64 32`.
 const appDb = await appDbFixture();
 const dataDb = await dataDbFixture("fixture");
 await switchServedDatabase(appDb.client, {
@@ -41,6 +43,8 @@ const app = createApp({
       process.env.IP_HASH_SECRET ?? randomBytes(32).toString("base64url"),
     SERVICE_KEYLESS_DAILY_LIMIT: process.env.SERVICE_KEYLESS_DAILY_LIMIT,
     SERVICE_KEY_DAILY_LIMIT: process.env.SERVICE_KEY_DAILY_LIMIT,
+    ADMIN_TOKEN: process.env.ADMIN_TOKEN,
+    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
   },
 });
 

@@ -20,6 +20,7 @@ catalog:
   csv-parse: 7.0.3
   fflate: 0.8.3
   hono: 4.13.13
+  kysely: 0.29.6
   saxes: 6.0.0
   typescript: ^7.0.2
   undici: 7.29.1

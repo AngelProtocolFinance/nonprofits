@@ -1,6 +1,6 @@
 import { configDefaults, defineConfig } from "vitest/config";
 
-const WORKERD_TESTS = "packages/{worker,cli}/test/**/*.test.ts";
+const WORKERD_TESTS = "packages/worker/test/**/*.test.ts";
 
 export default defineConfig({
   test: {

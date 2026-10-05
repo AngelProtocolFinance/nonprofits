@@ -13,7 +13,7 @@ const USAGE = `Usage:
   keys set-limit <key-id> --daily <n> --per-minute <n>
   keys set-limit <key-id> --default
 
-Calls the Worker at NONPROFITS_URL (default http://localhost:8787) with ADMIN_TOKEN;
+Calls the api at NONPROFITS_URL (default http://localhost:8787) with ADMIN_TOKEN;
 NONPROFITS_URL must be https:// unless it is localhost, 127.0.0.1 or [::1].
 `;
 
@@ -138,7 +138,7 @@ function isLoopback(url: URL): boolean {
 }
 
 /** NONPROFITS_URL, parsed; throws when ADMIN_TOKEN can't be sent there safely. */
-function workerUrl(raw: string): URL {
+function apiUrl(raw: string): URL {
   let url: URL;
   try {
     url = new URL(raw);
@@ -155,7 +155,7 @@ function workerUrl(raw: string): URL {
   );
 }
 
-/** An admin path under the Worker URL, keeping any path prefix it has. */
+/** An admin path under the api URL, keeping any path prefix it has. */
 function adminUrl(base: URL, path: string): URL {
   const url = new URL(base);
   url.pathname = `${base.pathname.replace(/\/+$/, "")}${path}`;
@@ -211,12 +211,12 @@ export async function run(args: string[], io: Io): Promise<number> {
     return 2;
   }
   if (!adminToken) {
-    io.stderr("Set ADMIN_TOKEN to the Worker's ADMIN_TOKEN secret.\n");
+    io.stderr("Set ADMIN_TOKEN to the api's ADMIN_TOKEN secret.\n");
     return 2;
   }
   let base: URL;
   try {
-    base = workerUrl(io.env.NONPROFITS_URL ?? DEFAULT_URL);
+    base = apiUrl(io.env.NONPROFITS_URL ?? DEFAULT_URL);
   } catch (error) {
     io.stderr(`${(error as Error).message}\n`);
     return 2;
@@ -239,10 +239,10 @@ export async function run(args: string[], io: Io): Promise<number> {
   } catch (error) {
     // fetch rejects only when no usable HTTP response came back: refused, DNS, TLS, a redirect
     const hint = isLoopback(base)
-      ? " Start it locally with `pnpm --filter @nonprofits/worker dev` (wrangler dev), or point NONPROFITS_URL at the deployed Worker."
+      ? " Start it locally with `pnpm --filter @nonprofits/api dev`, or point NONPROFITS_URL at the deployed api."
       : "";
     io.stderr(
-      `Can't reach the Worker at ${base.href} (NONPROFITS_URL): ${unreachableReason(error)}.${hint}\n`,
+      `Can't reach the api at ${base.href} (NONPROFITS_URL): ${unreachableReason(error)}.${hint}\n`,
     );
     return 1;
   }

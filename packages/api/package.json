@@ -2,8 +2,12 @@
   "name": "@nonprofits/api",
   "private": true,
   "type": "module",
+  "exports": {
+    "./test-support": "./src/test-support.ts"
+  },
   "scripts": {
-    "dev": "node src/dev.ts",
+    "dev": "node --env-file-if-exists=.env.local src/dev.ts",
+    "auth:generate": "node src/auth.generate.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -14,7 +18,9 @@
     "@nonprofits/core": "workspace:*",
     "@nonprofits/db": "workspace:*",
     "@vercel/functions": "catalog:",
+    "better-auth": "catalog:",
     "hono": "catalog:",
+    "kysely": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
