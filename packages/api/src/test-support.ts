@@ -10,6 +10,7 @@ import {
 import { dataDbClient } from "@nonprofits/db/node";
 import { type ApiVars, createApp } from "./app.ts";
 import { API_KEY_LETTERS, API_KEY_PREFIX } from "./authorize.ts";
+import type { Limiters } from "./firewall-limiter.ts";
 import { memoryRateLimiter } from "./limiter.ts";
 import {
   BURST_PERIOD_SECONDS,
@@ -27,10 +28,14 @@ export const TEST_VARS: ApiVars = {
   SERVICE_KEYLESS_DAILY_LIMIT: "200000",
   ADMIN_TOKEN: "test-only-admin-token-0123456789abcdef",
   BETTER_AUTH_SECRET: "test-only-better-auth-secret-0123456789abcdef",
+  CRON_SECRET: "test-only-cron-secret-0123456789abcdef",
 };
 
 /** The header every admin call in a test sends. */
 export const ADMIN_AUTHORIZATION = `Bearer ${TEST_VARS.ADMIN_TOKEN}`;
+
+/** The header Vercel's cron sends with `TEST_VARS.CRON_SECRET`. */
+export const CRON_AUTHORIZATION = `Bearer ${TEST_VARS.CRON_SECRET}`;
 
 /** A clock the test moves; it starts mid-day, clear of a UTC midnight. */
 export function testClock(start = "2026-10-05T12:00:00Z") {
@@ -68,11 +73,16 @@ export interface TestApiOptions {
   dataDbAs?: (db: Client) => Client;
   /** In place of the in-memory cache on the test's clock. */
   searchCache?: SearchCache;
+  /** Limiters in place of the in-memory ones, e.g. the Firewall's over a stubbed check. */
+  limiters?: Partial<Limiters>;
+  /** The app's outbound fetch; by default every call rejects, so no test reaches the network. */
+  fetch?: typeof fetch;
 }
 
 /**
  * The app over a migrated app database whose pointer serves the data
- * fixture, with the in-memory limiter on the test's clock.
+ * fixture, with in-memory limiters on the test's clock wherever `limiters`
+ * names none.
  */
 export async function testApi(options: TestApiOptions = {}): Promise<TestApi> {
   const appDb = await appDbFixture();
@@ -105,7 +115,13 @@ export async function testApi(options: TestApiOptions = {}): Promise<TestApi> {
     keyedRequests: perMinute(KEYED_REQUESTS_PER_MINUTE),
     keylessMcpRequests: perMinute(KEYLESS_MCP_REQUESTS_PER_MINUTE),
     searchCache: options.searchCache ?? memorySearchCache(clock.now),
+    ...options.limiters,
     now: clock.now,
+    fetch:
+      options.fetch ??
+      (async (input) => {
+        throw new Error(`unexpected fetch in a test: ${String(input)}`);
+      }),
     vars: { ...TEST_VARS, ...options.vars },
   });
   return {

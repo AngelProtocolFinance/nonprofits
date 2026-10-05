@@ -17,6 +17,7 @@
     "@modelcontextprotocol/server": "catalog:",
     "@nonprofits/core": "workspace:*",
     "@nonprofits/db": "workspace:*",
+    "@vercel/firewall": "catalog:",
     "@vercel/functions": "catalog:",
     "better-auth": "catalog:",
     "hono": "catalog:",

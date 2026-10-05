@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import type { Client } from "@libsql/client";
 import { Hono } from "hono";
 import { type Auth, createAuth, MAX_KEY_NAME_LENGTH } from "./auth.ts";
@@ -18,7 +17,7 @@ import {
   limitsOf,
   utcDay,
 } from "./quota.ts";
-import { isSecretSet, MIN_SECRET_LENGTH } from "./secret.ts";
+import { isBearerOf, isSecretSet, MIN_SECRET_LENGTH } from "./secret.ts";
 
 const EMAIL = /^[^\s@]+@[^\s@]+$/;
 
@@ -62,21 +61,6 @@ async function ownerFor(auth: Auth, email: string) {
     if (winner !== null) return winner.user;
     throw error;
   }
-}
-
-function sha256(text: string): Buffer {
-  return createHash("sha256").update(text).digest();
-}
-
-/** Compares digests, not strings: equal length, so the compare is constant-time. */
-function isAdmin(
-  authorization: string | undefined,
-  adminToken: string,
-): boolean {
-  return timingSafeEqual(
-    sha256(authorization ?? ""),
-    sha256(`Bearer ${adminToken}`),
-  );
 }
 
 /** The secrets admin needs, checked in this order; outside production, better-auth signs with a public built-in secret when its own is unset. */
@@ -227,7 +211,7 @@ export function adminRoutes(deps: AdminDeps) {
         );
       }
       if (
-        !isAdmin(c.req.header("authorization"), deps.vars.ADMIN_TOKEN ?? "")
+        !isBearerOf(c.req.header("authorization"), deps.vars.ADMIN_TOKEN ?? "")
       ) {
         return problem(
           401,

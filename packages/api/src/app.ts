@@ -3,6 +3,7 @@ import { type Context, Hono } from "hono";
 import { methodNotAllowed } from "hono/method-not-allowed";
 import { adminRoutes } from "./admin.ts";
 import { clientRequestOf } from "./authorize.ts";
+import { cronRoutes } from "./cron.ts";
 import { servedDataResolver } from "./data-db.ts";
 import {
   type ApiVars,
@@ -37,6 +38,8 @@ export interface AppDeps {
   /** searches answered again without ranking, after the caller is authorized and counted */
   searchCache: SearchCache;
   now: () => Date;
+  /** outbound HTTP: the daily cron's GitHub calls */
+  fetch: typeof fetch;
   vars: ApiVars;
 }
 
@@ -109,7 +112,8 @@ export function createApp(deps: AppDeps) {
     .route(
       "/admin",
       adminRoutes({ appDb: deps.appDb, vars: deps.vars, now: deps.now }),
-    );
+    )
+    .route("/cron", cronRoutes(deps));
 }
 
 /** The routes and the bodies and statuses each returns, for a typed client. */
