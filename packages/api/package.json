@@ -1,0 +1,17 @@
+{
+  "name": "@nonprofits/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/dev.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "catalog:",
+    "@libsql/client": "catalog:",
+    "@nonprofits/core": "workspace:*",
+    "@nonprofits/db": "workspace:*",
+    "@vercel/functions": "catalog:",
+    "hono": "catalog:"
+  }
+}
