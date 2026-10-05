@@ -2,7 +2,11 @@ import { mkdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Client } from "@libsql/client";
-import { createDataDatabase, finishDataDatabase } from "@nonprofits/db";
+import {
+  createDataDatabase,
+  finishDataDatabase,
+  recordCounts,
+} from "@nonprofits/db";
 import { dataDbClient } from "@nonprofits/db/node";
 import { loadSource, SOURCES, type SourceConfig } from "./sources.ts";
 import { type RunRecord, runRecord, timed } from "./summary.ts";
@@ -67,9 +71,10 @@ export interface BuildReport {
 /**
  * Builds one month's data into a new SQLite file in Turso's upload format:
  * every source in order, each its own load → the search index and
- * `data_meta`, once → verify → a WAL checkpoint, so the file alone holds the
- * data. It is built beside `out` and moved there only once verify passed; any
- * failure deletes it and throws, leaving nothing at `out`.
+ * `data_meta`, once → verify, recording its counts in `data_meta` → a WAL
+ * checkpoint, so the file alone holds the data. It is built beside `out` and
+ * moved there only once verify passed; any failure deletes it and throws,
+ * leaving nothing at `out`.
  *
  * `sources.efile.batches` builds a partial file, which only clears verify with
  * the filings and programs floors waived; never publish one.
@@ -129,6 +134,7 @@ export async function buildDataFile({
       });
       const failed = verifyFailure(`build ${buildId}`, checks);
       if (failed !== null) throw failed;
+      await recordCounts(data, counts);
       return counts;
     });
     await checkpoint(data);

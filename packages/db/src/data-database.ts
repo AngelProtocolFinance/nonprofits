@@ -4,10 +4,13 @@ import { searchIndexDdl } from "./search-index.ts";
 
 const DATA_META_DDL = `-- The build that filled this database; one row, written by finishDataDatabase
 -- once the load is done. A database without it is unfinished and never served.
+-- counts: the build's row counts as a JSON object by name, recorded by
+-- recordCounts once verify passed; null on a database finished without them.
 CREATE TABLE data_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   build_id TEXT NOT NULL,
-  built_at TEXT NOT NULL CHECK (${dateCheck("built_at", "isoSeconds")})
+  built_at TEXT NOT NULL CHECK (${dateCheck("built_at", "isoSeconds")}),
+  counts TEXT CHECK (json_valid(counts))
 ) STRICT;
 `;
 
@@ -60,6 +63,39 @@ export async function readDataMeta(
   return row
     ? { build_id: String(row.build_id), built_at: String(row.built_at) }
     : undefined;
+}
+
+/**
+ * Records a finished data database's row counts, by name, for a later build to
+ * compare its own with by reading this one row instead of counting.
+ */
+export async function recordCounts(
+  data: Client,
+  counts: Readonly<Record<string, number>>,
+): Promise<void> {
+  const rs = await data.execute({
+    sql: "UPDATE data_meta SET counts = ? WHERE id = 1",
+    args: [JSON.stringify(counts)],
+  });
+  if (rs.rowsAffected !== 1) {
+    throw new Error(
+      "an unfinished data database has no data_meta row to record counts on",
+    );
+  }
+}
+
+/**
+ * Against a finished data database: the counts its build recorded, or
+ * undefined where it recorded none, as a database built before `counts`
+ * existed has no such column.
+ */
+export async function readDataCounts(
+  data: Client,
+): Promise<Record<string, number> | undefined> {
+  // `*`, not `counts`: naming a column an older database lacks fails the query
+  const rs = await data.execute("SELECT * FROM data_meta WHERE id = 1");
+  const counts = rs.rows[0]?.counts;
+  return typeof counts === "string" ? JSON.parse(counts) : undefined;
 }
 
 /**

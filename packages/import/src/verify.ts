@@ -77,11 +77,18 @@ async function count(read: ReadData, rows: string): Promise<number> {
   return row.n;
 }
 
-/** Every one of verify's counts in the data database `read` queries: what a later build's `served` is. */
-export async function readCounts(read: ReadData): Promise<Counts> {
+/**
+ * `recorded` as verify's counts, or undefined unless it holds every one: a
+ * build recorded before a count was added has nothing to compare it with.
+ */
+export function asCounts(
+  recorded: Readonly<Record<string, number>>,
+): Counts | undefined {
   const counts = {} as Counts;
-  for (const [name, rows] of Object.entries(COUNTED) as [Counted, string][]) {
-    counts[name] = await count(read, rows);
+  for (const name of Object.keys(COUNTED) as Counted[]) {
+    const n = recorded[name];
+    if (typeof n !== "number") return undefined;
+    counts[name] = n;
   }
   return counts;
 }

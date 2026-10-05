@@ -57,7 +57,6 @@ export {
   type Check,
   type Counts,
   type ReadData,
-  readCounts,
   TABLE_FLOORS,
   type TableFloors,
 } from "./verify.ts";

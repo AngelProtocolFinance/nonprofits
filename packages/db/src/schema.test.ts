@@ -56,7 +56,7 @@ describe("date columns", () => {
   const ACCEPTED = [
     "UPDATE orgs SET ruling_date = '1946-06'",
     "UPDATE orgs SET revocation_date = '2010-05-15', reinstatement_date = '2026-08-15'",
-    "INSERT INTO data_meta VALUES (1, 'build-1', '2026-10-03T09:00:33Z')",
+    "INSERT INTO data_meta (id, build_id, built_at) VALUES (1, 'build-1', '2026-10-03T09:00:33Z')",
   ];
 
   const REFUSED = [
@@ -70,14 +70,17 @@ describe("date columns", () => {
       "reinstatement_date",
       "UPDATE orgs SET revocation_date = '2010-05-15', reinstatement_date = '2026-08-15T00:00:00Z'",
     ],
-    ["built_at", "INSERT INTO data_meta VALUES (1, 'build-1', '2026-10-03')"],
     [
       "built_at",
-      "INSERT INTO data_meta VALUES (1, 'build-1', '2026-10-03 09:00:33')",
+      "INSERT INTO data_meta (id, build_id, built_at) VALUES (1, 'build-1', '2026-10-03')",
     ],
     [
       "built_at",
-      "INSERT INTO data_meta VALUES (1, 'build-1', '2026-10-03T25:00:00Z')",
+      "INSERT INTO data_meta (id, build_id, built_at) VALUES (1, 'build-1', '2026-10-03 09:00:33')",
+    ],
+    [
+      "built_at",
+      "INSERT INTO data_meta (id, build_id, built_at) VALUES (1, 'build-1', '2026-10-03T25:00:00Z')",
     ],
   ] as const;
 

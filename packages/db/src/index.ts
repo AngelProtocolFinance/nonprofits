@@ -3,7 +3,9 @@ export {
   type DataBuild,
   finishDataDatabase,
   holdsBuild,
+  readDataCounts,
   readDataMeta,
+  recordCounts,
 } from "./data-database.ts";
 export {
   COLUMNS,

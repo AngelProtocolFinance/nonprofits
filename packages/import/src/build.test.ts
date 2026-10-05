@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Client } from "@libsql/client";
-import { readDataMeta } from "@nonprofits/db";
+import { readDataCounts, readDataMeta } from "@nonprofits/db";
 import { dataDbClient } from "@nonprofits/db/node";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { type BuildReport, buildDataFile } from "./build.ts";
@@ -114,6 +114,11 @@ describe("a build of the fixtures", { timeout: 60_000 }, () => {
       "orgs vs served",
     );
     expect(report.checks.filter((check) => !check.ok)).toStrictEqual([]);
+  });
+
+  test("records the counts verify passed in its data_meta, for the next build to read as served", async () => {
+    const recorded = await reading(report.out, readDataCounts);
+    expect(recorded).toStrictEqual(FIXTURE_COUNTS);
   });
 });
 

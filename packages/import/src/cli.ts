@@ -1,7 +1,11 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import type { Client } from "@libsql/client";
-import { readServedDatabase, type ServedPointer } from "@nonprofits/db";
+import {
+  readDataCounts,
+  readServedDatabase,
+  type ServedPointer,
+} from "@nonprofits/db";
 import { appDbClient } from "@nonprofits/db/node";
 import { buildDataFile } from "./build.ts";
 import { databaseHostFor, LOCAL_DATA_DIR } from "./database-host.ts";
@@ -25,8 +29,8 @@ import {
   timed,
 } from "./summary.ts";
 import {
+  asCounts,
   type Counts,
-  readCounts,
   TABLE_FLOORS,
   type TableFloors,
 } from "./verify.ts";
@@ -293,7 +297,10 @@ async function runRefresh(values: Values, s: Session): Promise<void> {
   });
 }
 
-/** The counts of the database `pointer` serves, or undefined while it serves none. */
+/**
+ * The counts the build `pointer` serves recorded, read from its one
+ * `data_meta` row: undefined while it serves none, or one that recorded none.
+ */
 async function servedCounts(
   pointer: ServedPointer,
   host: DatabaseHost,
@@ -301,10 +308,8 @@ async function servedCounts(
   if (pointer.database === null) return undefined;
   const data = await host.open(pointer.database);
   try {
-    return await readCounts(
-      async <T>(sql: string) =>
-        (await data.execute(sql)).rows as unknown as T[],
-    );
+    const recorded = await readDataCounts(data);
+    return recorded === undefined ? undefined : asCounts(recorded);
   } finally {
     data.close();
   }

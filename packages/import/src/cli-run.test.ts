@@ -3,8 +3,8 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Client } from "@libsql/client";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { Client, InStatement } from "@libsql/client";
 import { readServedDatabase } from "@nonprofits/db";
 import { appDbFixture, type LocalDb } from "@nonprofits/db/fixture";
 import { dataDbClient } from "@nonprofits/db/node";
@@ -207,6 +207,75 @@ describe("run refresh", { timeout: 60_000 }, () => {
       `${after.database?.name}.db`,
     ]);
     expect(existsSync(h.deps.dataFile)).toBe(true);
+  });
+});
+
+describe("reading the served counts", { timeout: 60_000 }, () => {
+  test("refresh reads the served database by seeks alone: no query scans a table, whose time on Turso grows with its rows", async () => {
+    const sent: InStatement[] = [];
+    let servedName: string | undefined;
+    const h = await harness({
+      wrap: (host) => ({
+        ...host,
+        async open(database) {
+          const client = await host.open(database);
+          if (database.name !== servedName) return client;
+          const execute = client.execute.bind(client);
+          client.execute = (statement: InStatement) => {
+            sent.push(statement);
+            return execute(statement);
+          };
+          return client;
+        },
+      }),
+    });
+    servedName = (await h.served()).database?.name;
+    const out = quiet();
+
+    const code = await run(["refresh"], {}, h.deps);
+
+    expect(code).toBe(0);
+    expect(printed(out.log)).toContain("check orgs vs served: ok");
+    // the served database is gone once the refresh switched; `earlier` is its source file
+    const file = dataDbClient(pathToFileURL(earlier.out).href, {});
+    try {
+      const scans: string[] = [];
+      for (const statement of sent) {
+        const { sql, args } =
+          typeof statement === "string"
+            ? { sql: statement, args: [] }
+            : statement;
+        const plan = await file.execute({
+          sql: `EXPLAIN QUERY PLAN ${sql}`,
+          args: args ?? [],
+        });
+        for (const row of plan.rows) {
+          if (String(row.detail).startsWith("SCAN")) {
+            scans.push(`${sql}: ${row.detail}`);
+          }
+        }
+      }
+      expect(sent.length).toBeGreaterThan(0);
+      expect(scans).toStrictEqual([]);
+    } finally {
+      file.close();
+    }
+  });
+
+  test("a served build that recorded no counts, as one built before they were recorded, is compared with none: refresh goes on and publishes", async () => {
+    const h = await harness();
+    await h.onServed("ALTER TABLE data_meta DROP COLUMN counts");
+    const out = quiet();
+
+    const code = await run(["refresh"], {}, h.deps);
+
+    expect(printed(out.error)).toBe("");
+    expect(code).toBe(0);
+    expect(printed(out.log)).toContain(
+      "no served build to compare counts with",
+    );
+    expect(printed(out.log)).not.toContain("vs served");
+    expect((await h.served()).build_id).not.toBe(earlier.buildId);
   });
 });
 
@@ -420,9 +489,11 @@ describe("run's usage errors", () => {
 });
 
 describe("run build", { timeout: 60_000 }, () => {
-  test("holds the file to the served database's counts: one more than 10% off fails it, exit 1, leaving no file", async () => {
+  test("holds the file to the served build's recorded counts: one more than 10% off fails it, exit 1, leaving no file", async () => {
     const h = await harness();
-    await h.onServed("UPDATE orgs SET in_pub78 = 0");
+    await h.onServed(
+      "UPDATE data_meta SET counts = json_set(counts, '$.in_pub78', 0)",
+    );
     const out = quiet();
 
     const code = await run(["build"], {}, h.deps);
@@ -436,7 +507,9 @@ describe("run build", { timeout: 60_000 }, () => {
 
   test("--efile-batch builds a partial file, held to no served counts", async () => {
     const h = await harness();
-    await h.onServed("UPDATE orgs SET in_pub78 = 0");
+    await h.onServed(
+      "UPDATE data_meta SET counts = json_set(counts, '$.in_pub78', 0)",
+    );
     const out = quiet();
 
     const code = await run(
