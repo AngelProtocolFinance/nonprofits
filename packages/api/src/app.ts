@@ -6,14 +6,15 @@ import { servedDataResolver } from "./data-db.ts";
 import {
   type ApiVars,
   type HandlerContext,
-  type HandlerError,
   lookup,
+  type Service,
   search,
 } from "./handlers.ts";
 import type { RateLimiter } from "./limiter.ts";
 import { logFailure } from "./log.ts";
+import { mcpHandlers } from "./mcp.ts";
 import { problem } from "./problem.ts";
-import { refusal } from "./refusal.ts";
+import { refuse } from "./refusal.ts";
 
 export type { ApiVars } from "./handlers.ts";
 
@@ -29,6 +30,8 @@ export interface AppDeps {
   keyBurst: RateLimiter;
   /** requests carrying any key, per client per minute, before the key is read */
   keyedRequests: RateLimiter;
+  /** keyless HTTP requests to `/mcp` per client per minute, whatever messages each carries */
+  keylessMcpRequests: RateLimiter;
   now: () => Date;
   vars: ApiVars;
 }
@@ -39,19 +42,15 @@ function limitOf(limit: string | undefined): number | undefined {
   return /^\d+$/.test(limit) ? Number(limit) : Number.NaN;
 }
 
-function refuse(c: Context, error: HandlerError) {
-  const { body, status, headers } = refusal(error);
-  return c.json(body, status, headers);
-}
-
-/** The REST app over `deps`; each app resolves the served data database on its own. */
+/** The REST and MCP app over `deps`; each app resolves the served data database on its own. */
 export function createApp(deps: AppDeps) {
-  const service = {
+  const service: Service = {
     appDb: deps.appDb,
     servedData: servedDataResolver(deps.appDb, deps.openDataDb),
     keylessBurst: deps.keylessBurst,
     keyBurst: deps.keyBurst,
     keyedRequests: deps.keyedRequests,
+    keylessMcpRequests: deps.keylessMcpRequests,
     vars: deps.vars,
   };
   const contextOf = (c: Context): HandlerContext => ({
@@ -64,8 +63,9 @@ export function createApp(deps: AppDeps) {
   app.use(
     methodNotAllowed({
       app,
+      // `methods` starts with the path's first registered method: GET for /v1, POST for /mcp
       onMethodNotAllowed: (_, methods) =>
-        problem(405, "method_not_allowed", "Use GET.", {
+        problem(405, "method_not_allowed", `Use ${methods[0]}.`, {
           allow: methods.join(", "),
         }),
     }),
@@ -96,7 +96,8 @@ export function createApp(deps: AppDeps) {
         contextOf(c),
       );
       return result.ok ? c.json(result.value, 200) : refuse(c, result.error);
-    });
+    })
+    .post("/mcp", ...mcpHandlers(service, deps.now));
 }
 
 /** The routes and the bodies and statuses each returns, for a typed client. */

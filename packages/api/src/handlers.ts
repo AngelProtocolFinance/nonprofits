@@ -31,6 +31,7 @@ import { searchNames } from "./org-searcher.ts";
 import {
   countRequest,
   DEFAULT_SERVICE_DAILY_LIMIT,
+  keylessMcpRefusal,
   type MeteredTier,
   meterMetered,
   type QuotaError,
@@ -65,6 +66,7 @@ export interface Service {
   keylessBurst: RateLimiter;
   keyBurst: RateLimiter;
   keyedRequests: RateLimiter;
+  keylessMcpRequests: RateLimiter;
   vars: ApiVars;
 }
 
@@ -75,14 +77,18 @@ export interface HandlerContext {
   now: Date;
 }
 
-/** A request `authorize` accepted: who its call is counted as. */
-interface Caller {
+/**
+ * A request `authorize` accepted: who each of its calls is counted as. MCP
+ * authorizes once per HTTP request and runs its tool calls as this.
+ */
+export interface Caller {
   service: Service;
   principal: Principal;
   now: Date;
 }
 
-async function authorizeAs(
+/** The caller a request is, before any quota is read: a refused credential is never counted against a daily quota. */
+export async function authorizeAs(
   ctx: HandlerContext,
 ): Promise<Result<Caller, HandlerError>> {
   const { service } = ctx;
@@ -100,6 +106,29 @@ async function authorizeAs(
     ok: true,
     value: { service: ctx.service, principal: authorized.value, now: ctx.now },
   };
+}
+
+/**
+ * Caps a keyless client's HTTP requests to `/mcp` per minute, whatever
+ * messages each carries: handshakes and tool listings aren't metered, and
+ * nothing else bounds them. A keyed client's are capped before its key is
+ * read (`keyedRequests`).
+ */
+export async function limitKeylessMcpRequests(
+  caller: Caller,
+): Promise<Result<void, QuotaError | AuthUnavailable>> {
+  const { principal, service } = caller;
+  if (principal.tier !== "anonymous") return { ok: true, value: undefined };
+  try {
+    const { success } = await service.keylessMcpRequests.limit({
+      key: principal.subject,
+    });
+    return success
+      ? { ok: true, value: undefined }
+      : { ok: false, error: keylessMcpRefusal() };
+  } catch (error) {
+    return unavailable(error, KEYLESS_UNAVAILABLE);
+  }
 }
 
 const SERVICE_DAILY_VAR = {
@@ -220,10 +249,17 @@ export async function lookup(
   ctx: HandlerContext,
 ): Promise<Result<OrgResponse, HandlerError>> {
   const caller = await authorizeAs(ctx);
-  if (!caller.ok) return caller;
+  return caller.ok ? lookupAs(ein, caller.value) : caller;
+}
+
+/** `lookup` for a caller already authorized. */
+export async function lookupAs(
+  ein: string,
+  caller: Caller,
+): Promise<Result<OrgResponse, HandlerError>> {
   const result = await answer(() =>
     lookupOrg(ein, {
-      read: (valid) => readServed(caller.value, (db) => readOrg(db, valid)),
+      read: (valid) => readServed(caller, (db) => readOrg(db, valid)),
     }),
   );
   emit({
@@ -240,11 +276,18 @@ export async function search(
   ctx: HandlerContext,
 ): Promise<Result<OrgSearchResponse, HandlerError>> {
   const caller = await authorizeAs(ctx);
-  if (!caller.ok) return caller;
+  return caller.ok ? searchAs(input, caller.value) : caller;
+}
+
+/** `search` for a caller already authorized. */
+export async function searchAs(
+  input: SearchInput,
+  caller: Caller,
+): Promise<Result<OrgSearchResponse, HandlerError>> {
   const result = await answer(() =>
     searchOrgs(input, {
       search: (words, limit) =>
-        readServed(caller.value, (db) => searchNames(db, words, limit)),
+        readServed(caller, (db) => searchNames(db, words, limit)),
     }),
   );
   emit({

@@ -16,6 +16,7 @@ import {
   DEFAULT_LIMITS,
   KEYED_REQUESTS_PER_MINUTE,
   KEYLESS_LIMITS,
+  KEYLESS_MCP_REQUESTS_PER_MINUTE,
 } from "./quota.ts";
 
 const FIXTURE_BUILD = "20260910T030000Z";
@@ -92,6 +93,7 @@ export async function testApi(options: TestApiOptions = {}): Promise<TestApi> {
     keylessBurst: perMinute(KEYLESS_LIMITS.perMinute),
     keyBurst: perMinute(DEFAULT_LIMITS.perMinute),
     keyedRequests: perMinute(KEYED_REQUESTS_PER_MINUTE),
+    keylessMcpRequests: perMinute(KEYLESS_MCP_REQUESTS_PER_MINUTE),
     now: clock.now,
     vars: { ...TEST_VARS, ...options.vars },
   });
