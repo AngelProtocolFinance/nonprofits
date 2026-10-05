@@ -291,3 +291,104 @@ describe("GET /v1/search before Pub 78 is imported", () => {
     });
   });
 });
+
+/**
+ * United Way Worldwide and its chapters, each in the seeded BMF run and Pub 78
+ * and each name three words, so `united way` scores them all the same.
+ */
+const UNITED_WAYS = [
+  {
+    ein: "131635294",
+    name: "UNITED WAY WORLDWIDE",
+    filing: { revenue: 263_000_000, assets: 412_000_000 },
+  },
+  {
+    ein: "010211111",
+    name: "UNITED WAY INC",
+    filing: { revenue: 2_100_000, assets: 3_400_000 },
+  },
+  {
+    ein: "060222222",
+    name: "UNITED WAY ALASKA",
+    filing: { revenue: 9_800_000, assets: 1_200_000 },
+  },
+  // filed returns that report no revenue
+  {
+    ein: "030444444",
+    name: "UNITED WAY VERMONT",
+    filing: { revenue: null, assets: 1_000_000 },
+  },
+  {
+    ein: "040555555",
+    name: "UNITED WAY IDAHO",
+    filing: { revenue: null, assets: 5_000_000 },
+  },
+  { ein: "010100000", name: "UNITED WAY MAINE", filing: null },
+  { ein: "520444444", name: "UNITED WAY OREGON", filing: null },
+];
+
+async function unitedWays(data: Client) {
+  await data.batch(
+    UNITED_WAYS.flatMap(({ ein, name, filing }) => [
+      {
+        sql: "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id, in_pub78) VALUES (?1, ?2, 1, '03', 1, 1)",
+        args: [ein, name],
+      },
+      {
+        sql: "INSERT INTO orgs_fts (rowid, name) VALUES (CAST(?1 AS INTEGER), ?2)",
+        args: [ein, name],
+      },
+      ...(filing
+        ? [
+            {
+              sql: "INSERT INTO filings (ein, object_id, form_type, tax_period, tax_year, total_revenue, total_assets_eoy, run_id) VALUES (?1, ?1, '990', '2025-06', 2024, ?2, ?3, 5)",
+              args: [ein, filing.revenue, filing.assets],
+            },
+          ]
+        : []),
+    ]),
+    "write",
+  );
+}
+
+describe("GET /v1/search among names that score the same", () => {
+  let tied: TestApi;
+
+  beforeAll(async () => {
+    tied = await testApi({ fill: unitedWays });
+  });
+
+  afterAll(async () => {
+    await tied.dispose();
+  });
+
+  async function unitedWayOrder() {
+    const response = await tied.app.request("/v1/search?q=united%20way", {
+      headers: freshClient(),
+    });
+    const body = (await response.json()) as OrgSearchResponse;
+    return body.results.map((r) => r.ein);
+  }
+
+  test("ranks United Way Worldwide, then its chapters, by their latest filing's revenue", async () => {
+    expect((await unitedWayOrder()).slice(0, 3)).toEqual([
+      "131635294",
+      "060222222",
+      "010211111",
+    ]);
+  });
+
+  test("ranks filings that report no revenue by their assets, behind every revenue", async () => {
+    expect((await unitedWayOrder()).slice(3, 5)).toEqual([
+      "040555555",
+      "030444444",
+    ]);
+  });
+
+  test("keeps orgs with no filing behind the sized ones, in EIN order", async () => {
+    expect((await unitedWayOrder()).slice(-2)).toEqual([
+      "010100000",
+      "520444444",
+    ]);
+  });
+});

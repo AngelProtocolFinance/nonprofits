@@ -21,18 +21,20 @@ interface RunRow {
 }
 
 /**
- * Ranking reads each candidate's indexed length and org row, so a word in
- * 912k names (`inc`) would read them all: only this many matches, in EIN
- * order, are ranked.
+ * Ranking reads each candidate's indexed length, org row and filing, so a
+ * word in 912k names (`inc`) would read them all: only this many matches, in
+ * EIN order, are ranked.
  */
 const MAX_CANDIDATES = 10_000;
 
 /**
  * Orgs in Pub 78 first, then the rest of the current BMF, then orgs the BMF
- * no longer lists; bm25 orders each tier and EIN breaks ties. Every match
- * holds every word, so the tiers outweigh bm25's preference for short names:
- * a dropped chapter named AMERICAN RED CROSS would otherwise outscore the
- * national org.
+ * no longer lists; bm25 orders each tier. Every match holds every word, so
+ * the tiers outweigh bm25's preference for short names: a dropped chapter
+ * named AMERICAN RED CROSS would otherwise outscore the national org. At an
+ * equal score the larger org leads, so UNITED WAY WORLDWIDE tops its chapters:
+ * its latest filing's revenue, then its assets, a missing figure or filing
+ * last; EIN breaks the ties left.
  */
 const SEARCH_SQL = `
 SELECT o.ein, o.name, o.city, o.state, o.subsection, o.bmf_run_id, o.in_pub78
@@ -40,7 +42,9 @@ FROM (
   SELECT rowid, rank AS score FROM orgs_fts WHERE orgs_fts MATCH ?1 LIMIT ${MAX_CANDIDATES}
 ) m
 JOIN orgs o ON o.ein = printf('%09d', m.rowid) AND o.name IS NOT NULL
-ORDER BY o.in_pub78 DESC, o.bmf_run_id IS NULL, m.score, m.rowid
+LEFT JOIN filings f ON f.ein = o.ein
+ORDER BY o.in_pub78 DESC, o.bmf_run_id IS NULL, m.score,
+  f.total_revenue DESC NULLS LAST, f.total_assets_eoy DESC NULLS LAST, m.rowid
 LIMIT ?2`;
 
 /**
