@@ -160,6 +160,24 @@ describe("/mcp transport", () => {
     expect(response.status).toBe(403);
   });
 
+  test("refuses a body whose Content-Length is past 16384 bytes with a 413 problem, before reading it", async () => {
+    await start();
+
+    const response = await api.app.request("/mcp", {
+      method: "POST",
+      headers: {
+        ...freshClient(),
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "content-length": "16385",
+      },
+      body: JSON.stringify(INITIALIZE),
+    });
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ code: "body_too_large" });
+  });
+
   test("refuses a body far past any tool call's arguments with a 413 problem", async () => {
     await start();
 

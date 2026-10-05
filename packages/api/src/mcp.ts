@@ -20,7 +20,7 @@ import {
 } from "./handlers.ts";
 import { logFailure } from "./log.ts";
 import { problem } from "./problem.ts";
-import { refusal, refuse } from "./refusal.ts";
+import { refusalBody, refuse } from "./refusal.ts";
 
 /** Far above any tool call's arguments (a query is at most 200 characters). */
 const MAX_BODY_BYTES = 16 * 1024;
@@ -82,8 +82,7 @@ function renderSearch(found: OrgSearchResponse): string {
 /**
  * A handler result as a tool result: the REST JSON as structured content, and
  * as text after a short rendering for clients that read only text. A refusal
- * is a tool error carrying the REST problem body, plus the `Retry-After`
- * seconds a 429 carries as a header there.
+ * is a tool error carrying the REST problem body (`refusalBody`).
  */
 function toolResult<T extends OrgResponse | OrgSearchResponse>(
   result: Result<T, HandlerError>,
@@ -98,15 +97,11 @@ function toolResult<T extends OrgResponse | OrgSearchResponse>(
       structuredContent: { ...result.value },
     };
   }
-  const { error } = result;
-  const { body } = refusal(error);
+  const body = refusalBody(result.error);
   return {
     isError: true,
     content: [{ type: "text", text: `${body.code}: ${body.detail}` }],
-    structuredContent:
-      "retryAfterSeconds" in error
-        ? { ...body, retryAfterSeconds: error.retryAfterSeconds }
-        : body,
+    structuredContent: body,
   };
 }
 
@@ -202,7 +197,7 @@ type McpEnv = { Variables: { caller: Caller } };
 export function mcpHandlers(service: Service, now: () => Date) {
   const factory = createFactory<McpEnv>();
   return factory.createHandlers(
-    // the MCP transport spec: servers MUST validate Origin, against DNS rebinding
+    // the MCP transport spec: servers MUST validate Origin; only a page served from this host may call it from a browser
     factory.createMiddleware(async (c, next) => {
       const crossOrigin = originValidationResponse(c.req.raw, [
         new URL(c.req.url).hostname,

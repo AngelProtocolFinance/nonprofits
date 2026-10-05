@@ -87,7 +87,7 @@ export interface Caller {
   now: Date;
 }
 
-/** The caller a request is, before any quota is read: a refused credential is never counted. */
+/** The caller a request is, before any quota is read: a refused credential is never counted against a daily quota. */
 export async function authorizeAs(
   ctx: HandlerContext,
 ): Promise<Result<Caller, HandlerError>> {

@@ -41,6 +41,14 @@ export function refusal(error: HandlerError) {
   };
 }
 
+/** A handler refusal as the problem body REST answers, plus the `Retry-After` seconds a 429 carries as a header there. */
+export function refusalBody(error: HandlerError) {
+  const { body } = refusal(error);
+  return "retryAfterSeconds" in error
+    ? { ...body, retryAfterSeconds: error.retryAfterSeconds }
+    : body;
+}
+
 /** A handler refusal as the problem response every route answers it with. */
 export function refuse(c: Context, error: HandlerError) {
   const { body, status, headers } = refusal(error);
