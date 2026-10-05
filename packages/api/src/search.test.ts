@@ -1,7 +1,27 @@
 import type { Client } from "@libsql/client";
-import type { OrgSearchResponse } from "@nonprofits/core";
+import type { OrgSearchResponse, SourceFile } from "@nonprofits/core";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { freshClient, type TestApi, testApi } from "./test-support.ts";
+
+/** The fixture's BMF file, which lists the Red Cross. */
+const BMF_DC: SourceFile = {
+  file: "https://www.irs.gov/pub/irs-soi/eo_dc.csv",
+  releasedAt: "2026-09-08T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:00:00.000Z",
+};
+
+/** A later BMF region file, so a match citing the newest BMF run instead of its own shows. */
+const BMF_EO3: SourceFile = {
+  file: "https://www.irs.gov/pub/irs-soi/eo3.csv",
+  releasedAt: "2026-09-08T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:02:00.000Z",
+};
+
+const PUB78: SourceFile = {
+  file: "https://apps.irs.gov/pub/epostcard/data-download-pub78.zip",
+  releasedAt: "2026-09-01T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:05:00.000Z",
+};
 
 /**
  * Names beside the seeded AMERICAN NATIONAL RED CROSS (in the BMF, in Pub 78)
@@ -26,19 +46,25 @@ const NEAR_MISSES = [
 
 const RED_CROSS_ORDER = ["530196605", "581771391", "362276983", "841189480"];
 
-/** The near misses, beside the fixture's Red Cross, in the orgs and the search index. */
+/** The near misses, listed in the BMF's eo3 file, beside the fixture's Red Cross, in the orgs and the search index. */
 async function nearMisses(data: Client) {
   await data.batch(
-    NEAR_MISSES.flatMap(({ ein, name, subsection }) => [
+    [
       {
-        sql: "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id) VALUES (?1, ?2, 1, ?3, iif(?3 IS NULL, NULL, 1))",
-        args: [ein, name, subsection],
+        sql: "INSERT INTO import_runs VALUES (6, 'bmf', ?1, ?2, ?3, 1)",
+        args: [BMF_EO3.file, BMF_EO3.releasedAt, BMF_EO3.fetchedAt],
       },
-      {
-        sql: "INSERT INTO orgs_fts (rowid, name) VALUES (CAST(?1 AS INTEGER), ?2)",
-        args: [ein, name],
-      },
-    ]),
+      ...NEAR_MISSES.flatMap(({ ein, name, subsection }) => [
+        {
+          sql: "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id) VALUES (?1, ?2, 1, ?3, iif(?3 IS NULL, NULL, 6))",
+          args: [ein, name, subsection],
+        },
+        {
+          sql: "INSERT INTO orgs_fts (rowid, name) VALUES (CAST(?1 AS INTEGER), ?2)",
+          args: [ein, name],
+        },
+      ]),
+    ],
     "write",
   );
 }
@@ -62,7 +88,7 @@ function search(query: string, method = "GET") {
 }
 
 describe("GET /v1/search", () => {
-  test("ranks the Red Cross above names that only share its words", async () => {
+  test("ranks the Red Cross above names that only share its words, each citing its BMF and Pub 78 files", async () => {
     const response = await search("q=red%20cross");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/json");
@@ -77,6 +103,7 @@ describe("GET /v1/search", () => {
           state: "DC",
           is501c3: true,
           deductible: true,
+          provenance: { is501c3: BMF_DC, deductible: PUB78 },
         },
         {
           ein: "581771391",
@@ -85,6 +112,7 @@ describe("GET /v1/search", () => {
           state: null,
           is501c3: false,
           deductible: false,
+          provenance: { is501c3: BMF_EO3, deductible: PUB78 },
         },
         {
           ein: "362276983",
@@ -93,6 +121,7 @@ describe("GET /v1/search", () => {
           state: null,
           is501c3: null,
           deductible: false,
+          provenance: { is501c3: null, deductible: PUB78 },
         },
         {
           ein: "841189480",
@@ -101,6 +130,7 @@ describe("GET /v1/search", () => {
           state: null,
           is501c3: null,
           deductible: false,
+          provenance: { is501c3: null, deductible: PUB78 },
         },
       ],
     });
@@ -231,5 +261,33 @@ describe("GET /v1/search", () => {
     const response = await search("q=red%20cross", "POST");
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("GET, HEAD");
+  });
+});
+
+describe("GET /v1/search before Pub 78 is imported", () => {
+  let early: TestApi;
+
+  beforeAll(async () => {
+    early = await testApi({
+      fill: async (data) => {
+        await data.execute("DELETE FROM import_runs WHERE source = 'pub78'");
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await early.dispose();
+  });
+
+  test("answers deductible null and cites no Pub 78 file, while still citing the BMF", async () => {
+    const response = await early.app.request("/v1/search?q=red%20cross", {
+      headers: freshClient(),
+    });
+    const body = (await response.json()) as OrgSearchResponse;
+    expect(body.results[0]).toMatchObject({
+      ein: "530196605",
+      deductible: null,
+      provenance: { is501c3: BMF_DC, deductible: null },
+    });
   });
 });

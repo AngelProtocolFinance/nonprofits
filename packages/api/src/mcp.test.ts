@@ -4,6 +4,7 @@ import {
   type ClientOptions,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
+import type { OrgSearchResponse } from "@nonprofits/core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   freshClient,
@@ -584,11 +585,9 @@ describe("/mcp without a key", () => {
     expect(result.structuredContent).toStrictEqual(rest);
   });
 
-  test('search_nonprofits answers "red cross" with the same matches as GET /v1/search?q=red cross', async () => {
+  test('search_nonprofits answers "red cross" with the same matches as GET /v1/search?q=red cross, citing their files', async () => {
     await start();
-    const rest = await restJson<{ results: unknown[] }>(
-      "/v1/search?q=red%20cross",
-    );
+    const rest = await restJson<OrgSearchResponse>("/v1/search?q=red%20cross");
     const client = await connect(freshClient());
 
     const result = await client.callTool({
@@ -596,9 +595,22 @@ describe("/mcp without a key", () => {
       arguments: { query: "red cross" },
     });
 
-    expect(rest.results.length).toBeGreaterThan(0);
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toStrictEqual(rest);
+    const redCross = (result.structuredContent as OrgSearchResponse).results[0];
+    expect(redCross?.ein).toBe("530196605");
+    expect(redCross?.provenance).toStrictEqual({
+      is501c3: {
+        file: "https://www.irs.gov/pub/irs-soi/eo_dc.csv",
+        releasedAt: "2026-09-08T12:00:00.000Z",
+        fetchedAt: "2026-09-10T03:00:00.000Z",
+      },
+      deductible: {
+        file: "https://apps.irs.gov/pub/epostcard/data-download-pub78.zip",
+        releasedAt: "2026-09-01T12:00:00.000Z",
+        fetchedAt: "2026-09-10T03:05:00.000Z",
+      },
+    });
   });
 
   test("shares an IP's per-minute limit with REST: after a REST lookup, a tool call is a 429 tool error with its retry seconds", async () => {

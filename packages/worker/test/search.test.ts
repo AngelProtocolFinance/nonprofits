@@ -1,4 +1,4 @@
-import type { OrgSearchResponse } from "@nonprofits/core";
+import type { OrgSearchResponse, SourceFile } from "@nonprofits/core";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { startOfMinuteWindow } from "./clock-windows.ts";
 import {
@@ -11,6 +11,18 @@ import {
   series,
   serveDataSlot,
 } from "./harness.ts";
+
+const BMF: SourceFile = {
+  file: "https://www.irs.gov/pub/irs-soi/eo_dc.csv",
+  releasedAt: "2026-09-08T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:00:00.000Z",
+};
+
+const PUB78: SourceFile = {
+  file: "https://apps.irs.gov/pub/epostcard/data-download-pub78.zip",
+  releasedAt: "2026-09-01T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:05:00.000Z",
+};
 
 const server = createWorkerHarness();
 let authorization: string;
@@ -105,6 +117,7 @@ describe("GET /v1/search", () => {
           state: "DC",
           is501c3: true,
           deductible: true,
+          provenance: { is501c3: BMF, deductible: PUB78 },
         },
         {
           ein: "581771391",
@@ -113,6 +126,7 @@ describe("GET /v1/search", () => {
           state: null,
           is501c3: false,
           deductible: false,
+          provenance: { is501c3: BMF, deductible: PUB78 },
         },
         {
           ein: "362276983",
@@ -121,6 +135,7 @@ describe("GET /v1/search", () => {
           state: null,
           is501c3: null,
           deductible: false,
+          provenance: { is501c3: null, deductible: PUB78 },
         },
         {
           ein: "841189480",
@@ -129,6 +144,7 @@ describe("GET /v1/search", () => {
           state: null,
           is501c3: null,
           deductible: false,
+          provenance: { is501c3: null, deductible: PUB78 },
         },
       ],
     });

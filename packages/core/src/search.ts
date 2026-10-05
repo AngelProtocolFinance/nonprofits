@@ -1,3 +1,4 @@
+import type { Provenance, SourceFile } from "./org.ts";
 import type { Result } from "./result.ts";
 import { is501c3, isDeductible } from "./rules.ts";
 
@@ -7,17 +8,20 @@ export interface OrgSearchRecord {
   name: string;
   city: string | null;
   state: string | null;
-  /** null when the org is not in the current BMF. */
-  bmf: { subsection: string } | null;
-  /** null until Pub 78 is imported. */
-  pub78: { listed: boolean } | null;
+  /** null when the org is not in the current BMF; `source` is the BMF file the org is listed in. */
+  bmf: { subsection: string; source: SourceFile } | null;
+  /** null until Pub 78 is imported; `source` is its latest import. */
+  pub78: { listed: boolean; source: SourceFile } | null;
 }
 
-/** The search seam: the Worker satisfies it with a D1 full-text index. */
+/** The search seam: storage answers it from the data database's full-text index. */
 export interface OrgSearcher {
   /** Names holding every one of `words`, best first, at most `limit`. */
   search(words: string[], limit: number): Promise<OrgSearchRecord[]>;
 }
+
+/** Where a match's flags came from; null where the flag is null. */
+export type OrgSearchProvenance = Pick<Provenance, "is501c3" | "deductible">;
 
 export interface OrgSearchMatch {
   ein: string;
@@ -26,6 +30,7 @@ export interface OrgSearchMatch {
   state: string | null;
   is501c3: boolean | null;
   deductible: boolean | null;
+  provenance: OrgSearchProvenance;
 }
 
 /** `GET /v1/search` and the MCP search tool both answer with this shape. */
@@ -123,6 +128,10 @@ export async function searchOrgs(
         state: r.state,
         is501c3: is501c3(r.bmf),
         deductible: isDeductible(r.pub78),
+        provenance: {
+          is501c3: r.bmf?.source ?? null,
+          deductible: r.pub78?.source ?? null,
+        },
       })),
     },
   };

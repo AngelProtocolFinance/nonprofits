@@ -1,9 +1,28 @@
 import { describe, expect, test } from "vitest";
+import type { SourceFile } from "./org.ts";
 import {
   type OrgSearcher,
   type OrgSearchRecord,
   searchOrgs,
 } from "./search.ts";
+
+const BMF_EO1: SourceFile = {
+  file: "https://www.irs.gov/pub/irs-soi/eo1.csv",
+  releasedAt: "2026-09-08T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:00:00.000Z",
+};
+
+const BMF_EO3: SourceFile = {
+  file: "https://www.irs.gov/pub/irs-soi/eo3.csv",
+  releasedAt: "2026-09-08T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:01:00.000Z",
+};
+
+const PUB78: SourceFile = {
+  file: "https://apps.irs.gov/pub/epostcard/data-download-pub78.zip",
+  releasedAt: "2026-09-01T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:05:00.000Z",
+};
 
 function searcherOf(
   ...records: OrgSearchRecord[]
@@ -35,31 +54,23 @@ describe("searchOrgs", () => {
     },
   );
 
-  test("answers the matches with 501(c)(3) and deductibility from the shared rules", async () => {
+  test("answers the matches with 501(c)(3) and deductibility from the shared rules, each citing its file", async () => {
     const searcher = searcherOf(
       {
         ein: "530196605",
         name: "AMERICAN NATIONAL RED CROSS",
         city: "WASHINGTON",
         state: "DC",
-        bmf: { subsection: "03" },
-        pub78: { listed: true },
+        bmf: { subsection: "03", source: BMF_EO1 },
+        pub78: { listed: true, source: PUB78 },
       },
       {
         ein: "262622865",
         name: "RED CROSS OF CONSTANTINE",
         city: "JOPLIN",
         state: "MO",
-        bmf: { subsection: "08" },
-        pub78: { listed: false },
-      },
-      {
-        ein: "311234567",
-        name: "RED CROSS ARTS COUNCIL",
-        city: null,
-        state: null,
-        bmf: null,
-        pub78: null,
+        bmf: { subsection: "08", source: BMF_EO3 },
+        pub78: { listed: false, source: PUB78 },
       },
     );
     expect(await searchOrgs({ query: "  red cross " }, searcher)).toStrictEqual(
@@ -76,6 +87,7 @@ describe("searchOrgs", () => {
               state: "DC",
               is501c3: true,
               deductible: true,
+              provenance: { is501c3: BMF_EO1, deductible: PUB78 },
             },
             {
               ein: "262622865",
@@ -84,14 +96,7 @@ describe("searchOrgs", () => {
               state: "MO",
               is501c3: false,
               deductible: false,
-            },
-            {
-              ein: "311234567",
-              name: "RED CROSS ARTS COUNCIL",
-              city: null,
-              state: null,
-              is501c3: null,
-              deductible: null,
+              provenance: { is501c3: BMF_EO3, deductible: PUB78 },
             },
           ],
         },
@@ -99,6 +104,43 @@ describe("searchOrgs", () => {
     );
     expect(searcher.calls).toEqual([{ words: ["red", "cross"], limit: 10 }]);
   });
+
+  test.each([
+    {
+      when: "an org not in the BMF",
+      record: { bmf: null, pub78: { listed: false, source: PUB78 } },
+      flags: { is501c3: null, deductible: false },
+      provenance: { is501c3: null, deductible: PUB78 },
+    },
+    {
+      when: "Pub 78 not yet imported",
+      record: { bmf: { subsection: "03", source: BMF_EO1 }, pub78: null },
+      flags: { is501c3: true, deductible: null },
+      provenance: { is501c3: BMF_EO1, deductible: null },
+    },
+  ])(
+    "cites no file for a null flag: $when",
+    async ({ record, flags, provenance }) => {
+      const searcher = searcherOf({
+        ein: "311234567",
+        name: "RED CROSS ARTS COUNCIL",
+        city: null,
+        state: null,
+        ...record,
+      });
+      const result = await searchOrgs({ query: "red cross" }, searcher);
+      expect(result.ok && result.value.results).toStrictEqual([
+        {
+          ein: "311234567",
+          name: "RED CROSS ARTS COUNCIL",
+          city: null,
+          state: null,
+          ...flags,
+          provenance,
+        },
+      ]);
+    },
+  );
 
   test.each([
     [1, 1],
