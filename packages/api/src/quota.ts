@@ -87,6 +87,18 @@ export const BURST_PERIOD_SECONDS = 60;
 const KEY_LIFTS_LIMIT =
   "An API key lifts this limit: ask the operator for one.";
 
+/** HTTP requests to `/mcp` per keyless client per minute, whatever messages each carries. */
+export const KEYLESS_MCP_REQUESTS_PER_MINUTE = 60;
+
+/** A keyless client over the `/mcp` request limiter. */
+export function keylessMcpRefusal(): QuotaError {
+  return {
+    code: "per_minute_limit_exceeded",
+    message: `HTTP requests to /mcp without an API key are limited to ${KEYLESS_MCP_REQUESTS_PER_MINUTE} per minute per IP address, whatever MCP messages each carries. Retry in ${BURST_PERIOD_SECONDS} seconds. ${KEY_LIFTS_LIMIT}`,
+    retryAfterSeconds: BURST_PERIOD_SECONDS,
+  };
+}
+
 /** A client over the keyed-request limiter, whatever keys it sent. */
 export function keyedRequestRefusal(): QuotaError {
   return {

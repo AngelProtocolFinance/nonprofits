@@ -10,9 +10,14 @@
     "@better-auth/api-key": "catalog:",
     "@hono/node-server": "catalog:",
     "@libsql/client": "catalog:",
+    "@modelcontextprotocol/server": "catalog:",
     "@nonprofits/core": "workspace:*",
     "@nonprofits/db": "workspace:*",
     "@vercel/functions": "catalog:",
-    "hono": "catalog:"
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "catalog:"
   }
 }

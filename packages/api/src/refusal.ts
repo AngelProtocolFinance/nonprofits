@@ -1,3 +1,4 @@
+import type { Context } from "hono";
 import type { HandlerError } from "./handlers.ts";
 import {
   PROBLEM_CONTENT_TYPE,
@@ -38,4 +39,10 @@ export function refusal(error: HandlerError) {
     status,
     headers,
   };
+}
+
+/** A handler refusal as the problem response every route answers it with. */
+export function refuse(c: Context, error: HandlerError) {
+  const { body, status, headers } = refusal(error);
+  return c.json(body, status, headers);
 }
