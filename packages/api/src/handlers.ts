@@ -9,9 +9,11 @@ import {
   searchOrgs,
 } from "@nonprofits/core";
 import {
+  type AuthError,
   type AuthUnavailable,
   authorize,
   type ClientRequest,
+  KEY_CHECK_UNAVAILABLE,
   KEYLESS_UNAVAILABLE,
   type Principal,
   unavailable,
@@ -26,7 +28,13 @@ import type { RateLimiter } from "./limiter.ts";
 import { logFailure } from "./log.ts";
 import { readOrg } from "./org-reader.ts";
 import { searchNames } from "./org-searcher.ts";
-import { meterKeyless, type QuotaError } from "./quota.ts";
+import {
+  countRequest,
+  DEFAULT_SERVICE_DAILY_LIMIT,
+  type MeteredTier,
+  meterMetered,
+  type QuotaError,
+} from "./quota.ts";
 
 /** A data read failed: a 503 the caller can retry, never a bare 500. */
 export type DataUnavailable = { code: "data_unavailable"; message: string };
@@ -35,6 +43,7 @@ export type DataUnavailable = { code: "data_unavailable"; message: string };
 export type HandlerError =
   | OrgLookupError
   | OrgSearchError
+  | AuthError
   | AuthUnavailable
   | QuotaError
   | DataUnavailable;
@@ -43,8 +52,10 @@ export type HandlerError =
 export interface ApiVars {
   /** keys the hash that stands in for a client's IP; requests are refused until it is set */
   IP_HASH_SECRET?: string | undefined;
-  /** keyless requests a UTC day, across every client; requests are refused unless a positive integer */
+  /** keyless requests a UTC day, across every client; unset is the default, and anything else but a positive integer refuses requests */
   SERVICE_KEYLESS_DAILY_LIMIT?: string | number | undefined;
+  /** default-tier key requests a UTC day, across every key; read as `SERVICE_KEYLESS_DAILY_LIMIT` is */
+  SERVICE_KEY_DAILY_LIMIT?: string | number | undefined;
 }
 
 /** What every handler reads besides its request, built once per app. */
@@ -52,6 +63,8 @@ export interface Service {
   appDb: Client;
   servedData: ServedDataResolver;
   keylessBurst: RateLimiter;
+  keyBurst: RateLimiter;
+  keyedRequests: RateLimiter;
   vars: ApiVars;
 }
 
@@ -72,9 +85,15 @@ interface Caller {
 async function authorizeAs(
   ctx: HandlerContext,
 ): Promise<Result<Caller, HandlerError>> {
+  const { service } = ctx;
   const authorized = await authorize(
     ctx.request,
-    ctx.service.vars.IP_HASH_SECRET,
+    {
+      appDb: service.appDb,
+      keyedRequests: service.keyedRequests,
+      ipHashSecret: service.vars.IP_HASH_SECRET,
+    },
+    ctx.now,
   );
   if (!authorized.ok) return authorized;
   return {
@@ -83,23 +102,44 @@ async function authorizeAs(
   };
 }
 
-/** Counts the call; storage or limiter errors leave it uncounted and unserved. */
+const SERVICE_DAILY_VAR = {
+  anonymous: "SERVICE_KEYLESS_DAILY_LIMIT",
+  default: "SERVICE_KEY_DAILY_LIMIT",
+} as const satisfies Record<MeteredTier, keyof ApiVars>;
+
+/** A tier's service-wide daily limit: its default while unset, null when set to anything but a positive integer. */
+function serviceDailyOf(vars: ApiVars, tier: MeteredTier): number | null {
+  const value = vars[SERVICE_DAILY_VAR[tier]];
+  return value === undefined
+    ? DEFAULT_SERVICE_DAILY_LIMIT[tier]
+    : countOf(value);
+}
+
+/** Counts the call; a misset limit, storage or limiter errors leave it uncounted and unserved. */
 async function meter(caller: Caller): Promise<Result<void, HandlerError>> {
-  const serviceDaily = countOf(caller.service.vars.SERVICE_KEYLESS_DAILY_LIMIT);
-  if (serviceDaily === null) {
-    return unavailable(
-      "SERVICE_KEYLESS_DAILY_LIMIT is not a positive integer",
-      KEYLESS_UNAVAILABLE,
-    );
-  }
+  const { service, principal, now } = caller;
+  const { subject, tier, limits } = principal;
+  const unavailableMessage =
+    tier === "anonymous" ? KEYLESS_UNAVAILABLE : KEY_CHECK_UNAVAILABLE;
   try {
-    return await meterKeyless(
-      { ...caller.service, serviceDaily },
-      caller.principal.subject,
-      caller.now,
+    if (tier === "whitelisted") {
+      return await countRequest(service.appDb, subject, limits, now);
+    }
+    const serviceDaily = serviceDailyOf(service.vars, tier);
+    if (serviceDaily === null) {
+      return unavailable(
+        `${SERVICE_DAILY_VAR[tier]} is not a positive integer`,
+        unavailableMessage,
+      );
+    }
+    return await meterMetered(
+      service,
+      { subject, tier, limits },
+      serviceDaily,
+      now,
     );
   } catch (error) {
-    return unavailable(error, KEYLESS_UNAVAILABLE);
+    return unavailable(error, unavailableMessage);
   }
 }
 

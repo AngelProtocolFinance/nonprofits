@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import {
+  seedUsage,
   type TestApi,
   type TestApiOptions,
   testApi,
@@ -190,12 +191,24 @@ describe("keyless quota", () => {
     });
   });
 
+  test("with the service-wide limit unset, the default ceiling applies: its last request is served and the next is 429", async () => {
+    await start({ vars: { SERVICE_KEYLESS_DAILY_LIMIT: undefined } });
+    await seedUsage(api, "*:keyless", "2026-10-05", 199);
+
+    expect((await lookupFrom(from("203.0.113.76"))).status).toBe(200);
+    const next = await lookupFrom(from("203.0.113.77"));
+
+    expect(next.status).toBe(429);
+    expect(await next.json()).toMatchObject({
+      code: "service_daily_limit_reached",
+    });
+  });
+
   test.each([
     ["not a number", "many"],
     ["zero", "0"],
     ["fractional", "2.5"],
     ["empty", ""],
-    ["unset", undefined],
   ])(
     "a service-wide limit that is %s refuses requests unavailable (503), never unlimited",
     async (_, value) => {
@@ -230,19 +243,6 @@ describe("keyless quota", () => {
       expect(await usageRows(api)).toBe(0);
     },
   );
-
-  test("a request carrying a key is refused (503), not served keyless on its IP's quota", async () => {
-    await start();
-
-    const response = await lookupFrom({
-      ...from("203.0.113.75"),
-      authorization: "Bearer np_abc",
-    });
-
-    expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({ code: "auth_unavailable" });
-    expect(await usageRows(api)).toBe(0);
-  });
 });
 
 /** Each client's counted requests, as `key_usage` holds them. */

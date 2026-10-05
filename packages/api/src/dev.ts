@@ -5,7 +5,12 @@ import { appDbFixture, dataDbFixture } from "@nonprofits/db/fixture";
 import { dataDbClient } from "@nonprofits/db/node";
 import { createApp } from "./app.ts";
 import { memoryRateLimiter } from "./limiter.ts";
-import { BURST_PERIOD_SECONDS, KEYLESS_LIMITS } from "./quota.ts";
+import {
+  BURST_PERIOD_SECONDS,
+  DEFAULT_LIMITS,
+  KEYED_REQUESTS_PER_MINUTE,
+  KEYLESS_LIMITS,
+} from "./quota.ts";
 
 // Serves the api on localhost over fresh fixture databases in a temp directory,
 // deleted on exit: the app database, migrated, pointing at a data database
@@ -19,21 +24,21 @@ await switchServedDatabase(appDb.client, {
 });
 
 const now = () => new Date();
+const perMinute = (limit: number) =>
+  memoryRateLimiter({ limit, periodSeconds: BURST_PERIOD_SECONDS, now });
 const app = createApp({
   appDb: appDb.client,
   openDataDb: (url) => dataDbClient(url, process.env),
-  keylessBurst: memoryRateLimiter({
-    limit: KEYLESS_LIMITS.perMinute,
-    periodSeconds: BURST_PERIOD_SECONDS,
-    now,
-  }),
+  keylessBurst: perMinute(KEYLESS_LIMITS.perMinute),
+  keyBurst: perMinute(DEFAULT_LIMITS.perMinute),
+  keyedRequests: perMinute(KEYED_REQUESTS_PER_MINUTE),
   now,
   vars: {
     // a fresh key per run: the usage rows it hashes are deleted with the run
     IP_HASH_SECRET:
       process.env.IP_HASH_SECRET ?? randomBytes(32).toString("base64url"),
-    SERVICE_KEYLESS_DAILY_LIMIT:
-      process.env.SERVICE_KEYLESS_DAILY_LIMIT ?? 200_000,
+    SERVICE_KEYLESS_DAILY_LIMIT: process.env.SERVICE_KEYLESS_DAILY_LIMIT,
+    SERVICE_KEY_DAILY_LIMIT: process.env.SERVICE_KEY_DAILY_LIMIT,
   },
 });
 

@@ -7,6 +7,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@better-auth/api-key": "catalog:",
     "@hono/node-server": "catalog:",
     "@libsql/client": "catalog:",
     "@nonprofits/core": "workspace:*",

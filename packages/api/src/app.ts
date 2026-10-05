@@ -25,6 +25,10 @@ export interface AppDeps {
   openDataDb: (url: string) => Client;
   /** keyless requests per client per minute */
   keylessBurst: RateLimiter;
+  /** default-tier key requests per key per minute */
+  keyBurst: RateLimiter;
+  /** requests carrying any key, per client per minute, before the key is read */
+  keyedRequests: RateLimiter;
   now: () => Date;
   vars: ApiVars;
 }
@@ -46,6 +50,8 @@ export function createApp(deps: AppDeps) {
     appDb: deps.appDb,
     servedData: servedDataResolver(deps.appDb, deps.openDataDb),
     keylessBurst: deps.keylessBurst,
+    keyBurst: deps.keyBurst,
+    keyedRequests: deps.keyedRequests,
     vars: deps.vars,
   };
   const contextOf = (c: Context): HandlerContext => ({

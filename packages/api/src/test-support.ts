@@ -1,4 +1,6 @@
-import type { Client } from "@libsql/client";
+import { randomInt } from "node:crypto";
+import { defaultKeyHasher } from "@better-auth/api-key";
+import type { Client, InStatement } from "@libsql/client";
 import { switchServedDatabase } from "@nonprofits/db";
 import {
   appDbFixture,
@@ -8,7 +10,12 @@ import {
 import { dataDbClient } from "@nonprofits/db/node";
 import { type ApiVars, createApp } from "./app.ts";
 import { memoryRateLimiter } from "./limiter.ts";
-import { BURST_PERIOD_SECONDS, KEYLESS_LIMITS } from "./quota.ts";
+import {
+  BURST_PERIOD_SECONDS,
+  DEFAULT_LIMITS,
+  KEYED_REQUESTS_PER_MINUTE,
+  KEYLESS_LIMITS,
+} from "./quota.ts";
 
 const FIXTURE_BUILD = "20260910T030000Z";
 
@@ -47,6 +54,8 @@ export interface TestApiOptions {
   fill?: (data: Client) => Promise<void>;
   /** false leaves the pointer as a fresh app database has it: never built. */
   serve?: boolean;
+  /** The app database as the app sees it, e.g. one whose writes fail. */
+  appDbAs?: (db: Client) => Client;
 }
 
 /**
@@ -66,18 +75,22 @@ export async function testApi(options: TestApiOptions = {}): Promise<TestApi> {
   }
   const clock = testClock();
   const clients: Client[] = [];
+  const perMinute = (limit: number) =>
+    memoryRateLimiter({
+      limit,
+      periodSeconds: BURST_PERIOD_SECONDS,
+      now: clock.now,
+    });
   const app = createApp({
-    appDb: appDb.client,
+    appDb: options.appDbAs?.(appDb.client) ?? appDb.client,
     openDataDb: (url) => {
       const client = dataDbClient(url, {});
       clients.push(client);
       return client;
     },
-    keylessBurst: memoryRateLimiter({
-      limit: KEYLESS_LIMITS.perMinute,
-      periodSeconds: BURST_PERIOD_SECONDS,
-      now: clock.now,
-    }),
+    keylessBurst: perMinute(KEYLESS_LIMITS.perMinute),
+    keyBurst: perMinute(DEFAULT_LIMITS.perMinute),
+    keyedRequests: perMinute(KEYED_REQUESTS_PER_MINUTE),
     now: clock.now,
     vars: { ...TEST_VARS, ...options.vars },
   });
@@ -110,4 +123,138 @@ export async function usageRows(api: TestApi): Promise<number> {
     "SELECT count(*) AS n FROM key_usage",
   );
   return Number(rows.rows[0]?.n);
+}
+
+/** `key_usage` as `requests` admitted requests would leave `subject`'s day, without sending them. */
+export async function seedUsage(
+  api: TestApi,
+  subject: string,
+  day: string,
+  requests: number,
+) {
+  await api.appDb.client.execute({
+    sql: `INSERT INTO key_usage (subject, day, requests, minute, minute_requests)
+          VALUES (?1, ?2, ?3, 0, 0)
+          ON CONFLICT (subject, day) DO UPDATE SET requests = excluded.requests`,
+    args: [subject, day, requests],
+  });
+}
+
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+export interface TestKey {
+  id: string;
+  /** the key as its holder sends it */
+  key: string;
+}
+
+export interface TestKeyOptions {
+  /** 0 as `keys revoke` leaves it */
+  enabled?: number;
+  expiresAt?: string | null;
+  /** a `key_limits` row, which makes the key whitelisted */
+  limits?: { daily: number; perMinute: number };
+}
+
+let nextKey = 0;
+
+/**
+ * An `apikey` row as the plugin stores a key it issued, hashed with the
+ * plugin's own hasher; issuing through better-auth is the key routes' job.
+ */
+export async function insertKey(
+  api: TestApi,
+  options: TestKeyOptions = {},
+): Promise<TestKey> {
+  nextKey += 1;
+  const id = `test-key-${nextKey}`;
+  const key = `npk_${Array.from({ length: 64 }, () => LETTERS[randomInt(LETTERS.length)]).join("")}`;
+  const at = api.clock.now().toISOString();
+  const statements: InStatement[] = [
+    {
+      sql: `INSERT INTO apikey (id, configId, referenceId, key, enabled, rateLimitEnabled, requestCount, expiresAt, createdAt, updatedAt)
+            VALUES (?1, 'default', 'test-owner', ?2, ?3, 0, 0, ?4, ?5, ?5)`,
+      args: [
+        id,
+        await defaultKeyHasher(key),
+        options.enabled ?? 1,
+        options.expiresAt ?? null,
+        at,
+      ],
+    },
+  ];
+  if (options.limits !== undefined) {
+    statements.push({
+      sql: "INSERT INTO key_limits (key_id, daily, per_minute) VALUES (?1, ?2, ?3)",
+      args: [id, options.limits.daily, options.limits.perMinute],
+    });
+  }
+  await api.appDb.client.batch(statements, "write");
+  return { id, key };
+}
+
+/** `db`, except that a statement whose SQL matches `failing` rejects as an unreachable store would. */
+export function failingDb(db: Client, failing: RegExp): Client {
+  const sqlOf = (statement: InStatement) =>
+    typeof statement === "string" ? statement : statement.sql;
+  return new Proxy(db, {
+    get(target, property) {
+      if (property === "execute") {
+        return async (statement: InStatement) => {
+          if (failing.test(sqlOf(statement))) {
+            throw new Error("app database unreachable");
+          }
+          return target.execute(statement);
+        };
+      }
+      if (property === "batch") {
+        return async (statements: InStatement[], mode?: "read" | "write") => {
+          if (statements.some((statement) => failing.test(sqlOf(statement)))) {
+            throw new Error("app database unreachable");
+          }
+          return target.batch(statements, mode);
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+/** Every row of every table in the app database, each as JSON, by table. */
+async function appDbRows(api: TestApi): Promise<Map<string, string[]>> {
+  const db = api.appDb.client;
+  const tables = await db.execute(
+    "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+  );
+  const rows = new Map<string, string[]>();
+  for (const { name } of tables.rows) {
+    const table = String(name);
+    const all = await db.execute(`SELECT * FROM "${table}"`);
+    rows.set(
+      table,
+      all.rows.map((row) => JSON.stringify({ ...row })),
+    );
+  }
+  return rows;
+}
+
+/**
+ * The app database rows `act` inserts or changes, counted from a snapshot of
+ * every table before and after, so a write no wrapper sees still counts. A
+ * deleted row isn't counted: no request path deletes.
+ */
+export async function rowsWrittenBy(
+  api: TestApi,
+  act: () => unknown,
+): Promise<number> {
+  const before = await appDbRows(api);
+  await act();
+  const after = await appDbRows(api);
+  let written = 0;
+  for (const [table, rows] of after) {
+    const kept = new Set(before.get(table));
+    written += rows.filter((row) => !kept.has(row)).length;
+  }
+  return written;
 }
