@@ -12,7 +12,7 @@ const WORKFLOW_REF = "main";
 
 /** What the guard reads when its var is unset. */
 const FRESHNESS_DEFAULTS = {
-  GITHUB_REPO: "better-giving/nonprofits",
+  GITHUB_REPO: "AngelProtocolFinance/nonprofits",
   STALE_AFTER_DAYS: 35,
   REDISPATCH_AFTER_HOURS: 72,
 };

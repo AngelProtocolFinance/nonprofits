@@ -10,7 +10,7 @@ import {
 
 const TOKEN = "github_pat_test-only-0123456789abcdefghijklmnopqrstuvwxyz";
 const WORKFLOW_URL =
-  "https://api.github.com/repos/better-giving/nonprofits/actions/workflows/import.yml";
+  "https://api.github.com/repos/AngelProtocolFinance/nonprofits/actions/workflows/import.yml";
 const ENABLE_URL = `${WORKFLOW_URL}/enable`;
 const DISPATCH_URL = `${WORKFLOW_URL}/dispatches`;
 const GITHUB_HEADERS = {
@@ -387,7 +387,7 @@ describe.each([
 describe.each([
   ["STALE_AFTER_DAYS", "soon"],
   ["REDISPATCH_AFTER_HOURS", "0"],
-  ["GITHUB_REPO", "better-giving/nonprofits/../other"],
+  ["GITHUB_REPO", "AngelProtocolFinance/nonprofits/../other"],
 ])("stale data with %s set to %j", (name, value) => {
   test("no call, skipped as invalid_config naming the var, the run still 204", async () => {
     const github = gitHub();
