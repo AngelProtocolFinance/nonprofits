@@ -24,7 +24,6 @@ describe("migrateAppDb", () => {
     expect(await migrateAppDb(app)).toEqual([
       "0001_better_auth.sql",
       "0002_key_limits_and_usage.sql",
-      "0003_data_generation.sql",
       "0004_served_database.sql",
     ]);
     const tables = await app.execute(

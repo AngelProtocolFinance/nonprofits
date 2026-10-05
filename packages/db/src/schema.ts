@@ -10,9 +10,8 @@ const IMPORT_SOURCES = [
 export type ImportSource = (typeof IMPORT_SOURCES)[number];
 
 /**
- * Every table in a data database, in the order a reset drops them: the search
- * index first, then each child before its parent. Auth and usage tables live
- * in the app database and never belong here.
+ * Every table in a data database. Auth and usage tables live in the app
+ * database and never belong here.
  */
 export const DATA_TABLES = [
   "orgs_fts",
@@ -87,9 +86,8 @@ export const COLUMNS = {
 /**
  * CHECK conditions for the text dates the data databases hold; they compare
  * as text, so each holds one shape: the one SQLite's own date functions write
- * for it, which also rules out a day or month the calendar lacks. A null
- * passes (`IS`). No GLOB: D1 refuses a pattern much past 50 bytes as too
- * complex.
+ * for it, which also rules out a day or month the calendar lacks, as no GLOB
+ * pattern can. A null passes (`IS`).
  */
 export function dateCheck(
   column: string,
@@ -105,7 +103,7 @@ export function dateCheck(
   }
 }
 
-/** CREATE statements for the loaded data tables; part of what `resetGenerationSql` (a D1 slot) and `createDataDatabase` (a Turso database) build. */
+/** CREATE statements for the loaded data tables; part of what `createDataDatabase` builds. */
 export function dataTablesDdl(): string {
   const sources = IMPORT_SOURCES.map((s) => `'${s}'`).join(", ");
   return `-- One row per IRS bulk file fetched, written when its import commits.

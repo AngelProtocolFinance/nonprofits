@@ -1,17 +1,26 @@
-import { DatabaseSync } from "node:sqlite";
-import { describe, expect, test } from "vitest";
-import { COLUMNS, resetGenerationSql } from "./index.ts";
+import { type Client, createClient } from "@libsql/client";
+import { afterEach, describe, expect, test } from "vitest";
+import { COLUMNS, createDataDatabase } from "./index.ts";
 
-function fromDdl(ddl: string): DatabaseSync {
-  const db = new DatabaseSync(":memory:");
-  db.exec(ddl);
+const open: Client[] = [];
+
+afterEach(() => {
+  for (const db of open.splice(0)) db.close();
+});
+
+/** A new in-memory data database, its schema built, with `rows` run on it. */
+async function dataDatabase(rows = ""): Promise<Client> {
+  const db = createClient({ url: ":memory:" });
+  open.push(db);
+  await createDataDatabase(db);
+  await db.executeMultiple(rows);
   return db;
 }
 
 /** What running `sql` did: "written", or the error it raised. */
-function outcome(db: DatabaseSync, sql: string): string {
+async function outcome(db: Client, sql: string): Promise<string> {
   try {
-    db.exec(sql);
+    await db.executeMultiple(sql);
     return "written";
   } catch (error) {
     return (error as Error).message;
@@ -19,35 +28,35 @@ function outcome(db: DatabaseSync, sql: string): string {
 }
 
 describe("COLUMNS", () => {
-  test("lists every column of every loaded table a reset builds, in order", () => {
-    const db = fromDdl(resetGenerationSql("a", "build-1"));
+  test("lists every column of every loaded table a data database builds, in order", async () => {
+    const db = await dataDatabase();
     for (const [table, columns] of Object.entries(COLUMNS)) {
-      const actual = (
-        db.prepare("SELECT name FROM pragma_table_info(?)").all(table) as {
-          name: string;
-        }[]
-      ).map((c) => c.name);
-      expect(actual, table).toEqual(columns);
+      const rs = await db.execute({
+        sql: "SELECT name FROM pragma_table_info(?)",
+        args: [table],
+      });
+      expect(
+        rs.rows.map((c) => c.name),
+        table,
+      ).toEqual(columns);
     }
   });
 });
 
 describe("date columns", () => {
-  /** A building generation with one org whose dates are each `null`. */
-  function generation(): DatabaseSync {
-    const db = fromDdl(resetGenerationSql("a", "build-1"));
-    db.exec(
-      "INSERT INTO import_runs VALUES (1, 'bmf', 'https://example.invalid/bmf', '2026-09-07T04:11:46.000Z', '2026-10-03T08:54:47.273Z', 1)",
-    );
-    db.exec("INSERT INTO orgs (ein) VALUES ('530196605')");
-    return db;
+  /** A data database with one org whose dates are each `null`. */
+  function withOrg(): Promise<Client> {
+    return dataDatabase(`
+      INSERT INTO import_runs VALUES (1, 'bmf', 'https://example.invalid/bmf', '2026-09-07T04:11:46.000Z', '2026-10-03T08:54:47.273Z', 1);
+      INSERT INTO orgs (ein) VALUES ('530196605');
+    `);
   }
 
   // each value in the shape the import writes, as read from a full local build
   const ACCEPTED = [
     "UPDATE orgs SET ruling_date = '1946-06'",
     "UPDATE orgs SET revocation_date = '2010-05-15', reinstatement_date = '2026-08-15'",
-    "UPDATE data_meta SET built_at = '2026-10-03T09:00:33Z'",
+    "INSERT INTO data_meta VALUES (1, 'build-1', '2026-10-03T09:00:33Z')",
   ];
 
   const REFUSED = [
@@ -61,31 +70,36 @@ describe("date columns", () => {
       "reinstatement_date",
       "UPDATE orgs SET revocation_date = '2010-05-15', reinstatement_date = '2026-08-15T00:00:00Z'",
     ],
-    ["built_at", "UPDATE data_meta SET built_at = '2026-10-03'"],
-    ["built_at", "UPDATE data_meta SET built_at = '2026-10-03 09:00:33'"],
-    ["built_at", "UPDATE data_meta SET built_at = '2026-10-03T25:00:00Z'"],
+    ["built_at", "INSERT INTO data_meta VALUES (1, 'build-1', '2026-10-03')"],
+    [
+      "built_at",
+      "INSERT INTO data_meta VALUES (1, 'build-1', '2026-10-03 09:00:33')",
+    ],
+    [
+      "built_at",
+      "INSERT INTO data_meta VALUES (1, 'build-1', '2026-10-03T25:00:00Z')",
+    ],
   ] as const;
 
-  test("take the formats the import writes", () => {
-    const db = generation();
+  test("take the formats the import writes", async () => {
+    const db = await withOrg();
+    const outcomes = [];
+    for (const sql of ACCEPTED) outcomes.push(await outcome(db, sql));
 
-    expect(ACCEPTED.map((sql) => outcome(db, sql))).toEqual(
-      ACCEPTED.map(() => "written"),
-    );
+    expect(outcomes).toEqual(ACCEPTED.map(() => "written"));
   });
 
-  test.each(REFUSED)("%s refuses %s", (column, sql) => {
-    expect(outcome(generation(), sql)).toMatch(
-      new RegExp(`^CHECK constraint failed: .*${column}`),
+  test.each(REFUSED)("%s refuses %s", async (column, sql) => {
+    expect(await outcome(await withOrg(), sql)).toMatch(
+      new RegExp(`CHECK constraint failed: .*${column}`),
     );
   });
 });
 
 describe("data table constraints", () => {
-  /** A building generation: import runs 1 (bmf) and 2 (efile_xml), and one org with a filing and a program. */
-  function generation(): DatabaseSync {
-    const db = fromDdl(resetGenerationSql("a", "build-1"));
-    db.exec(`
+  /** A data database with import runs 1 (bmf) and 2 (efile_xml), and one org with a filing and a program. */
+  function loaded(): Promise<Client> {
+    return dataDatabase(`
       INSERT INTO import_runs VALUES (1, 'bmf', 'https://example.invalid/bmf', '2026-09-08T12:00:00.000Z', '2026-09-10T03:00:00.000Z', 1);
       INSERT INTO import_runs VALUES (2, 'efile_xml', 'https://example.invalid/x.zip', '2026-09-04T12:00:00.000Z', '2026-09-10T03:10:00.000Z', 1);
       INSERT INTO orgs (ein, name, name_run_id, street, city, state, zip, address_run_id, bmf_run_id, subsection)
@@ -94,14 +108,11 @@ describe("data table constraints", () => {
         VALUES ('530196605', '202511319349301234', '990', '2025-06', 2024, 2);
       INSERT INTO programs (ein, object_id, rank) VALUES ('530196605', '202511319349301234', 1);
     `);
-    return db;
   }
 
-  function count(db: DatabaseSync, table: string): number {
-    const row = db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as {
-      n: number;
-    };
-    return row.n;
+  async function count(db: Client, table: string): Promise<number> {
+    const rs = await db.execute(`SELECT count(*) AS n FROM ${table}`);
+    return Number(rs.rows[0]?.n);
   }
 
   // each accepted row sits one step inside a refused one below it
@@ -273,36 +284,42 @@ describe("data table constraints", () => {
     ],
   ] as const;
 
-  test.each(ACCEPTED)("takes %s", (_, sql) => {
-    expect(outcome(generation(), sql)).toBe("written");
+  test.each(ACCEPTED)("takes %s", async (_, sql) => {
+    expect(await outcome(await loaded(), sql)).toBe("written");
   });
 
-  test.each(REFUSED)("refuses %s", (_, sql, failure) => {
-    expect(outcome(generation(), sql)).toMatch(failure);
+  test.each(REFUSED)("refuses %s", async (_, sql, failure) => {
+    expect(await outcome(await loaded(), sql)).toMatch(failure);
   });
 
-  test("deleting an org takes its filing and that filing's programs with it", () => {
-    const db = generation();
+  test("deleting an org takes its filing and that filing's programs with it", async () => {
+    const db = await loaded();
 
-    db.exec("DELETE FROM orgs WHERE ein = '530196605'");
+    await db.execute("DELETE FROM orgs WHERE ein = '530196605'");
 
-    expect([count(db, "filings"), count(db, "programs")]).toStrictEqual([0, 0]);
-    expect(count(db, "import_runs")).toBe(2);
+    expect([
+      await count(db, "filings"),
+      await count(db, "programs"),
+    ]).toStrictEqual([0, 0]);
+    expect(await count(db, "import_runs")).toBe(2);
   });
 
-  test("deleting a filing takes its programs and leaves its org", () => {
-    const db = generation();
+  test("deleting a filing takes its programs and leaves its org", async () => {
+    const db = await loaded();
 
-    db.exec("DELETE FROM filings WHERE ein = '530196605'");
+    await db.execute("DELETE FROM filings WHERE ein = '530196605'");
 
-    expect([count(db, "programs"), count(db, "orgs")]).toStrictEqual([0, 1]);
+    expect([
+      await count(db, "programs"),
+      await count(db, "orgs"),
+    ]).toStrictEqual([0, 1]);
   });
 
-  test("replacing a filing's return while its programs remain is refused", () => {
-    const db = generation();
+  test("replacing a filing's return while its programs remain is refused", async () => {
+    const db = await loaded();
 
     expect(
-      outcome(
+      await outcome(
         db,
         "UPDATE filings SET object_id = 'newer' WHERE ein = '530196605'",
       ),

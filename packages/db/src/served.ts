@@ -1,6 +1,6 @@
 import type { Client, Row } from "@libsql/client";
 
-/** The pointer's `build_id` until the first build switches it (`0003_data_generation.sql`, `0004_served_database.sql`). */
+/** The pointer's `build_id` until the first build switches it (`0004_served_database.sql`). */
 export const NEVER_BUILT = "empty";
 
 /** A Turso data database: its name, as the Platform API knows it, and the URL a client opens. */

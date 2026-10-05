@@ -3,8 +3,6 @@ import type { Client } from "@libsql/client";
 
 const APP_MIGRATIONS = new URL("../migrations/app/", import.meta.url);
 
-// Its own table, not wrangler's d1_migrations: the Worker's local D1 keeps
-// that one, and a Turso database never had it.
 const BOOKKEEPING_DDL = `CREATE TABLE IF NOT EXISTS app_migrations (
   name TEXT PRIMARY KEY,
   applied_at TEXT NOT NULL
