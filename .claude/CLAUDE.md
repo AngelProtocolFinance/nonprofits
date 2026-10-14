@@ -1,5 +1,4 @@
 <!-- kru v0.141.0 · derived 2026-10-05 · /kru:setup to re-derive -->
-@AGENTS.md
 @../AGENTS.md
 
 ## Team
