@@ -1,5 +1,6 @@
-import type { Client } from "@libsql/client";
+import { type Client, LibsqlError } from "@libsql/client";
 import type { OrgSearchRecord, SourceFile } from "@nonprofits/core";
+import { FILING_SIZE_INDEX } from "@nonprofits/db";
 import { rowsOf } from "./rows.ts";
 
 interface MatchRow {
@@ -21,10 +22,10 @@ interface RunRow {
 }
 
 /**
- * Ranking reads each candidate's FTS entry, org row and filing, so a word in
- * 912k names (`inc`) would read them all: only this many matches, in EIN
- * order, are ranked, and a broad word's best match can fall past them. The
- * service-wide daily ceilings in quota.ts are sized on it.
+ * Ranking reads each candidate's FTS entry, org row and filing size, so a
+ * word in 912k names (`inc`) would read them all: only this many matches, in
+ * EIN order, are ranked, and a broad word's best match can fall past them.
+ * The service-wide daily ceilings in quota.ts are sized on it.
  */
 const MAX_CANDIDATES = 1_000;
 
@@ -36,18 +37,35 @@ const MAX_CANDIDATES = 1_000;
  * named AMERICAN RED CROSS would otherwise outscore the national org. At an
  * equal score the larger org leads, so UNITED WAY WORLDWIDE tops its chapters:
  * its latest filing's revenue, then its assets, a missing figure or filing
- * last; EIN breaks the ties left.
+ * last; EIN breaks the ties left. `united way` ties across the whole candidate
+ * window, and revenue sits after mission and activity_summary, so the primary
+ * key would read both texts per candidate and time out on Turso. INDEXED BY
+ * the covering size index reads only the figures; without it the unanalyzed
+ * planner picks the primary key even when the index exists. A database built
+ * before the index still answers through the primary key.
  */
-const SEARCH_SQL = `
+function searchSql(indexed: boolean): string {
+  const filings = indexed
+    ? `LEFT JOIN filings f INDEXED BY ${FILING_SIZE_INDEX} ON f.ein = o.ein`
+    : "LEFT JOIN filings f ON f.ein = o.ein";
+  return `
 SELECT o.ein, o.name, o.city, o.state, o.subsection, o.bmf_run_id, o.in_pub78
 FROM (
   SELECT rowid, rank AS score FROM orgs_fts WHERE orgs_fts MATCH ?1 LIMIT ${MAX_CANDIDATES}
 ) m
 JOIN orgs o ON o.ein = printf('%09d', m.rowid) AND o.name IS NOT NULL
-LEFT JOIN filings f ON f.ein = o.ein
+${filings}
 ORDER BY o.in_pub78 DESC, o.bmf_run_id IS NULL, m.score,
   f.total_revenue DESC NULLS LAST, f.total_assets_eoy DESC NULLS LAST, m.rowid
 LIMIT ?2`;
+}
+
+function lacksSizeIndex(error: unknown): boolean {
+  return (
+    error instanceof LibsqlError &&
+    error.message.includes(`no such index: ${FILING_SIZE_INDEX}`)
+  );
+}
 
 /**
  * Every BMF run, since each region file is its own run and a match cites the
@@ -68,9 +86,59 @@ FROM import_runs WHERE id = (SELECT max(id) FROM import_runs WHERE source = 'pub
  */
 export const SEARCH_RECORD_VERSION = 2;
 
+/**
+ * The match query and the source-run query in one round trip. A database
+ * built before `filings_size` fails the indexed join at prepare time, before
+ * it reads any filing; the same batch then runs without the index. The next
+ * search tries the index again, so creating it starts being used without a
+ * new process.
+ */
+async function matchBatch(db: Client, words: string[], limit: number) {
+  const args = [matchExpression(words), limit] as const;
+  try {
+    return await db.batch(
+      [{ sql: searchSql(true), args: [...args] }, SOURCE_RUNS_SQL],
+      "read",
+    );
+  } catch (error) {
+    if (!lacksSizeIndex(error)) throw error;
+    return db.batch(
+      [{ sql: searchSql(false), args: [...args] }, SOURCE_RUNS_SQL],
+      "read",
+    );
+  }
+}
+
 /** Each word as a quoted FTS5 string, so no word reads as FTS5 syntax. */
 function matchExpression(words: string[]): string {
   return words.map((w) => `"${w.replaceAll('"', '""')}"`).join(" ");
+}
+
+/** Detail lines of the plan behind `searchNames`, in order. */
+export async function searchMatchPlan(
+  db: Client,
+  words: string[],
+  limit: number,
+): Promise<string[]> {
+  try {
+    return await explainMatch(db, true, words, limit);
+  } catch (error) {
+    if (!lacksSizeIndex(error)) throw error;
+    return explainMatch(db, false, words, limit);
+  }
+}
+
+async function explainMatch(
+  db: Client,
+  indexed: boolean,
+  words: string[],
+  limit: number,
+): Promise<string[]> {
+  const plan = await db.execute({
+    sql: `EXPLAIN QUERY PLAN ${searchSql(indexed)}`,
+    args: [matchExpression(words), limit],
+  });
+  return plan.rows.map((row) => String(row.detail));
 }
 
 /** Searches org names in one round trip to the data database: `OrgSearcher.search`. */
@@ -79,13 +147,7 @@ export async function searchNames(
   words: string[],
   limit: number,
 ): Promise<OrgSearchRecord[]> {
-  const [matches, runs] = await db.batch(
-    [
-      { sql: SEARCH_SQL, args: [matchExpression(words), limit] },
-      SOURCE_RUNS_SQL,
-    ],
-    "read",
-  );
+  const [matches, runs] = await matchBatch(db, words, limit);
   const bmfRuns = new Map<number, SourceFile>();
   let pub78Run: SourceFile | undefined;
   for (const run of rowsOf<RunRow>(runs)) {

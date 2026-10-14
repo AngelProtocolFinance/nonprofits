@@ -23,6 +23,13 @@ export const DATA_TABLES = [
 ] as const;
 export type DataTable = (typeof DATA_TABLES)[number];
 
+/**
+ * Covering index of the figures name search ranks a tie by. Revenue and assets
+ * follow `mission` and `activity_summary` on the filing row, so the primary
+ * key lookup reads both texts; this index holds neither.
+ */
+export const FILING_SIZE_INDEX = "filings_size";
+
 export const COLUMNS = {
   import_runs: [
     "id",
@@ -174,6 +181,13 @@ CREATE TABLE filings (
   mission_on_schedule_o INTEGER NOT NULL DEFAULT 0 CHECK (mission_on_schedule_o IN (0, 1)),
   UNIQUE (ein, object_id)
 ) STRICT;
+
+-- Search orders tied names by revenue, then assets. Those columns follow
+-- mission and activity_summary, so a primary-key lookup reads both texts for
+-- every candidate: a tie across a thousand United Ways times out on Turso.
+-- Covering, so that lookup reads neither text. Search names it with
+-- INDEXED BY; with no sqlite_stat1 the planner prefers the primary key.
+CREATE INDEX ${FILING_SIZE_INDEX} ON filings (ein, total_revenue, total_assets_eoy);
 
 -- Replacing a filing's object_id fails while its old programs remain.
 CREATE TABLE programs (

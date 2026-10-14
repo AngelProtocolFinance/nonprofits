@@ -1,6 +1,8 @@
 import type { Client } from "@libsql/client";
 import type { OrgSearchResponse, SourceFile } from "@nonprofits/core";
+import { FILING_SIZE_INDEX } from "@nonprofits/db";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { searchMatchPlan, searchNames } from "./org-searcher.ts";
 import { freshClient, type TestApi, testApi } from "./test-support.ts";
 
 /** The fixture's BMF file, which lists the Red Cross. */
@@ -391,6 +393,57 @@ describe("GET /v1/search among names that score the same", () => {
       "520444444",
     ]);
   });
+
+  test("breaks the tie from the covering size index, within a second", async () => {
+    const started = performance.now();
+    const records = await searchNames(tied.dataDb.client, ["united", "way"], 5);
+    const elapsed = performance.now() - started;
+    const plan = (
+      await searchMatchPlan(tied.dataDb.client, ["united", "way"], 5)
+    ).join("\n");
+
+    expect(records[0]?.ein).toBe("131635294");
+    expect(elapsed).toBeLessThan(1_000);
+    // a primary-key lookup would read mission and activity_summary for every
+    // candidate; that is the United Way timeout. The size index holds neither.
+    expect(plan).toContain("USING COVERING INDEX filings_size");
+    expect(plan).not.toContain("sqlite_autoindex_filings");
+    expect(plan).not.toMatch(/SCAN f\b/);
+  });
+});
+
+describe("GET /v1/search on a database built before the size index", () => {
+  let legacy: TestApi;
+
+  beforeAll(async () => {
+    legacy = await testApi({ fill: unitedWays });
+    await legacy.dataDb.client.execute(`DROP INDEX ${FILING_SIZE_INDEX}`);
+  });
+
+  afterAll(async () => {
+    await legacy.dispose();
+  });
+
+  test("still ranks United Way Worldwide, by the filings primary key", async () => {
+    const response = await legacy.app.request(
+      "/v1/search?q=united%20way&limit=5",
+      { headers: freshClient() },
+    );
+    const body = (await response.json()) as OrgSearchResponse;
+    expect(response.status).toBe(200);
+    expect(body.results[0]?.ein).toBe("131635294");
+    expect(body.results.map((result) => result.ein).slice(0, 3)).toEqual([
+      "131635294",
+      "060222222",
+      "010211111",
+    ]);
+
+    const plan = (
+      await searchMatchPlan(legacy.dataDb.client, ["united", "way"], 5)
+    ).join("\n");
+    expect(plan).toContain("sqlite_autoindex_filings");
+    expect(plan).not.toContain(FILING_SIZE_INDEX);
+  });
 });
 
 /** EINs of 1,001 orgs named alike, in EIN order; only the last two are in Pub 78. */
@@ -398,18 +451,34 @@ const ALIKE_EINS = Array.from({ length: 1_001 }, (_, i) =>
   String(800_000_001 + i),
 );
 
+/** A filing body large enough that ranking it is the expensive work the cap skips. */
+const FAT_MISSION = "M".repeat(64_000);
+
 async function alikeNames(data: Client) {
+  // the 1,001st, past the candidate cap
+  const pastTheCap = ALIKE_EINS[1_000];
+  if (pastTheCap === undefined) {
+    throw new Error("the 1,001st alike EIN is missing");
+  }
   await data.batch(
-    ALIKE_EINS.flatMap((ein, i) => [
+    [
+      ...ALIKE_EINS.flatMap((ein, i) => [
+        {
+          sql: "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id, in_pub78) VALUES (?1, 'QUORUMVILLE FUND', 1, '03', 1, ?2)",
+          args: [ein, i >= 999 ? 1 : 0],
+        },
+        {
+          sql: "INSERT INTO orgs_fts (rowid, name) VALUES (CAST(?1 AS INTEGER), 'QUORUMVILLE FUND')",
+          args: [ein],
+        },
+      ]),
+      // largest filing, and a mission the tie-break must not have to read:
+      // revenue ranking before the cap would return this org first
       {
-        sql: "INSERT INTO orgs (ein, name, name_run_id, subsection, bmf_run_id, in_pub78) VALUES (?1, 'QUORUMVILLE FUND', 1, '03', 1, ?2)",
-        args: [ein, i >= 999 ? 1 : 0],
+        sql: "INSERT INTO filings (ein, object_id, form_type, tax_period, tax_year, mission, activity_summary, total_revenue, total_assets_eoy, run_id) VALUES (?1, ?1, '990', '2025-06', 2024, ?2, ?2, 9000000000, 9000000000, 5)",
+        args: [pastTheCap, FAT_MISSION],
       },
-      {
-        sql: "INSERT INTO orgs_fts (rowid, name) VALUES (CAST(?1 AS INTEGER), 'QUORUMVILLE FUND')",
-        args: [ein],
-      },
-    ]),
+    ],
     "write",
   );
 }
@@ -425,7 +494,7 @@ describe("GET /v1/search for a word in more than 1,000 names", () => {
     await broad.dispose();
   });
 
-  test("ranks only the first 1,000 matches in EIN order: the 1,000th leads as a Pub 78 org, the 1,001st is never returned", async () => {
+  test("ranks only the first 1,000 matches in EIN order: the 1,000th leads as a Pub 78 org, and the 1,001st is never returned even though its filing is the largest", async () => {
     const response = await broad.app.request("/v1/search?q=quorumville", {
       headers: freshClient(),
     });
