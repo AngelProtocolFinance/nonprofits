@@ -48,7 +48,10 @@ export const ROWS_WRITTEN = { metered: 2, whitelisted: 1, refused: 0 };
 //
 // Reads bind. A search ranks up to MAX_CANDIDATES (1,000, org-searcher.ts)
 // FTS matches, visiting per match 3 rows: its FTS entry, its `orgs` row and
-// its `filings` row, measured with .scanstats: up to 3 x 1,000 = 3,000 rows.
+// its `filings_size` index row on a current data database (revenue and assets
+// only; the mission text stays unread), measured with .scanstats: up to
+// 3 x 1,000 = 3,000 rows. A database built before that index still answers,
+// reading each filing row instead.
 // About 100 more cover the key check, the counters and a lookup's handful. A
 // caller picks its query, so a ceiling assumes every request is that worst
 // search: 3,100 rows read.

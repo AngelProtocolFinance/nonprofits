@@ -10,6 +10,7 @@ export {
 export {
   COLUMNS,
   type DataTable,
+  FILING_SIZE_INDEX,
   type ImportSource,
 } from "./schema.ts";
 export {
