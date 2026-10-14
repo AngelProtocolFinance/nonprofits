@@ -1,0 +1,6 @@
+---
+description: Repository instructions for agents. The source is AGENTS.md.
+alwaysApply: true
+---
+
+Follow [AGENTS.md](../../AGENTS.md) at the repository root. It is the source for the stack, commands, layout and boundaries, conventions, and the Never list. Do not copy those instructions into this rule.
