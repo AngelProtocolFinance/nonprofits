@@ -27,35 +27,35 @@ function lookupFrom(headers: Record<string, string>, ein = "530196605") {
 const from = (ip: string) => ({ "x-real-ip": ip });
 
 describe("keyless quota", () => {
-  test("an IP gets 5 requests a UTC day; the 6th is 429 with Retry-After to UTC midnight, and another IP is still served", async () => {
+  test("an IP gets 25 requests a UTC day; the 26th is 429 with Retry-After to UTC midnight, and another IP is still served", async () => {
     await start();
     api.clock.set("2026-10-05T22:00:00Z");
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 25; i++) {
       const response = await lookupFrom(from("203.0.113.10"));
       expect(response.status, `request ${i}`).toBe(200);
       api.clock.advance(MINUTE_MS);
     }
 
-    const sixth = await lookupFrom(from("203.0.113.10"));
+    const over = await lookupFrom(from("203.0.113.10"));
 
-    expect(sixth.status).toBe(429);
-    expect(sixth.headers.get("content-type")).toBe("application/problem+json");
-    expect(sixth.headers.get("retry-after")).toBe("6900");
-    expect(await sixth.json()).toStrictEqual({
+    expect(over.status).toBe(429);
+    expect(over.headers.get("content-type")).toBe("application/problem+json");
+    expect(over.headers.get("retry-after")).toBe("5700");
+    expect(await over.json()).toStrictEqual({
       type: "about:blank",
       title: "Too Many Requests",
       status: 429,
       code: "daily_quota_exceeded",
       detail:
-        "Requests without an API key are limited to 5 requests a UTC day per IP address, and this address has used them. They reset at 2026-10-06T00:00:00Z (UTC midnight). An API key lifts this limit: ask the operator for one.",
+        "Requests without an API key are limited to 25 requests a UTC day per IP address, and this address has used them. They reset at 2026-10-06T00:00:00Z (UTC midnight). An API key lifts this limit: ask the operator for one.",
     });
     expect((await lookupFrom(from("203.0.113.11"))).status).toBe(200);
   });
 
   test("the next UTC day opens an IP's quota again", async () => {
     await start();
-    api.clock.set("2026-10-05T23:50:00Z");
-    for (let i = 1; i <= 5; i++) {
+    api.clock.set("2026-10-05T23:00:00Z");
+    for (let i = 1; i <= 25; i++) {
       await lookupFrom(from("203.0.113.12"));
       api.clock.advance(MINUTE_MS);
     }
@@ -87,12 +87,12 @@ describe("keyless quota", () => {
 
   test("a request refused by the per-minute limiter isn't counted toward the day", async () => {
     await start();
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 25; i++) {
       expect((await lookupFrom(from("203.0.113.32"))).status).toBe(200);
       expect((await lookupFrom(from("203.0.113.32"))).status).toBe(429);
       api.clock.advance(MINUTE_MS);
     }
-    expect(await countedPerClient()).toStrictEqual([5]);
+    expect(await countedPerClient()).toStrictEqual([25]);
   });
 
   test("a client-set IP header beside the platform's is ignored: the request counts as the platform's IP", async () => {
@@ -143,7 +143,7 @@ describe("keyless quota", () => {
   test("search and lookup count against the same per-IP day", async () => {
     await start();
     const ip = from("203.0.113.60");
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 23; i++) {
       expect((await lookupFrom(ip)).status).toBe(200);
       api.clock.advance(MINUTE_MS);
     }

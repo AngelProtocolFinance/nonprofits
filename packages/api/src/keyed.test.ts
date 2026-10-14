@@ -518,7 +518,7 @@ describe("rows written per request, which the ceilings' arithmetic uses", () => 
       api.app.request("/v1/orgs/530196605", { headers: client });
 
     expect(await rowsWrittenBy(api, lookup)).toBe(ROWS_WRITTEN.metered);
-    for (let i = 2; i <= 5; i++) {
+    for (let i = 2; i <= 25; i++) {
       api.clock.advance(60 * SECOND_MS);
       await lookup();
     }

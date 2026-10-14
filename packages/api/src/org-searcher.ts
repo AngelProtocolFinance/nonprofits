@@ -9,13 +9,16 @@ interface MatchRow {
   city: string | null;
   state: string | null;
   subsection: string | null;
+  ruling_date: string | null;
   bmf_run_id: number | null;
   in_pub78: 0 | 1;
+  revocation_date: string | null;
+  reinstatement_date: string | null;
 }
 
 interface RunRow {
   id: number;
-  source: "bmf" | "pub78";
+  source: "bmf" | "pub78" | "revocation";
   file: string;
   released_at: string;
   fetched_at: string;
@@ -49,7 +52,8 @@ function searchSql(indexed: boolean): string {
     ? `LEFT JOIN filings f INDEXED BY ${FILING_SIZE_INDEX} ON f.ein = o.ein`
     : "LEFT JOIN filings f ON f.ein = o.ein";
   return `
-SELECT o.ein, o.name, o.city, o.state, o.subsection, o.bmf_run_id, o.in_pub78
+SELECT o.ein, o.name, o.city, o.state, o.subsection, o.ruling_date, o.bmf_run_id,
+  o.in_pub78, o.revocation_date, o.reinstatement_date
 FROM (
   SELECT rowid, rank AS score FROM orgs_fts WHERE orgs_fts MATCH ?1 LIMIT ${MAX_CANDIDATES}
 ) m
@@ -69,22 +73,27 @@ function lacksSizeIndex(error: unknown): boolean {
 
 /**
  * Every BMF run, since each region file is its own run and a match cites the
- * one listing it, plus the latest Pub 78 run, which `in_pub78` is as of: a
- * data database is built fresh each month, so a handful of rows.
+ * one listing it, plus the latest Pub 78 run, which `in_pub78` is as of, and
+ * the latest revocation run, which the revocation dates are as of. One extra
+ * indexed row, not a query per match: a data database is built fresh each
+ * month, so a handful of rows.
  */
 const SOURCE_RUNS_SQL = `
 SELECT id, source, file_url AS file, released_at, fetched_at
 FROM import_runs WHERE source = 'bmf'
 UNION ALL
 SELECT id, source, file_url, released_at, fetched_at
-FROM import_runs WHERE id = (SELECT max(id) FROM import_runs WHERE source = 'pub78')`;
+FROM import_runs WHERE id = (SELECT max(id) FROM import_runs WHERE source = 'pub78')
+UNION ALL
+SELECT id, source, file_url, released_at, fetched_at
+FROM import_runs WHERE id = (SELECT max(id) FROM import_runs WHERE source = 'revocation')`;
 
 /**
  * Part of every search cache key: bump it with any change to what
  * `searchNames` returns for the same words on the same build, its record
  * shape or its order, or a deploy serves the old answer for up to an hour.
  */
-export const SEARCH_RECORD_VERSION = 2;
+export const SEARCH_RECORD_VERSION = 3;
 
 /**
  * The match query and the source-run query in one round trip. A database
@@ -150,6 +159,7 @@ export async function searchNames(
   const [matches, runs] = await matchBatch(db, words, limit);
   const bmfRuns = new Map<number, SourceFile>();
   let pub78Run: SourceFile | undefined;
+  let revocationRun: SourceFile | undefined;
   for (const run of rowsOf<RunRow>(runs)) {
     const source = {
       file: run.file,
@@ -157,6 +167,7 @@ export async function searchNames(
       fetchedAt: run.fetched_at,
     };
     if (run.source === "pub78") pub78Run = source;
+    else if (run.source === "revocation") revocationRun = source;
     else bmfRuns.set(run.id, source);
   }
   return rowsOf<MatchRow>(matches).map((row) => {
@@ -169,9 +180,20 @@ export async function searchNames(
       state: row.state,
       bmf:
         row.subsection !== null && bmfRun
-          ? { subsection: row.subsection, source: bmfRun }
+          ? {
+              subsection: row.subsection,
+              rulingDate: row.ruling_date,
+              source: bmfRun,
+            }
           : null,
       pub78: pub78Run ? { listed: row.in_pub78 === 1, source: pub78Run } : null,
+      revocation: revocationRun
+        ? {
+            revokedOn: row.revocation_date,
+            reinstatedOn: row.reinstatement_date,
+            source: revocationRun,
+          }
+        : null,
     };
   });
 }

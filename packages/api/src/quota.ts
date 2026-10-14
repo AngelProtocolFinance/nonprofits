@@ -20,7 +20,7 @@ export type MeteredTier = Exclude<Tier, "whitelisted">;
 export const DEFAULT_LIMITS: Limits = { daily: 50, perMinute: 10 };
 
 /** Per client IP, for requests with no key. `perMinute` is the keyless limiter's. */
-export const KEYLESS_LIMITS: Limits = { daily: 5, perMinute: 1 };
+export const KEYLESS_LIMITS: Limits = { daily: 25, perMinute: 1 };
 
 /** Requests carrying any key, per client per minute, before the key is read: above any whitelisted key's honest traffic, below a bad-key flood. */
 export const KEYED_REQUESTS_PER_MINUTE = 600;

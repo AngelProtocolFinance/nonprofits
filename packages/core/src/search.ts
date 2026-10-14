@@ -1,6 +1,6 @@
 import type { Provenance, SourceFile } from "./org.ts";
 import type { Result } from "./result.ts";
-import { is501c3, isDeductible } from "./rules.ts";
+import { is501c3, isDeductible, isRevoked, reinstatedPerBmf } from "./rules.ts";
 
 /** One name match, as an `OrgSearcher` returns it. */
 export interface OrgSearchRecord {
@@ -8,10 +8,26 @@ export interface OrgSearchRecord {
   name: string;
   city: string | null;
   state: string | null;
-  /** null when the org is not in the current BMF; `source` is the BMF file the org is listed in. */
-  bmf: { subsection: string; source: SourceFile } | null;
+  /**
+   * null when the org is not in the current BMF; `source` is the BMF file the
+   * org is listed in. `rulingDate` is `YYYY-MM`.
+   */
+  bmf: {
+    subsection: string;
+    rulingDate: string | null;
+    source: SourceFile;
+  } | null;
   /** null until Pub 78 is imported; `source` is its latest import. */
   pub78: { listed: boolean; source: SourceFile } | null;
+  /**
+   * null until the revocation list is imported. Dates are null when the org
+   * is not on the list. Both dates are `YYYY-MM-DD`.
+   */
+  revocation: {
+    revokedOn: string | null;
+    reinstatedOn: string | null;
+    source: SourceFile;
+  } | null;
 }
 
 /** The search seam: storage answers it from the data database's full-text index. */
@@ -21,7 +37,10 @@ export interface OrgSearcher {
 }
 
 /** Where a match's flags came from; null where the flag is null. */
-export type OrgSearchProvenance = Pick<Provenance, "is501c3" | "deductible">;
+export type OrgSearchProvenance = Pick<
+  Provenance,
+  "is501c3" | "deductible" | "revoked" | "revocationDate"
+>;
 
 export interface OrgSearchMatch {
   ein: string;
@@ -29,7 +48,16 @@ export interface OrgSearchMatch {
   city: string | null;
   state: string | null;
   is501c3: boolean | null;
+  /**
+   * Tri-state. `true` when listed in IRS Publication 78. `false` when Pub 78
+   * is imported and the org is not listed. `null` when unknown, for example
+   * when Pub 78 has not been imported.
+   */
   deductible: boolean | null;
+  /** Revoked and not reinstated since; null until the revocation list is imported. */
+  revoked: boolean | null;
+  /** `YYYY-MM-DD` from the revocation list; null when the org has no revocation date. Still set after a later reinstatement. */
+  revocationDate: string | null;
   provenance: OrgSearchProvenance;
 }
 
@@ -121,18 +149,31 @@ export async function searchOrgs(
     value: {
       query: words.join(" "),
       limit,
-      results: records.map((r) => ({
-        ein: r.ein,
-        name: r.name,
-        city: r.city,
-        state: r.state,
-        is501c3: is501c3(r.bmf),
-        deductible: isDeductible(r.pub78),
-        provenance: {
-          is501c3: r.bmf?.source ?? null,
-          deductible: r.pub78?.source ?? null,
-        },
-      })),
+      results: records.map((r) => {
+        const revoked = isRevoked(r.revocation, r.bmf);
+        const revocationDate = r.revocation?.revokedOn ?? null;
+        // same citation as a full lookup: the BMF when its ruling month reinstated the org
+        const revokedSource = reinstatedPerBmf(r.revocation, r.bmf)
+          ? (r.bmf?.source ?? null)
+          : (r.revocation?.source ?? null);
+        return {
+          ein: r.ein,
+          name: r.name,
+          city: r.city,
+          state: r.state,
+          is501c3: is501c3(r.bmf),
+          deductible: isDeductible(r.pub78),
+          revoked,
+          revocationDate,
+          provenance: {
+            is501c3: r.bmf?.source ?? null,
+            deductible: r.pub78?.source ?? null,
+            revoked: revokedSource,
+            revocationDate:
+              revocationDate === null ? null : (r.revocation?.source ?? null),
+          },
+        };
+      }),
     },
   };
 }

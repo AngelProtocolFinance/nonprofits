@@ -1,4 +1,4 @@
-import type { Client } from "@libsql/client";
+import type { Client, InStatement } from "@libsql/client";
 import type { OrgSearchResponse, SourceFile } from "@nonprofits/core";
 import { FILING_SIZE_INDEX } from "@nonprofits/db";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -24,6 +24,25 @@ const PUB78: SourceFile = {
   releasedAt: "2026-09-01T12:00:00.000Z",
   fetchedAt: "2026-09-10T03:05:00.000Z",
 };
+
+const REVOCATION: SourceFile = {
+  file: "https://apps.irs.gov/pub/epostcard/data-download-revocation.zip",
+  releasedAt: "2026-09-02T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:06:00.000Z",
+};
+
+/** Provenance for a match the revocation list does not date. */
+function openRevocation(
+  is501c3: SourceFile | null,
+  deductible: SourceFile | null,
+) {
+  return {
+    is501c3,
+    deductible,
+    revoked: REVOCATION,
+    revocationDate: null,
+  };
+}
 
 /**
  * Names beside the seeded AMERICAN NATIONAL RED CROSS (in the BMF, in Pub 78)
@@ -105,7 +124,9 @@ describe("GET /v1/search", () => {
           state: "DC",
           is501c3: true,
           deductible: true,
-          provenance: { is501c3: BMF_DC, deductible: PUB78 },
+          revoked: false,
+          revocationDate: null,
+          provenance: openRevocation(BMF_DC, PUB78),
         },
         {
           ein: "581771391",
@@ -114,7 +135,9 @@ describe("GET /v1/search", () => {
           state: null,
           is501c3: false,
           deductible: false,
-          provenance: { is501c3: BMF_EO3, deductible: PUB78 },
+          revoked: false,
+          revocationDate: null,
+          provenance: openRevocation(BMF_EO3, PUB78),
         },
         {
           ein: "362276983",
@@ -123,7 +146,9 @@ describe("GET /v1/search", () => {
           state: null,
           is501c3: null,
           deductible: false,
-          provenance: { is501c3: null, deductible: PUB78 },
+          revoked: false,
+          revocationDate: null,
+          provenance: openRevocation(null, PUB78),
         },
         {
           ein: "841189480",
@@ -132,7 +157,9 @@ describe("GET /v1/search", () => {
           state: null,
           is501c3: null,
           deductible: false,
-          provenance: { is501c3: null, deductible: PUB78 },
+          revoked: false,
+          revocationDate: null,
+          provenance: openRevocation(null, PUB78),
         },
       ],
     });
@@ -289,10 +316,175 @@ describe("GET /v1/search before Pub 78 is imported", () => {
     expect(body.results[0]).toMatchObject({
       ein: "530196605",
       deductible: null,
-      provenance: { is501c3: BMF_DC, deductible: null },
+      revoked: false,
+      revocationDate: null,
+      provenance: {
+        is501c3: BMF_DC,
+        deductible: null,
+        revoked: REVOCATION,
+        revocationDate: null,
+      },
     });
   });
 });
+
+describe("GET /v1/search revocation", () => {
+  test("reports a revoked org, one the BMF recognized again, and one dropped from the BMF", async () => {
+    const revoked = await search("q=lapsed%20community");
+    const restored = await search("q=restored%20neighborhood");
+    const dropped = await search("q=defunct%20arts");
+
+    expect((await revoked.json()) as OrgSearchResponse).toMatchObject({
+      results: [
+        {
+          ein: "201234567",
+          revoked: true,
+          revocationDate: "2023-05-15",
+          provenance: { revoked: REVOCATION, revocationDate: REVOCATION },
+        },
+      ],
+    });
+    expect((await restored.json()) as OrgSearchResponse).toMatchObject({
+      results: [
+        {
+          ein: "461234567",
+          revoked: false,
+          revocationDate: "2021-05-17",
+          provenance: { revoked: BMF_DC, revocationDate: REVOCATION },
+        },
+      ],
+    });
+    expect((await dropped.json()) as OrgSearchResponse).toMatchObject({
+      results: [
+        {
+          ein: "311234567",
+          is501c3: null,
+          revoked: true,
+          revocationDate: "2019-05-15",
+          provenance: { revoked: REVOCATION, revocationDate: REVOCATION },
+        },
+      ],
+    });
+  });
+
+  test("reads revocation from the match's org row and the source-run query, not once per result", async () => {
+    const counts = { batches: 0, executes: 0 };
+    const counted = await testApi({
+      fill: nearMisses,
+      dataDbAs: (db) => countingDataDb(db, counts),
+    });
+    try {
+      await counted.app.request("/v1/search?q=youth%20soccer", {
+        headers: freshClient(),
+      });
+      counts.batches = 0;
+      counts.executes = 0;
+
+      const response = await counted.app.request("/v1/search?q=red%20cross", {
+        headers: freshClient(),
+      });
+      const body = (await response.json()) as OrgSearchResponse;
+
+      expect(body.results.length).toBeGreaterThan(1);
+      expect(body.results[0]?.revoked).toBe(false);
+      expect(counts).toStrictEqual({ batches: 1, executes: 0 });
+    } finally {
+      await counted.dispose();
+    }
+  });
+});
+
+describe("GET /v1/search after a list reinstatement", () => {
+  let reinstated: TestApi;
+
+  beforeAll(async () => {
+    reinstated = await testApi({
+      fill: async (data) => {
+        await data.execute(
+          "UPDATE orgs SET reinstatement_date = '2024-06-01' WHERE ein = '201234567'",
+        );
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await reinstated.dispose();
+  });
+
+  test("counts a revoked-then-reinstated org as not revoked and keeps the revocation date", async () => {
+    const response = await reinstated.app.request(
+      "/v1/search?q=lapsed%20community",
+      { headers: freshClient() },
+    );
+    const body = (await response.json()) as OrgSearchResponse;
+    expect(body.results[0]).toMatchObject({
+      ein: "201234567",
+      revoked: false,
+      revocationDate: "2023-05-15",
+      provenance: { revoked: REVOCATION, revocationDate: REVOCATION },
+    });
+  });
+});
+
+describe("GET /v1/search before the revocation list is imported", () => {
+  let early: TestApi;
+
+  beforeAll(async () => {
+    early = await testApi({
+      fill: async (data) => {
+        // the dropped org's name and address cite this run
+        await data.execute(
+          "UPDATE orgs SET name_run_id = 1, address_run_id = 1 WHERE name_run_id = 3 OR address_run_id = 3",
+        );
+        await data.execute(
+          "DELETE FROM import_runs WHERE source = 'revocation'",
+        );
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await early.dispose();
+  });
+
+  test("answers revoked null and cites no revocation file", async () => {
+    const response = await early.app.request("/v1/search?q=red%20cross", {
+      headers: freshClient(),
+    });
+    const body = (await response.json()) as OrgSearchResponse;
+    expect(body.results[0]).toMatchObject({
+      ein: "530196605",
+      revoked: null,
+      revocationDate: null,
+      provenance: { revoked: null, revocationDate: null },
+    });
+  });
+});
+
+/** Counts data-database statements a search makes. */
+function countingDataDb(
+  db: Client,
+  counts: { batches: number; executes: number },
+): Client {
+  return new Proxy(db, {
+    get(target, property) {
+      if (property === "batch") {
+        return (statements: InStatement[], mode?: "read" | "write") => {
+          counts.batches += 1;
+          return target.batch(statements, mode);
+        };
+      }
+      if (property === "execute") {
+        return (statement: InStatement) => {
+          counts.executes += 1;
+          return target.execute(statement);
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
 
 /**
  * United Way Worldwide and its chapters, each in the seeded BMF run and Pub 78
