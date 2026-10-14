@@ -25,15 +25,23 @@ import { refusalBody, refuse } from "./refusal.ts";
 /** Far above any tool call's arguments (a query is at most 200 characters). */
 const MAX_BODY_BYTES = 16 * 1024;
 
+/** Shared by the lookup and search tool descriptions and their output schemas. */
+const DEDUCTIBLE_TRISTATE =
+  "Tri-state: true when the organization is listed in IRS Publication 78, false when Publication 78 has been imported and the organization is not listed, and null when unknown (for example, Publication 78 has not been imported).";
+
 const LOOKUP_DESCRIPTION = `Look up a US tax-exempt organization by its EIN (Employer Identification Number: the 9-digit number the IRS identifies an organization by). Pass it as a string, with or without the dash: "530196605" or "53-0196605".
 
 Returns the organization's name, address, 501(c)(3) status, whether gifts to it are tax-deductible (IRS Pub 78), revocation status, mission, activity summary, top programs, latest finances and website. Every fact is read from IRS bulk data files, and \`provenance\` names the IRS file (and, for facts from a 990, the filing and tax year) each fact came from.
+
+\`deductible\` is ${DEDUCTIBLE_TRISTATE}
 
 A fact is null when the IRS data doesn't carry it, and \`notes\` says why. For example, \`mission\` is null for an organization that files only a 990-N postcard, for a 990-PF private foundation, or when its latest 990 states none or puts it on Schedule O, which isn't extracted.
 
 Errors: \`invalid_ein\` for an EIN that isn't 9 digits, \`not_found\` when no organization has that EIN. Know only the name? Call search_nonprofits first. Each call counts against your daily quota, except one refused as \`invalid_ein\`.`;
 
-const SEARCH_DESCRIPTION = `Find US tax-exempt organizations by name. Results are ranked by relevance to the words, best match first, with each match's EIN, name, city, state, 501(c)(3) status and deductibility; pass an EIN to lookup_nonprofit for the full record.
+const SEARCH_DESCRIPTION = `Find US tax-exempt organizations by name. Results are ranked by relevance to the words, best match first. Each match has its EIN, name, city, state, 501(c)(3) status, \`deductible\`, \`revoked\` and \`revocationDate\`. Pass an EIN to lookup_nonprofit for the full record.
+
+\`deductible\` is ${DEDUCTIBLE_TRISTATE} \`revoked\` is true only when the exemption was revoked and has not been reinstated since, on the auto-revocation list or by a later Business Master File ruling month; a revoked-then-reinstated organization is not revoked. \`revocationDate\` is \`YYYY-MM-DD\` when the list has a date, and is still returned after a later reinstatement. \`revoked\` is null until that list is imported.
 
 \`query\` is a few distinctive words of the name, 2 to 200 characters, e.g. "red cross"; punctuation is ignored and at most 8 words are used. \`limit\` is how many matches to return: a whole number from 1 to 50, default 10, and above 50 is capped at 50.
 
@@ -105,6 +113,104 @@ function toolResult<T extends OrgResponse | OrgSearchResponse>(
   };
 }
 
+const sourceFile = z.object({
+  file: z.string(),
+  releasedAt: z.string(),
+  fetchedAt: z.string(),
+});
+
+const filingCitation = sourceFile.extend({
+  objectId: z.string(),
+  taxYear: z.number(),
+  formType: z.enum(["990", "990-EZ", "990-PF"]),
+});
+
+/** `deductible` on both tools: true, false, or null when unknown. */
+const deductible = z.boolean().nullable().describe(DEDUCTIBLE_TRISTATE);
+
+const LOOKUP_OUTPUT = z.object({
+  ein: z.string(),
+  name: z.string().nullable(),
+  address: z.object({
+    street: z.string().nullable(),
+    city: z.string().nullable(),
+    state: z.string().nullable(),
+    zip: z.string().nullable(),
+  }),
+  is501c3: z.boolean().nullable(),
+  deductible,
+  revoked: z.boolean().nullable(),
+  revocationDate: z.string().nullable(),
+  reinstatementDate: z.string().nullable(),
+  mission: z.string().nullable(),
+  activitySummary: z.string().nullable(),
+  programs: z.array(
+    z.object({
+      description: z.string().nullable(),
+      expense: z.number().nullable(),
+      grants: z.number().nullable(),
+      revenue: z.number().nullable(),
+    }),
+  ),
+  finances: z
+    .object({
+      revenue: z.number().nullable(),
+      expenses: z.number().nullable(),
+      assets: z.number().nullable(),
+      taxYear: z.number(),
+    })
+    .nullable(),
+  website: z.string().nullable(),
+  notes: z.array(z.string()),
+  provenance: z.object({
+    name: sourceFile.nullable(),
+    address: sourceFile.nullable(),
+    is501c3: sourceFile.nullable(),
+    deductible: sourceFile.nullable(),
+    revoked: sourceFile.nullable(),
+    revocationDate: sourceFile.nullable(),
+    reinstatementDate: sourceFile.nullable(),
+    mission: filingCitation.nullable(),
+    activitySummary: filingCitation.nullable(),
+    programs: filingCitation.nullable(),
+    finances: filingCitation.nullable(),
+    website: z.union([filingCitation, sourceFile]).nullable(),
+  }),
+});
+
+const SEARCH_OUTPUT = z.object({
+  query: z.string(),
+  limit: z.number(),
+  results: z.array(
+    z.object({
+      ein: z.string(),
+      name: z.string(),
+      city: z.string().nullable(),
+      state: z.string().nullable(),
+      is501c3: z.boolean().nullable(),
+      deductible,
+      revoked: z
+        .boolean()
+        .nullable()
+        .describe(
+          "True only when the exemption was revoked and has not been reinstated since, on the auto-revocation list or by a later Business Master File ruling month. False when it was not revoked or was later reinstated. Null until the auto-revocation list is imported.",
+        ),
+      revocationDate: z
+        .string()
+        .nullable()
+        .describe(
+          "YYYY-MM-DD from the auto-revocation list, or null when that list has no date. Still returned when the organization was later reinstated.",
+        ),
+      provenance: z.object({
+        is501c3: sourceFile.nullable(),
+        deductible: sourceFile.nullable(),
+        revoked: sourceFile.nullable(),
+        revocationDate: sourceFile.nullable(),
+      }),
+    }),
+  ),
+});
+
 function nonprofitsServer(caller: Caller): McpServer {
   const server = new McpServer(
     { name: "nonprofits", version: "1.0.0" },
@@ -121,6 +227,7 @@ function nonprofitsServer(caller: Caller): McpServer {
           .union([z.string(), z.number()])
           .describe('9-digit EIN, e.g. "530196605" or "53-0196605"'),
       }),
+      outputSchema: LOOKUP_OUTPUT,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ ein }) =>
@@ -140,6 +247,7 @@ function nonprofitsServer(caller: Caller): McpServer {
           .optional()
           .describe("Whole number of matches, 1 to 50; default 10"),
       }),
+      outputSchema: SEARCH_OUTPUT,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ query, limit }) =>

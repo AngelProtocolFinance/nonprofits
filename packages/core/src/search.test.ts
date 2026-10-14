@@ -24,6 +24,19 @@ const PUB78: SourceFile = {
   fetchedAt: "2026-09-10T03:05:00.000Z",
 };
 
+const REVOCATION: SourceFile = {
+  file: "https://apps.irs.gov/pub/epostcard/data-download-revocation.zip",
+  releasedAt: "2026-09-02T12:00:00.000Z",
+  fetchedAt: "2026-09-10T03:06:00.000Z",
+};
+
+/** On the imported list with no revocation date: not revoked. */
+const NOT_LISTED = {
+  revokedOn: null,
+  reinstatedOn: null,
+  source: REVOCATION,
+};
+
 function searcherOf(
   ...records: OrgSearchRecord[]
 ): OrgSearcher & { calls: { words: string[]; limit: number }[] } {
@@ -61,16 +74,18 @@ describe("searchOrgs", () => {
         name: "AMERICAN NATIONAL RED CROSS",
         city: "WASHINGTON",
         state: "DC",
-        bmf: { subsection: "03", source: BMF_EO1 },
+        bmf: { subsection: "03", rulingDate: "1946-06", source: BMF_EO1 },
         pub78: { listed: true, source: PUB78 },
+        revocation: NOT_LISTED,
       },
       {
         ein: "262622865",
         name: "RED CROSS OF CONSTANTINE",
         city: "JOPLIN",
         state: "MO",
-        bmf: { subsection: "08", source: BMF_EO3 },
+        bmf: { subsection: "08", rulingDate: null, source: BMF_EO3 },
         pub78: { listed: false, source: PUB78 },
+        revocation: NOT_LISTED,
       },
     );
     expect(await searchOrgs({ query: "  red cross " }, searcher)).toStrictEqual(
@@ -87,7 +102,14 @@ describe("searchOrgs", () => {
               state: "DC",
               is501c3: true,
               deductible: true,
-              provenance: { is501c3: BMF_EO1, deductible: PUB78 },
+              revoked: false,
+              revocationDate: null,
+              provenance: {
+                is501c3: BMF_EO1,
+                deductible: PUB78,
+                revoked: REVOCATION,
+                revocationDate: null,
+              },
             },
             {
               ein: "262622865",
@@ -96,7 +118,14 @@ describe("searchOrgs", () => {
               state: "MO",
               is501c3: false,
               deductible: false,
-              provenance: { is501c3: BMF_EO3, deductible: PUB78 },
+              revoked: false,
+              revocationDate: null,
+              provenance: {
+                is501c3: BMF_EO3,
+                deductible: PUB78,
+                revoked: REVOCATION,
+                revocationDate: null,
+              },
             },
           ],
         },
@@ -108,15 +137,63 @@ describe("searchOrgs", () => {
   test.each([
     {
       when: "an org not in the BMF",
-      record: { bmf: null, pub78: { listed: false, source: PUB78 } },
-      flags: { is501c3: null, deductible: false },
-      provenance: { is501c3: null, deductible: PUB78 },
+      record: {
+        bmf: null,
+        pub78: { listed: false, source: PUB78 },
+        revocation: NOT_LISTED,
+      },
+      flags: {
+        is501c3: null,
+        deductible: false,
+        revoked: false,
+        revocationDate: null,
+      },
+      provenance: {
+        is501c3: null,
+        deductible: PUB78,
+        revoked: REVOCATION,
+        revocationDate: null,
+      },
     },
     {
       when: "Pub 78 not yet imported",
-      record: { bmf: { subsection: "03", source: BMF_EO1 }, pub78: null },
-      flags: { is501c3: true, deductible: null },
-      provenance: { is501c3: BMF_EO1, deductible: null },
+      record: {
+        bmf: { subsection: "03", rulingDate: "1946-06", source: BMF_EO1 },
+        pub78: null,
+        revocation: NOT_LISTED,
+      },
+      flags: {
+        is501c3: true,
+        deductible: null,
+        revoked: false,
+        revocationDate: null,
+      },
+      provenance: {
+        is501c3: BMF_EO1,
+        deductible: null,
+        revoked: REVOCATION,
+        revocationDate: null,
+      },
+    },
+    {
+      when: "the revocation list not yet imported",
+      record: {
+        bmf: { subsection: "03", rulingDate: "1946-06", source: BMF_EO1 },
+        pub78: { listed: true, source: PUB78 },
+        revocation: null,
+      },
+      flags: {
+        is501c3: true,
+        deductible: true,
+        revoked: null,
+        revocationDate: null,
+      },
+      provenance: {
+        is501c3: BMF_EO1,
+        deductible: PUB78,
+        revoked: null,
+        revocationDate: null,
+      },
     },
   ])(
     "cites no file for a null flag: $when",
@@ -139,6 +216,91 @@ describe("searchOrgs", () => {
           provenance,
         },
       ]);
+    },
+  );
+
+  test.each([
+    {
+      when: "revoked and not reinstated",
+      revocation: {
+        revokedOn: "2023-05-15",
+        reinstatedOn: null,
+        source: REVOCATION,
+      },
+      bmf: { subsection: "03", rulingDate: "2004-08", source: BMF_EO1 },
+      revoked: true,
+      revocationDate: "2023-05-15",
+      revokedSource: REVOCATION,
+    },
+    {
+      when: "reinstated on the list after the revocation",
+      revocation: {
+        revokedOn: "2020-05-15",
+        reinstatedOn: "2021-02-01",
+        source: REVOCATION,
+      },
+      bmf: { subsection: "03", rulingDate: "2004-08", source: BMF_EO1 },
+      revoked: false,
+      revocationDate: "2020-05-15",
+      revokedSource: REVOCATION,
+    },
+    {
+      when: "revoked again after an earlier reinstatement",
+      revocation: {
+        revokedOn: "2024-05-15",
+        reinstatedOn: "2021-02-01",
+        source: REVOCATION,
+      },
+      bmf: { subsection: "03", rulingDate: "2004-08", source: BMF_EO1 },
+      revoked: true,
+      revocationDate: "2024-05-15",
+      revokedSource: REVOCATION,
+    },
+    {
+      when: "the BMF ruling month is after the revocation",
+      revocation: {
+        revokedOn: "2021-05-17",
+        reinstatedOn: null,
+        source: REVOCATION,
+      },
+      bmf: { subsection: "03", rulingDate: "2022-03", source: BMF_EO1 },
+      revoked: false,
+      revocationDate: "2021-05-17",
+      revokedSource: BMF_EO1,
+    },
+    {
+      when: "revoked and absent from the BMF",
+      revocation: {
+        revokedOn: "2019-05-15",
+        reinstatedOn: null,
+        source: REVOCATION,
+      },
+      bmf: null,
+      revoked: true,
+      revocationDate: "2019-05-15",
+      revokedSource: REVOCATION,
+    },
+  ])(
+    "reports $when the way a full lookup does, and keeps the revocation date",
+    async ({ revocation, bmf, revoked, revocationDate, revokedSource }) => {
+      const searcher = searcherOf({
+        ein: "201234567",
+        name: "LAPSED COMMUNITY THEATER INC",
+        city: "DAYTON",
+        state: "OH",
+        bmf,
+        pub78: { listed: false, source: PUB78 },
+        revocation,
+      });
+      const result = await searchOrgs({ query: "lapsed theater" }, searcher);
+      expect(result.ok && result.value.results[0]).toMatchObject({
+        revoked,
+        revocationDate,
+        provenance: {
+          revoked: revokedSource,
+          revocationDate: REVOCATION,
+        },
+      });
     },
   );
 

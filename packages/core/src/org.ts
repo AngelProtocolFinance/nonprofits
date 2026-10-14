@@ -64,7 +64,11 @@ export interface OrgResponse {
   address: Address;
   /** BMF subsection `03`; null when the org is not in the current BMF. */
   is501c3: boolean | null;
-  /** Listed in Pub 78; null until that file is imported. */
+  /**
+   * Tri-state. `true` when listed in IRS Publication 78, so gifts are
+   * tax-deductible. `false` when Pub 78 is imported and the org is not listed.
+   * `null` when unknown, for example when Pub 78 has not been imported.
+   */
   deductible: boolean | null;
   /** Revoked and not reinstated since; null until the revocation list is imported. */
   revoked: boolean | null;

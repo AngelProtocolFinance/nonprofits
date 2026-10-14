@@ -570,6 +570,23 @@ describe("/mcp without a key", () => {
     ]);
   });
 
+  test("lookup and search descriptions and output schemas say deductible is true, false, or null when unknown", async () => {
+    await start();
+    const client = await connect(freshClient());
+    const { tools } = await client.listTools();
+    const deductible =
+      "null when unknown (for example, Publication 78 has not been imported)";
+
+    for (const name of ["lookup_nonprofit", "search_nonprofits"]) {
+      const tool = tools.find((listed) => listed.name === name);
+      expect(tool?.description, name).toContain(deductible);
+      expect(JSON.stringify(tool?.outputSchema), name).toContain(deductible);
+    }
+    const search = tools.find((listed) => listed.name === "search_nonprofits");
+    expect(search?.description).toContain("revoked-then-reinstated");
+    expect(JSON.stringify(search?.outputSchema)).toContain("revocationDate");
+  });
+
   test("lookup_nonprofit answers 530196605 with the same JSON as GET /v1/orgs/530196605", async () => {
     await start();
     const rest = await restJson("/v1/orgs/530196605");
@@ -610,6 +627,12 @@ describe("/mcp without a key", () => {
         releasedAt: "2026-09-01T12:00:00.000Z",
         fetchedAt: "2026-09-10T03:05:00.000Z",
       },
+      revoked: {
+        file: "https://apps.irs.gov/pub/epostcard/data-download-revocation.zip",
+        releasedAt: "2026-09-02T12:00:00.000Z",
+        fetchedAt: "2026-09-10T03:06:00.000Z",
+      },
+      revocationDate: null,
     });
   });
 
@@ -640,12 +663,12 @@ describe("/mcp without a key", () => {
     ]);
   });
 
-  test("tool calls and REST requests from one IP share its 5 a day: past them a call is a tool error carrying the 429 problem and its retry seconds", async () => {
+  test("tool calls and REST requests from one IP share its 25 a day: past them a call is a tool error carrying the 429 problem and its retry seconds", async () => {
     await start();
     api.clock.set("2026-10-05T22:00:00Z");
     const ip = freshClient();
     const call = { name: "lookup_nonprofit", arguments: { ein: "530196605" } };
-    for (let i = 1; i <= 2; i++) {
+    for (let i = 1; i <= 22; i++) {
       await restJson("/v1/orgs/530196605", ip);
       api.clock.advance(MINUTE_MS);
     }
@@ -660,7 +683,7 @@ describe("/mcp without a key", () => {
     const result = await client.callTool(call);
 
     const detail =
-      "Requests without an API key are limited to 5 requests a UTC day per IP address, and this address has used them. They reset at 2026-10-06T00:00:00Z (UTC midnight). An API key lifts this limit: ask the operator for one.";
+      "Requests without an API key are limited to 25 requests a UTC day per IP address, and this address has used them. They reset at 2026-10-06T00:00:00Z (UTC midnight). An API key lifts this limit: ask the operator for one.";
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toStrictEqual({
       type: "about:blank",
@@ -668,7 +691,7 @@ describe("/mcp without a key", () => {
       status: 429,
       code: "daily_quota_exceeded",
       detail,
-      retryAfterSeconds: 6900,
+      retryAfterSeconds: 5700,
     });
     expect(result.content).toStrictEqual([
       { type: "text", text: `daily_quota_exceeded: ${detail}` },

@@ -180,7 +180,7 @@ curl -H "Authorization: Bearer <your-key>" https://<your-project>.vercel.app/v1/
 curl https://<your-project>.vercel.app/v1/orgs/530196605    # keyless
 ```
 
-Both answer with `AMERICAN NATIONAL RED CROSS`. The keyless tier allows 1 request a minute and 5 a UTC day per client, so a second keyless request inside a minute is a 429. A 503 names what is missing in its `code`:
+Both answer with `AMERICAN NATIONAL RED CROSS`. The keyless tier allows 1 request a minute and 25 a UTC day per client, so a second keyless request inside a minute is a 429. The per-minute cap is the Firewall rule `keyless-burst` (1 request per 60 seconds, unchanged by the daily quota). The 25-a-day cap is counted in the app and has no Firewall rule. A 503 names what is missing in its `code`:
 
 | `code` | Means | Fix |
 | --- | --- | --- |

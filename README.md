@@ -30,7 +30,7 @@ One organization. `ein` is 9 digits, with or without the dash (`53-0196605`).
 | --- | --- |
 | `name`, `address` | As the IRS Business Master File lists them |
 | `is501c3` | A 501(c)(3); `null` when the org isn't in the current Business Master File |
-| `deductible` | Listed in IRS Publication 78, so gifts to it are tax-deductible |
+| `deductible` | Tri-state. `true`: listed in IRS Publication 78, so gifts are tax-deductible. `false`: Publication 78 is imported and the org is not listed. `null`: unknown, for example when Publication 78 has not been imported |
 | `revoked`, `revocationDate`, `reinstatementDate` | Exemption automatically revoked (and not reinstated since), with dates as `YYYY-MM-DD` |
 | `mission`, `activitySummary`, `website` | From its latest e-filed Form 990 or 990-EZ |
 | `programs` | Up to 3 program services, highest expense first |
@@ -46,7 +46,7 @@ Organizations whose names contain every word of `q` (2 to 200 characters, up to 
 curl "https://nonprofits.better.giving/v1/search?q=red%20cross&limit=5"
 ```
 
-Each result has `ein`, `name`, `city`, `state`, `is501c3`, `deductible` and their `provenance`. Look up an `ein` for the rest.
+Each result has `ein`, `name`, `city`, `state`, `is501c3`, `deductible`, `revoked`, `revocationDate` and their `provenance`. `deductible` is the same tri-state as on a lookup: `true`, `false`, or `null` when unknown (Publication 78 not imported). `revoked` is whether the exemption is revoked and not reinstated since (`null` until the auto-revocation list is imported). `revocationDate` is `YYYY-MM-DD`, or `null` when the list has no date; an org that was revoked and later reinstated (on the revocation list, or recognized again in the Business Master File) has `revoked` false and still returns that date. Look up an `ein` for the rest.
 
 ## MCP
 
@@ -62,7 +62,7 @@ Without the `--header`, it runs keyless on your own machine's limits. A hosted c
 
 | | Per minute | Per day (UTC) |
 | --- | --- | --- |
-| No key | 1 | 5 |
+| No key | 1 | 25 |
 | With a key | 10 | 50 |
 
 Send a key as `Authorization: Bearer <key>`. Lookups, searches and MCP tool calls count alike. Requests refused for bad input, or while the service is unavailable, aren't counted.
