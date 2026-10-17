@@ -161,6 +161,7 @@ const LOOKUP_OUTPUT = z.object({
     })
     .nullable(),
   website: z.string().nullable(),
+  websiteUrl: z.string().nullable(),
   notes: z.array(z.string()),
   provenance: z.object({
     name: sourceFile.nullable(),
@@ -175,6 +176,7 @@ const LOOKUP_OUTPUT = z.object({
     programs: filingCitation.nullable(),
     finances: filingCitation.nullable(),
     website: z.union([filingCitation, sourceFile]).nullable(),
+    websiteUrl: z.union([filingCitation, sourceFile]).nullable(),
   }),
 });
 

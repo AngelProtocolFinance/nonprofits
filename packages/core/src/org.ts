@@ -55,6 +55,7 @@ export interface Provenance {
   programs: FilingCitation | null;
   finances: FilingCitation | null;
   website: SourceFile | FilingCitation | null;
+  websiteUrl: SourceFile | FilingCitation | null;
 }
 
 /** `GET /v1/orgs/:ein` and the MCP lookup tool both answer with this shape. */
@@ -82,6 +83,7 @@ export interface OrgResponse {
   programs: Program[];
   finances: Finances | null;
   website: string | null;
+  websiteUrl: string | null;
   /** Why a fact is null. */
   notes: string[];
   provenance: Provenance;

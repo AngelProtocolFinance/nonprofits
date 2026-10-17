@@ -88,6 +88,7 @@ describe("GET /v1/orgs/:ein", () => {
         taxYear: 2024,
       },
       website: "https://www.redcross.org",
+      websiteUrl: "https://www.redcross.org",
       notes: [],
       provenance: {
         name: bmf,
@@ -110,6 +111,7 @@ describe("GET /v1/orgs/:ein", () => {
         programs: filing,
         finances: filing,
         website: filing,
+        websiteUrl: filing,
       },
     });
   });

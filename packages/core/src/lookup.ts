@@ -51,6 +51,7 @@ function toResponse(record: OrgRecord): OrgResponse {
   const activitySummary = filing?.activitySummary ?? null;
   const programs = filing?.programs ?? [];
   const website = pickWebsite(record, citation);
+  const websiteUrl = website === null ? null : toWebsiteUrl(website.url);
   const revocationDate = revocation?.revokedOn ?? null;
   const reinstatementDate = revocation?.reinstatedOn ?? null;
   const revoked = isRevoked(revocation, record.bmf);
@@ -75,9 +76,11 @@ function toResponse(record: OrgRecord): OrgResponse {
       taxYear: filing.taxYear,
     },
     website: website?.url ?? null,
+    websiteUrl,
     notes: notesFor(record, {
       mission,
       hasWebsite: website !== null,
+      websiteUrl,
       revoked,
       bmfReinstated,
     }),
@@ -98,6 +101,7 @@ function toResponse(record: OrgRecord): OrgResponse {
       programs: programs.length === 0 ? null : citation,
       finances: citation,
       website: website?.source ?? null,
+      websiteUrl: websiteUrl === null ? null : (website?.source ?? null),
     },
   };
 }
@@ -107,11 +111,12 @@ function notesFor(
   facts: {
     mission: string | null;
     hasWebsite: boolean;
+    websiteUrl: string | null;
     revoked: boolean | null;
     bmfReinstated: boolean;
   },
 ): string[] {
-  const { mission, hasWebsite, revoked, bmfReinstated } = facts;
+  const { mission, hasWebsite, websiteUrl, revoked, bmfReinstated } = facts;
   const notes: string[] = [];
   if (record.name === null) notes.push("no name on record");
   if (record.address === null) notes.push("no address on record");
@@ -162,7 +167,42 @@ function notesFor(
     }
   }
   if (!hasWebsite) notes.push("no website on record");
+  else if (websiteUrl === null) {
+    notes.push("website is not a valid web address");
+  }
   return notes;
+}
+
+function toWebsiteUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  if (/^(?:n\/a|none|0)$/i.test(trimmed)) return null;
+  if (/[\s@]/.test(trimmed)) return null;
+
+  let candidate = trimmed;
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  } else if (/^http:\/\//i.test(candidate)) {
+    candidate = `https://${candidate.slice(7)}`;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return null;
+  }
+
+  const hostname = url.hostname;
+  const dot = hostname.lastIndexOf(".");
+  if (dot === -1) return null;
+  if (!/^[a-z]{2,}$/i.test(hostname.slice(dot + 1))) return null;
+
+  const serialized = url.href.toLowerCase();
+  if (url.pathname === "/" && url.search === "" && url.hash === "") {
+    return serialized.slice(0, -1);
+  }
+  return serialized;
 }
 
 /** The 990's website wins over the e-Postcard's. */

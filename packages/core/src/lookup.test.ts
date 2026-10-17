@@ -186,6 +186,7 @@ describe("lookupOrg", () => {
           taxYear: 2024,
         },
         website: "https://www.redcross.org",
+        websiteUrl: "https://www.redcross.org",
         notes: [],
         provenance: {
           name: BMF,
@@ -200,6 +201,7 @@ describe("lookupOrg", () => {
           programs: RED_CROSS_990,
           finances: RED_CROSS_990,
           website: RED_CROSS_990,
+          websiteUrl: RED_CROSS_990,
         },
       },
     });
@@ -461,6 +463,62 @@ describe("lookupOrg", () => {
       mission: null,
       notes: ["mission is on Schedule O, not extracted"],
     });
+  });
+
+  test.each([
+    ["WWW.REDCROSS.ORG", "https://www.redcross.org"],
+    ["ARTANTIQUEDEALERSLEAG.ORG", "https://artantiquedealersleag.org"],
+    ["HTTPS://KRE8IVU.COM/", "https://kre8ivu.com"],
+    ["www.daretoloveministries.org", "https://www.daretoloveministries.org"],
+    ["http://granburywinewalk.com/", "https://granburywinewalk.com"],
+    ["AbortionAccessFund.Org", "https://abortionaccessfund.org"],
+    ["HTTPS://WWW.CVESD.ORG/SCHOOLS", "https://www.cvesd.org/schools"],
+    [
+      "https://www.flipcause.com/secure/cause_pdetai",
+      "https://www.flipcause.com/secure/cause_pdetai",
+    ],
+    ["http://EXAMPLE.org/Path/", "https://example.org/path/"],
+    ["HTTP://EXAMPLE.ORG/Path", "https://example.org/path"],
+    ["N/A", null],
+    ["NONE", null],
+    ["0", null],
+    ["   ", null],
+    ["not a url", null],
+    ["user@example.org", null],
+    ["example", null],
+    ["https://example.c", null],
+  ] as const)(
+    "keeps the raw website %j and sets websiteUrl to %j",
+    async (raw, websiteUrl) => {
+      const org = await lookup({
+        ...redCross(),
+        efile: { filing: { ...redCrossFiling(), website: raw } },
+      });
+      expect(org.website).toBe(raw);
+      expect(org.websiteUrl).toBe(websiteUrl);
+    },
+  );
+
+  test("notes an unusable website and cites only the raw string", async () => {
+    const org = await lookup({
+      ...redCross(),
+      efile: { filing: { ...redCrossFiling(), website: "user@example.org" } },
+    });
+    expect(org.website).toBe("user@example.org");
+    expect(org.websiteUrl).toBeNull();
+    expect(org.provenance.website).toStrictEqual(RED_CROSS_990);
+    expect(org.provenance.websiteUrl).toBeNull();
+    expect(org.notes).toStrictEqual(["website is not a valid web address"]);
+  });
+
+  test("notes a missing website without calling the address invalid", async () => {
+    const org = await lookup({ ...redCross(), efile: { filing: null } });
+    expect(org.website).toBeNull();
+    expect(org.websiteUrl).toBeNull();
+    expect(org.provenance.website).toBeNull();
+    expect(org.provenance.websiteUrl).toBeNull();
+    expect(org.notes).toContain("no website on record");
+    expect(org.notes).not.toContain("website is not a valid web address");
   });
 
   test("prefers the 990 website over the e-Postcard's and cites the filing", async () => {
