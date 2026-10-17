@@ -12,6 +12,12 @@ export interface SourceFile {
 
 export type FormType = "990" | "990-EZ" | "990-PF";
 
+/** BMF foundation code mapped to a status. */
+export type FoundationStatus =
+  | "public_charity"
+  | "private_foundation"
+  | "private_operating_foundation";
+
 /** A filing fact's source: the release file plus the return it came from. */
 export interface FilingCitation extends SourceFile {
   objectId: string;
@@ -47,6 +53,8 @@ export interface Provenance {
   address: SourceFile | null;
   is501c3: SourceFile | null;
   ntee: SourceFile | null;
+  foundationStatus: SourceFile | null;
+  foundationCode: SourceFile | null;
   deductible: SourceFile | null;
   revoked: SourceFile | null;
   revocationDate: SourceFile | null;
@@ -68,6 +76,10 @@ export interface OrgResponse {
   is501c3: boolean | null;
   /** Raw BMF NTEE code, for example `P20`. Null when that code is absent. */
   ntee: string | null;
+  /** Mapped BMF foundation status. Null when the raw code maps to none. */
+  foundationStatus: FoundationStatus | null;
+  /** Raw BMF foundation code, for example `15`. Null when that code is absent. */
+  foundationCode: string | null;
   /**
    * Tri-state. `true` when listed in IRS Publication 78, so gifts are
    * tax-deductible. `false` when Pub 78 is imported and the org is not listed.
@@ -125,13 +137,16 @@ export interface OrgRecord {
   ein: string;
   name: { value: string; source: SourceFile } | null;
   address: { value: Address; source: SourceFile } | null;
-  /** null when the org is not in the current BMF. `ntee` is the raw code, null when the row has none. `rulingDate` is `YYYY-MM`. */
+  /** null when the org is not in the current BMF. `ntee` and `foundationCode` are the raw codes, null when the row has none. `rulingDate` is `YYYY-MM`. */
   bmf: {
     subsection: string;
     ntee: string | null;
+    foundationCode: string | null;
     rulingDate: string | null;
     source: SourceFile;
   } | null;
+  /** `true` when this database has a `foundation_code` column; the value may still be null. `false` when the column is absent. */
+  foundationCodeInBuild: boolean;
   pub78: { listed: boolean; source: SourceFile } | null;
   /** Dates are null when the org is not on the list. */
   revocation: {

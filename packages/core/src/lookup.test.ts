@@ -95,12 +95,26 @@ function redCross(): OrgRecord {
       },
       source: BMF,
     },
-    bmf: { subsection: "03", ntee: "P20", rulingDate: "1946-05", source: BMF },
+    bmf: {
+      subsection: "03",
+      ntee: "P20",
+      foundationCode: "15",
+      rulingDate: "1946-05",
+      source: BMF,
+    },
+    foundationCodeInBuild: true,
     pub78: { listed: true, source: PUB78 },
     revocation: { revokedOn: null, reinstatedOn: null, source: REVOCATION },
     epostcard: { filer: false, website: null, source: EPOSTCARD },
     efile: { filing: redCrossFiling() },
   };
+}
+
+function redCrossWithFoundation(code: string | null): OrgRecord {
+  const org = redCross();
+  const bmf = org.bmf;
+  if (bmf === null) throw new Error("red cross is on the BMF");
+  return { ...org, bmf: { ...bmf, foundationCode: code } };
 }
 
 const RED_CROSS_990 = {
@@ -153,6 +167,8 @@ describe("lookupOrg", () => {
         },
         is501c3: true,
         ntee: "P20",
+        foundationStatus: "public_charity",
+        foundationCode: "15",
         deductible: true,
         revoked: false,
         revocationDate: null,
@@ -194,6 +210,8 @@ describe("lookupOrg", () => {
           address: BMF,
           is501c3: BMF,
           ntee: BMF,
+          foundationStatus: BMF,
+          foundationCode: BMF,
           deductible: PUB78,
           revoked: REVOCATION,
           revocationDate: null,
@@ -353,6 +371,7 @@ describe("lookupOrg", () => {
       bmf: {
         subsection: "03",
         ntee: "P20",
+        foundationCode: "15",
         rulingDate: "2026-07",
         source: BMF,
       },
@@ -384,7 +403,13 @@ describe("lookupOrg", () => {
   test("answers a BMF org with no NTEE code as null and says so", async () => {
     const org = await lookup({
       ...redCross(),
-      bmf: { subsection: "03", ntee: null, rulingDate: "1946-05", source: BMF },
+      bmf: {
+        subsection: "03",
+        ntee: null,
+        foundationCode: "15",
+        rulingDate: "1946-05",
+        source: BMF,
+      },
     });
     expect({
       ntee: org.ntee,
@@ -403,6 +428,7 @@ describe("lookupOrg", () => {
       bmf: {
         subsection: "04",
         ntee: "P20",
+        foundationCode: "15",
         rulingDate: "1946-05",
         source: BMF,
       },
@@ -589,6 +615,7 @@ describe("lookupOrg", () => {
         source: REVOCATION,
       },
       bmf: null,
+      foundationCodeInBuild: true,
       pub78: { listed: false, source: PUB78 },
       revocation: {
         revokedOn: "2019-05-15",
@@ -620,6 +647,7 @@ describe("lookupOrg", () => {
       notes: [
         "revoked; not in the current BMF",
         "no NTEE code on record",
+        "no foundation code on record",
         "no e-filed 990 in the last 3 release years",
         "no website on record",
       ],
@@ -633,6 +661,7 @@ describe("lookupOrg", () => {
       notes: [
         "not in the current BMF: 501(c)(3) status unknown",
         "no NTEE code on record",
+        "no foundation code on record",
       ],
     });
   });
@@ -673,6 +702,98 @@ describe("lookupOrg", () => {
       revocationDate: "2020-05-15",
       reinstatementDate: "2021-02-01",
       reinstatementSource: REVOCATION,
+    });
+  });
+
+  test.each([
+    ["02", "private_operating_foundation"],
+    ["03", "private_operating_foundation"],
+    ["04", "private_foundation"],
+    ["19", "public_charity"],
+    ["24", "public_charity"],
+  ] as const)(
+    "maps foundation code %s to %s and cites the BMF for both",
+    async (code, status) => {
+      const org = await lookup(redCrossWithFoundation(code));
+      expect({
+        foundationStatus: org.foundationStatus,
+        foundationCode: org.foundationCode,
+        statusSource: org.provenance.foundationStatus,
+        codeSource: org.provenance.foundationCode,
+        notes: org.notes,
+      }).toStrictEqual({
+        foundationStatus: status,
+        foundationCode: code,
+        statusSource: BMF,
+        codeSource: BMF,
+        notes: [],
+      });
+    },
+  );
+
+  test.each([
+    ["00", "not a 501(c)(3): no foundation status"],
+    ["09", "foundation status is in suspense"],
+    ["25", "unrecognized foundation code"],
+  ] as const)(
+    "returns foundation code %s with null status and notes it",
+    async (code, note) => {
+      const org = await lookup(redCrossWithFoundation(code));
+      expect({
+        foundationStatus: org.foundationStatus,
+        foundationCode: org.foundationCode,
+        statusSource: org.provenance.foundationStatus,
+        codeSource: org.provenance.foundationCode,
+        notes: org.notes,
+      }).toStrictEqual({
+        foundationStatus: null,
+        foundationCode: code,
+        statusSource: null,
+        codeSource: BMF,
+        notes: [note],
+      });
+    },
+  );
+
+  test("notes a null foundation code when the column is in the build", async () => {
+    const org = await lookup(redCrossWithFoundation(null));
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: null,
+      foundationCode: null,
+      statusSource: null,
+      codeSource: null,
+      notes: ["no foundation code on record"],
+    });
+  });
+
+  test("notes only that an older build lacks the foundation code, even with no BMF row", async () => {
+    const org = await lookup({
+      ...redCross(),
+      bmf: null,
+      foundationCodeInBuild: false,
+    });
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: null,
+      foundationCode: null,
+      statusSource: null,
+      codeSource: null,
+      notes: [
+        "not in the current BMF: 501(c)(3) status unknown",
+        "no NTEE code on record",
+        "foundation code is not in this data build",
+      ],
     });
   });
 });

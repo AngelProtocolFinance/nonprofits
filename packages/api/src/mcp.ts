@@ -139,6 +139,14 @@ const LOOKUP_OUTPUT = z.object({
   }),
   is501c3: z.boolean().nullable(),
   ntee: z.string().nullable(),
+  foundationStatus: z
+    .enum([
+      "public_charity",
+      "private_foundation",
+      "private_operating_foundation",
+    ])
+    .nullable(),
+  foundationCode: z.string().nullable(),
   deductible,
   revoked: z.boolean().nullable(),
   revocationDate: z.string().nullable(),
@@ -169,6 +177,8 @@ const LOOKUP_OUTPUT = z.object({
     address: sourceFile.nullable(),
     is501c3: sourceFile.nullable(),
     ntee: sourceFile.nullable(),
+    foundationStatus: sourceFile.nullable(),
+    foundationCode: sourceFile.nullable(),
     deductible: sourceFile.nullable(),
     revoked: sourceFile.nullable(),
     revocationDate: sourceFile.nullable(),

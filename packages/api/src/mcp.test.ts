@@ -375,7 +375,7 @@ describe("/mcp with a key", () => {
         "DEFUNCT ARTS COUNCIL, EIN 311234567, TOLEDO, OH",
         "501(c)(3): unknown. Tax-deductible (Pub 78): no. Revoked: yes.",
         "Mission: none on record",
-        "Notes: revoked; not in the current BMF; no NTEE code on record; no e-filed 990 in the last 3 release years; no website on record",
+        "Notes: revoked; not in the current BMF; no NTEE code on record; no foundation code on record; no e-filed 990 in the last 3 release years; no website on record",
       ],
     },
   ])(

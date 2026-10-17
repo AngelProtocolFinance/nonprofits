@@ -1,6 +1,7 @@
 import { normalizeEin } from "./ein.ts";
 import type {
   FilingCitation,
+  FoundationStatus,
   OrgLookupResult,
   OrgReader,
   OrgRecord,
@@ -53,6 +54,7 @@ function toResponse(record: OrgRecord): OrgResponse {
   const website = pickWebsite(record, citation);
   const websiteUrl = website === null ? null : toWebsiteUrl(website.url);
   const ntee = record.bmf?.ntee ?? null;
+  const foundation = foundationOf(record);
   const revocationDate = revocation?.revokedOn ?? null;
   const reinstatementDate = revocation?.reinstatedOn ?? null;
   const revoked = isRevoked(revocation, record.bmf);
@@ -64,6 +66,8 @@ function toResponse(record: OrgRecord): OrgResponse {
     address: record.address?.value ?? NO_ADDRESS,
     is501c3: is501c3(record.bmf),
     ntee,
+    foundationStatus: foundation.status,
+    foundationCode: foundation.code,
     deductible: isDeductible(record.pub78),
     revoked,
     revocationDate,
@@ -85,12 +89,15 @@ function toResponse(record: OrgRecord): OrgResponse {
       websiteUrl,
       revoked,
       bmfReinstated,
+      foundationNote: foundation.note,
     }),
     provenance: {
       name: record.name?.source ?? null,
       address: record.address?.source ?? null,
       is501c3: record.bmf?.source ?? null,
       ntee: ntee === null || record.bmf === null ? null : record.bmf.source,
+      foundationStatus: foundation.statusSource,
+      foundationCode: foundation.codeSource,
       deductible: record.pub78?.source ?? null,
       revoked: bmfReinstated
         ? (record.bmf?.source ?? null)
@@ -109,6 +116,69 @@ function toResponse(record: OrgRecord): OrgResponse {
   };
 }
 
+interface FoundationFacts {
+  status: FoundationStatus | null;
+  code: string | null;
+  note: string | null;
+  statusSource: SourceFile | null;
+  codeSource: SourceFile | null;
+}
+
+/**
+ * IRS Exempt Organizations Business Master File Extract information sheet,
+ * FOUNDATION CODE, https://www.irs.gov/pub/irs-soi/eo-info.pdf (00 all
+ * organizations except 501(c)(3); 02 and 03 private operating foundations;
+ * 04 private non-operating foundation; 09 suspense; 10–18 and 21–24 the
+ * public-charity codes the sheet names). This API maps every code from `10`
+ * through `24` inclusive to `public_charity`, including `19` and `20`.
+ */
+function foundationOf(record: OrgRecord): FoundationFacts {
+  const source = record.bmf?.source ?? null;
+  if (!record.foundationCodeInBuild) {
+    return {
+      status: null,
+      code: null,
+      note: "foundation code is not in this data build",
+      statusSource: null,
+      codeSource: null,
+    };
+  }
+  const code = record.bmf?.foundationCode ?? null;
+  if (code === null) {
+    return {
+      status: null,
+      code: null,
+      note: "no foundation code on record",
+      statusSource: null,
+      codeSource: null,
+    };
+  }
+  const status = foundationStatus(code);
+  return {
+    status,
+    code,
+    note: status === null ? foundationNote(code) : null,
+    statusSource: status === null ? null : source,
+    codeSource: source,
+  };
+}
+
+function foundationStatus(code: string): FoundationStatus | null {
+  if (code === "02" || code === "03") return "private_operating_foundation";
+  if (code === "04") return "private_foundation";
+  if (code.length === 2) {
+    const n = Number(code);
+    if (Number.isInteger(n) && n >= 10 && n <= 24) return "public_charity";
+  }
+  return null;
+}
+
+function foundationNote(code: string): string {
+  if (code === "00") return "not a 501(c)(3): no foundation status";
+  if (code === "09") return "foundation status is in suspense";
+  return "unrecognized foundation code";
+}
+
 function notesFor(
   record: OrgRecord,
   facts: {
@@ -117,9 +187,17 @@ function notesFor(
     websiteUrl: string | null;
     revoked: boolean | null;
     bmfReinstated: boolean;
+    foundationNote: string | null;
   },
 ): string[] {
-  const { mission, hasWebsite, websiteUrl, revoked, bmfReinstated } = facts;
+  const {
+    mission,
+    hasWebsite,
+    websiteUrl,
+    revoked,
+    bmfReinstated,
+    foundationNote,
+  } = facts;
   const notes: string[] = [];
   if (record.name === null) notes.push("no name on record");
   if (record.address === null) notes.push("no address on record");
@@ -133,6 +211,7 @@ function notesFor(
   if (record.bmf === null || record.bmf.ntee === null) {
     notes.push("no NTEE code on record");
   }
+  if (foundationNote !== null) notes.push(foundationNote);
   if (record.pub78 === null) {
     notes.push("Pub 78 not yet imported: deductibility unknown");
   }
