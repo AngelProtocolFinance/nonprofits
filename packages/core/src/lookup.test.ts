@@ -95,7 +95,7 @@ function redCross(): OrgRecord {
       },
       source: BMF,
     },
-    bmf: { subsection: "03", rulingDate: "1946-05", source: BMF },
+    bmf: { subsection: "03", ntee: "P20", rulingDate: "1946-05", source: BMF },
     pub78: { listed: true, source: PUB78 },
     revocation: { revokedOn: null, reinstatedOn: null, source: REVOCATION },
     epostcard: { filer: false, website: null, source: EPOSTCARD },
@@ -152,6 +152,7 @@ describe("lookupOrg", () => {
           zip: "20006-5310",
         },
         is501c3: true,
+        ntee: "P20",
         deductible: true,
         revoked: false,
         revocationDate: null,
@@ -192,6 +193,7 @@ describe("lookupOrg", () => {
           name: BMF,
           address: BMF,
           is501c3: BMF,
+          ntee: BMF,
           deductible: PUB78,
           revoked: REVOCATION,
           revocationDate: null,
@@ -348,7 +350,12 @@ describe("lookupOrg", () => {
   test("answers an org re-recognized in the BMF after its revocation as reinstated", async () => {
     const org = await lookup({
       ...redCross(),
-      bmf: { subsection: "03", rulingDate: "2026-07", source: BMF },
+      bmf: {
+        subsection: "03",
+        ntee: "P20",
+        rulingDate: "2026-07",
+        source: BMF,
+      },
       revocation: {
         revokedOn: "2025-09-15",
         reinstatedOn: null,
@@ -374,10 +381,31 @@ describe("lookupOrg", () => {
     });
   });
 
+  test("answers a BMF org with no NTEE code as null and says so", async () => {
+    const org = await lookup({
+      ...redCross(),
+      bmf: { subsection: "03", ntee: null, rulingDate: "1946-05", source: BMF },
+    });
+    expect({
+      ntee: org.ntee,
+      nteeSource: org.provenance.ntee,
+      notes: org.notes,
+    }).toStrictEqual({
+      ntee: null,
+      nteeSource: null,
+      notes: ["no NTEE code on record"],
+    });
+  });
+
   test("answers is501c3 false for a subsection other than 03", async () => {
     const org = await lookup({
       ...redCross(),
-      bmf: { subsection: "04", rulingDate: "1946-05", source: BMF },
+      bmf: {
+        subsection: "04",
+        ntee: "P20",
+        rulingDate: "1946-05",
+        source: BMF,
+      },
     });
     expect(org.is501c3).toBe(false);
   });
@@ -573,20 +601,25 @@ describe("lookupOrg", () => {
     expect({
       name: org.name,
       is501c3: org.is501c3,
+      ntee: org.ntee,
       revoked: org.revoked,
       nameSource: org.provenance.name,
       addressSource: org.provenance.address,
       is501c3Source: org.provenance.is501c3,
+      nteeSource: org.provenance.ntee,
       notes: org.notes,
     }).toStrictEqual({
       name: "DEFUNCT ARTS COUNCIL",
       is501c3: null,
+      ntee: null,
       revoked: true,
       nameSource: REVOCATION,
       addressSource: REVOCATION,
       is501c3Source: null,
+      nteeSource: null,
       notes: [
         "revoked; not in the current BMF",
+        "no NTEE code on record",
         "no e-filed 990 in the last 3 release years",
         "no website on record",
       ],
@@ -597,7 +630,10 @@ describe("lookupOrg", () => {
     const org = await lookup({ ...redCross(), bmf: null });
     expect({ is501c3: org.is501c3, notes: org.notes }).toStrictEqual({
       is501c3: null,
-      notes: ["not in the current BMF: 501(c)(3) status unknown"],
+      notes: [
+        "not in the current BMF: 501(c)(3) status unknown",
+        "no NTEE code on record",
+      ],
     });
   });
 

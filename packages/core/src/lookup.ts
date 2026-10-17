@@ -52,6 +52,7 @@ function toResponse(record: OrgRecord): OrgResponse {
   const programs = filing?.programs ?? [];
   const website = pickWebsite(record, citation);
   const websiteUrl = website === null ? null : toWebsiteUrl(website.url);
+  const ntee = record.bmf?.ntee ?? null;
   const revocationDate = revocation?.revokedOn ?? null;
   const reinstatementDate = revocation?.reinstatedOn ?? null;
   const revoked = isRevoked(revocation, record.bmf);
@@ -62,6 +63,7 @@ function toResponse(record: OrgRecord): OrgResponse {
     name: record.name?.value ?? null,
     address: record.address?.value ?? NO_ADDRESS,
     is501c3: is501c3(record.bmf),
+    ntee,
     deductible: isDeductible(record.pub78),
     revoked,
     revocationDate,
@@ -88,6 +90,7 @@ function toResponse(record: OrgRecord): OrgResponse {
       name: record.name?.source ?? null,
       address: record.address?.source ?? null,
       is501c3: record.bmf?.source ?? null,
+      ntee: ntee === null || record.bmf === null ? null : record.bmf.source,
       deductible: record.pub78?.source ?? null,
       revoked: bmfReinstated
         ? (record.bmf?.source ?? null)
@@ -126,6 +129,9 @@ function notesFor(
         ? "revoked; not in the current BMF"
         : "not in the current BMF: 501(c)(3) status unknown",
     );
+  }
+  if (record.bmf === null || record.bmf.ntee === null) {
+    notes.push("no NTEE code on record");
   }
   if (record.pub78 === null) {
     notes.push("Pub 78 not yet imported: deductibility unknown");

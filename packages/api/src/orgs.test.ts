@@ -50,6 +50,7 @@ describe("GET /v1/orgs/:ein", () => {
         zip: "20006-5310",
       },
       is501c3: true,
+      ntee: "P20",
       deductible: true,
       revoked: false,
       revocationDate: null,
@@ -94,6 +95,7 @@ describe("GET /v1/orgs/:ein", () => {
         name: bmf,
         address: bmf,
         is501c3: bmf,
+        ntee: bmf,
         deductible: {
           file: "https://apps.irs.gov/pub/epostcard/data-download-pub78.zip",
           releasedAt: "2026-09-01T12:00:00.000Z",
@@ -165,15 +167,18 @@ describe("GET /v1/orgs/:ein", () => {
     expect(body).toMatchObject({
       name: "DEFUNCT ARTS COUNCIL",
       is501c3: null,
+      ntee: null,
       revoked: true,
       revocationDate: "2019-05-15",
     });
+    expect(body.provenance.ntee).toBeNull();
     expect(body.provenance.name).toStrictEqual({
       file: "https://apps.irs.gov/pub/epostcard/data-download-revocation.zip",
       releasedAt: "2026-09-02T12:00:00.000Z",
       fetchedAt: "2026-09-10T03:06:00.000Z",
     });
     expect(body.notes).toContain("revoked; not in the current BMF");
+    expect(body.notes).toContain("no NTEE code on record");
   });
 
   test("answers 405 for a method other than GET", async () => {

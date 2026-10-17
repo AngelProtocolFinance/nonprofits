@@ -17,6 +17,7 @@ interface OrgRow {
   state: string | null;
   zip: string | null;
   subsection: string | null;
+  ntee: string | null;
   ruling_date: string | null;
   in_pub78: 0 | 1;
   revocation_date: string | null;
@@ -58,7 +59,7 @@ interface RunRow {
 }
 
 const ORG_SQL = `
-SELECT o.ein, o.name, o.street, o.city, o.state, o.zip, o.subsection, o.ruling_date,
+SELECT o.ein, o.name, o.street, o.city, o.state, o.zip, o.subsection, o.ntee, o.ruling_date,
   o.in_pub78, o.revocation_date, o.reinstatement_date, o.files_990n, o.epostcard_website,
   n.file_url AS name_file, n.released_at AS name_released_at, n.fetched_at AS name_fetched_at,
   a.file_url AS address_file, a.released_at AS address_released_at, a.fetched_at AS address_fetched_at,
@@ -187,6 +188,7 @@ function toRecord(
       row.subsection !== null && bmfSource
         ? {
             subsection: row.subsection,
+            ntee: row.ntee,
             rulingDate: row.ruling_date,
             source: bmfSource,
           }

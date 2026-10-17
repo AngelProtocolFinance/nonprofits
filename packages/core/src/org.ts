@@ -46,6 +46,7 @@ export interface Provenance {
   name: SourceFile | null;
   address: SourceFile | null;
   is501c3: SourceFile | null;
+  ntee: SourceFile | null;
   deductible: SourceFile | null;
   revoked: SourceFile | null;
   revocationDate: SourceFile | null;
@@ -65,6 +66,8 @@ export interface OrgResponse {
   address: Address;
   /** BMF subsection `03`; null when the org is not in the current BMF. */
   is501c3: boolean | null;
+  /** Raw BMF NTEE code, for example `P20`. Null when that code is absent. */
+  ntee: string | null;
   /**
    * Tri-state. `true` when listed in IRS Publication 78, so gifts are
    * tax-deductible. `false` when Pub 78 is imported and the org is not listed.
@@ -122,9 +125,10 @@ export interface OrgRecord {
   ein: string;
   name: { value: string; source: SourceFile } | null;
   address: { value: Address; source: SourceFile } | null;
-  /** null when the org is not in the current BMF. `rulingDate` is `YYYY-MM`. */
+  /** null when the org is not in the current BMF. `ntee` is the raw code, null when the row has none. `rulingDate` is `YYYY-MM`. */
   bmf: {
     subsection: string;
+    ntee: string | null;
     rulingDate: string | null;
     source: SourceFile;
   } | null;
