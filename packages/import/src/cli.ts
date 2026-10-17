@@ -288,6 +288,9 @@ async function runRefresh(values: Values, s: Session): Promise<void> {
           log,
           signal,
           ...(s.deps.sleep === undefined ? {} : { sleep: s.deps.sleep }),
+          onWarmup: (warmup) => {
+            record.warmup = warmup;
+          },
         }),
       ),
     );

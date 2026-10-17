@@ -3,6 +3,7 @@ import type { ServedPointer } from "@nonprofits/db";
 import { percent } from "./efile.ts";
 import type { Loaded } from "./sources.ts";
 import type { Check } from "./verify.ts";
+import type { WarmupReport } from "./warmup.ts";
 
 export interface Step {
   name: string;
@@ -23,6 +24,8 @@ export interface RunRecord {
   steps: Step[];
   loads: Loaded[];
   checks: Check[];
+  /** Set once the uploaded database was warmed, including when that warm-up warned. */
+  warmup: WarmupReport | null;
   failure: string | null;
   /** The command that removes a database the run left behind, holding storage. */
   cleanup: string | null;
@@ -39,6 +42,7 @@ export function runRecord(): RunRecord {
     steps: [],
     loads: [],
     checks: [],
+    warmup: null,
     failure: null,
     cleanup: null,
     stop: null,
@@ -192,6 +196,12 @@ export function renderSummary(
       `**Cleanup:** \`${clip(record.cleanup)}\` removes a database this run left behind, which holds storage until then`,
       "",
     );
+  }
+  if (record.warmup !== null) {
+    out.push("### Warm-up", "", clip(record.warmup.summary), "");
+    if (record.warmup.warnings.length > 0) {
+      out.push(...record.warmup.warnings.map((line) => `- ${clip(line)}`), "");
+    }
   }
   out.push(...served(record, row));
   if (record.loads.length > 0) out.push(...sources(record.loads, row));

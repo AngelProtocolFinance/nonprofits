@@ -196,7 +196,7 @@ describe("run refresh", { timeout: 60_000 }, () => {
     const before = await h.served();
     quiet();
 
-    const code = await run(["refresh"], {}, h.deps);
+    const code = await run(["refresh", "--summary", h.summary], {}, h.deps);
 
     expect(code).toBe(0);
     const after = await h.served();
@@ -207,6 +207,7 @@ describe("run refresh", { timeout: 60_000 }, () => {
       `${after.database?.name}.db`,
     ]);
     expect(existsSync(h.deps.dataFile)).toBe(true);
+    expect(await readFile(h.summary, "utf8")).toContain("### Warm-up\n");
   });
 });
 
