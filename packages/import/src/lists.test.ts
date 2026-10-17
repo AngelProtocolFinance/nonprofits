@@ -3,6 +3,7 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { crc32 } from "node:zlib";
 import { zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { importBmf } from "./bmf.ts";
@@ -46,6 +47,82 @@ function zipped(list: ListName, text: string): Uint8Array {
   });
 }
 
+/**
+ * One entry stored as a Deflate64 (method 9) zip. `compressed` replaces the
+ * deflate block, so a caller can hand zip.js bytes it cannot inflate.
+ */
+function deflate64Zip(
+  name: string,
+  text: string,
+  compressed?: Uint8Array,
+): Uint8Array {
+  const data = Buffer.from(text);
+  const payload = compressed ?? storedDeflate(data);
+  const nameBytes = Buffer.from(name);
+  const crc = crc32(data);
+  const local = Buffer.concat([
+    le(0x04034b50, 4),
+    le(21, 2),
+    le(0, 2),
+    le(9, 2),
+    le(0, 2),
+    le(0, 2),
+    le(crc, 4),
+    le(payload.length, 4),
+    le(data.length, 4),
+    le(nameBytes.length, 2),
+    le(0, 2),
+    nameBytes,
+    payload,
+  ]);
+  const central = Buffer.concat([
+    le(0x02014b50, 4),
+    le(21, 2),
+    le(21, 2),
+    le(0, 2),
+    le(9, 2),
+    le(0, 2),
+    le(0, 2),
+    le(crc, 4),
+    le(payload.length, 4),
+    le(data.length, 4),
+    le(nameBytes.length, 2),
+    le(0, 2),
+    le(0, 2),
+    le(0, 2),
+    le(0, 2),
+    le(0, 4),
+    le(0, 4),
+    nameBytes,
+  ]);
+  const end = Buffer.concat([
+    le(0x06054b50, 4),
+    le(0, 2),
+    le(0, 2),
+    le(1, 2),
+    le(1, 2),
+    le(central.length, 4),
+    le(local.length, 4),
+    le(0, 2),
+  ]);
+  return Buffer.concat([local, central, end]);
+}
+
+function storedDeflate(data: Uint8Array): Buffer {
+  const block = Buffer.alloc(5 + data.length);
+  block[0] = 1;
+  block.writeUInt16LE(data.length, 1);
+  block.writeUInt16LE(~data.length & 0xffff, 3);
+  block.set(data, 5);
+  return block;
+}
+
+function le(value: number, bytes: number): Buffer {
+  const out = Buffer.alloc(bytes);
+  out.writeUIntLE(value, 0, bytes);
+  return out;
+}
+
 function fixtureText(list: ListName): Promise<string> {
   return readFile(new URL(`data-download-${list}.txt`, LIST_FIXTURES), "utf8");
 }
@@ -83,7 +160,20 @@ beforeAll(async () => {
     );
     routes.set(`/dropped/${list}.zip`, zipped(list, lastColumnDropped));
   }
-  const pub78 = zipped("pub78", await fixtureText("pub78"));
+  const pub78Text = await fixtureText("pub78");
+  const pub78 = zipped("pub78", pub78Text);
+  routes.set(
+    "/deflate64/pub78.zip",
+    deflate64Zip("data-download-pub78.txt", pub78Text),
+  );
+  routes.set(
+    "/deflate64-bad/pub78.zip",
+    deflate64Zip(
+      "data-download-pub78.txt",
+      pub78Text,
+      Buffer.from([0, 1, 2, 3, 4, 5, 6, 7]),
+    ),
+  );
   let stallOnce = true;
   routes.set("/stall-once/pub78.zip", (res) => {
     res.writeHead(200, { "last-modified": RELEASED });
@@ -637,6 +727,43 @@ test("a later release keeping only an EIN's older revocation takes that one and 
   expect(rows).toStrictEqual([
     { revocation_date: "2016-03-15", reinstatement_date: "2016-08-15" },
   ]);
+});
+
+test("a Deflate64 list zip loads", { timeout: 60_000 }, async () => {
+  const dir = await freshDataDir("deflate64");
+  const summary = await loadList(dir, "pub78", {
+    path: "/deflate64/pub78.zip",
+  });
+  expect(summary.rows).toBe(FIXTURE_ROWS.pub78);
+  expect(await query(dir, orgWithSources("000587764"))).toStrictEqual([
+    {
+      name: "Iglesia Bethesda Inc.",
+      name_source: "pub78",
+      street: null,
+      city: "Lowell",
+      state: "MA",
+      zip: null,
+      address_source: "pub78",
+      bmf_run_id: null,
+      in_pub78: 1,
+    },
+  ]);
+});
+
+test("a Deflate64 entry that cannot be inflated names the compression, loading nothing", {
+  timeout: 60_000,
+}, async () => {
+  const dir = await freshDataDir("deflate64-bad");
+  const before = await counts(dir);
+  const retry = quickRetry();
+  await expect(
+    loadList(dir, "pub78", { path: "/deflate64-bad/pub78.zip", retry }),
+  ).rejects.toThrow(
+    `Pub 78 layout changed in ${base}/deflate64-bad/pub78.zip: zip uses Deflate64 compression`,
+  );
+  expect(retry.lines).toStrictEqual([]);
+  await expect(access(join(work, "pub78.load.sql"))).rejects.toThrow("ENOENT");
+  expect(await counts(dir)).toStrictEqual(before);
 });
 
 test("a zip's first file loads without waiting on the rest of the archive", {

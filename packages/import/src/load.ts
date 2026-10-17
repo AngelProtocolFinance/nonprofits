@@ -6,6 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { COLUMNS, type DataTable, type ImportSource } from "@nonprofits/db";
 import { CsvError, type Options as CsvOptions, parse } from "csv-parse";
 import { RETRY, type RetryPolicy, TransientError } from "./retry.ts";
+import { LayoutDriftError } from "./zip.ts";
 
 export type OrgColumn = (typeof COLUMNS.orgs)[number];
 type RunColumn = (typeof COLUMNS.import_runs)[number];
@@ -157,6 +158,15 @@ function detailOf(error: unknown): string {
     : `${error.message}: ${error.cause.message}`;
 }
 
+/** A `LayoutDriftError` raised while reading, including one carried as a cause. */
+function layoutDrift(error: unknown): LayoutDriftError | undefined {
+  if (error instanceof LayoutDriftError) return error;
+  if (error instanceof Error && error.cause instanceof LayoutDriftError) {
+    return error.cause;
+  }
+  return undefined;
+}
+
 /** A failure reading `file`, as transient as `error`. */
 export function downloadFailed(file: ImportFile, error: unknown): Error {
   const failed = `${file.label} download failed: ${file.url}: ${detailOf(error)}`;
@@ -167,7 +177,8 @@ export function downloadFailed(file: ImportFile, error: unknown): Error {
 
 /**
  * The delimited records in `bytes`; a cut-off download or malformed text
- * throws naming the file.
+ * throws naming the file. A `LayoutDriftError` from the bytes is the file's
+ * layout, reported as such rather than as a failed download.
  */
 export async function* records(
   file: ImportFile,
@@ -182,6 +193,13 @@ export async function* records(
     for await (const record of parser) yield record as string[];
     await parsing;
   } catch (error) {
+    const drift = layoutDrift(error);
+    if (drift) {
+      throw new LayoutDriftError(
+        `${file.label} layout changed in ${file.url}: ${drift.message}`,
+        { cause: drift },
+      );
+    }
     throw error instanceof CsvError
       ? new Error(
           `${file.label} parse failed in ${file.url}: ${error.message}`,
