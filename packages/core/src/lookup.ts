@@ -1,6 +1,7 @@
 import { normalizeEin } from "./ein.ts";
 import type {
   FilingCitation,
+  FoundationStatus,
   OrgLookupResult,
   OrgReader,
   OrgRecord,
@@ -51,6 +52,9 @@ function toResponse(record: OrgRecord): OrgResponse {
   const activitySummary = filing?.activitySummary ?? null;
   const programs = filing?.programs ?? [];
   const website = pickWebsite(record, citation);
+  const websiteUrl = website === null ? null : toWebsiteUrl(website.url);
+  const ntee = record.bmf?.ntee ?? null;
+  const foundation = foundationOf(record);
   const revocationDate = revocation?.revokedOn ?? null;
   const reinstatementDate = revocation?.reinstatedOn ?? null;
   const revoked = isRevoked(revocation, record.bmf);
@@ -61,6 +65,9 @@ function toResponse(record: OrgRecord): OrgResponse {
     name: record.name?.value ?? null,
     address: record.address?.value ?? NO_ADDRESS,
     is501c3: is501c3(record.bmf),
+    ntee,
+    foundationStatus: foundation.status,
+    foundationCode: foundation.code,
     deductible: isDeductible(record.pub78),
     revoked,
     revocationDate,
@@ -75,16 +82,22 @@ function toResponse(record: OrgRecord): OrgResponse {
       taxYear: filing.taxYear,
     },
     website: website?.url ?? null,
+    websiteUrl,
     notes: notesFor(record, {
       mission,
       hasWebsite: website !== null,
+      websiteUrl,
       revoked,
       bmfReinstated,
+      foundationNote: foundation.note,
     }),
     provenance: {
       name: record.name?.source ?? null,
       address: record.address?.source ?? null,
       is501c3: record.bmf?.source ?? null,
+      ntee: ntee === null || record.bmf === null ? null : record.bmf.source,
+      foundationStatus: foundation.statusSource,
+      foundationCode: foundation.codeSource,
       deductible: record.pub78?.source ?? null,
       revoked: bmfReinstated
         ? (record.bmf?.source ?? null)
@@ -98,8 +111,93 @@ function toResponse(record: OrgRecord): OrgResponse {
       programs: programs.length === 0 ? null : citation,
       finances: citation,
       website: website?.source ?? null,
+      websiteUrl: websiteUrl === null ? null : (website?.source ?? null),
     },
   };
+}
+
+interface FoundationFacts {
+  status: FoundationStatus | null;
+  code: string | null;
+  note: string | null;
+  statusSource: SourceFile | null;
+  codeSource: SourceFile | null;
+}
+
+/**
+ * IRS Exempt Organizations Business Master File Extract information sheet,
+ * FOUNDATION CODE, https://www.irs.gov/pub/irs-soi/eo-info.pdf (00 all
+ * organizations except 501(c)(3); 02 and 03 private operating foundations;
+ * 04 private non-operating foundation; 09 suspense; 10–18 and 21–24 the
+ * public-charity codes the sheet names). IRM 2.4.10,
+ * https://www.irs.gov/irm/part2/irm_02-004-010, accepts foundation code 25
+ * only when the subsection is 03. IRC 170(b)(1)(A)(ix) agricultural research
+ * organizations are public charities in the same 170(b)(1)(A) class as
+ * foundation codes 10–15. EO status code 25 (IRC 507(b)(1)(B)) is a different
+ * field and is not this mapping.
+ */
+function foundationOf(record: OrgRecord): FoundationFacts {
+  const source = record.bmf?.source ?? null;
+  if (!record.foundationCodeInBuild) {
+    return {
+      status: null,
+      code: null,
+      note: "foundation code is not in this data build",
+      statusSource: null,
+      codeSource: null,
+    };
+  }
+  const code = record.bmf?.foundationCode ?? null;
+  if (code === null) {
+    return {
+      status: null,
+      code: null,
+      note: "no foundation code on record",
+      statusSource: null,
+      codeSource: null,
+    };
+  }
+  const status = foundationStatus(code, record.bmf?.subsection ?? null);
+  return {
+    status,
+    code,
+    note: status === null ? foundationNote(code) : null,
+    statusSource: status === null ? null : source,
+    codeSource: source,
+  };
+}
+
+const PUBLIC_CHARITY_CODES = new Set([
+  "10",
+  "11",
+  "12",
+  "13",
+  "14",
+  "15",
+  "16",
+  "17",
+  "18",
+  "21",
+  "22",
+  "23",
+  "24",
+]);
+
+function foundationStatus(
+  code: string,
+  subsection: string | null,
+): FoundationStatus | null {
+  if (code === "02" || code === "03") return "private_operating_foundation";
+  if (code === "04") return "private_foundation";
+  if (PUBLIC_CHARITY_CODES.has(code)) return "public_charity";
+  if (code === "25" && subsection === "03") return "public_charity";
+  return null;
+}
+
+function foundationNote(code: string): string {
+  if (code === "00") return "not a 501(c)(3): no foundation status";
+  if (code === "09") return "foundation status is in suspense";
+  return "unrecognized foundation code";
 }
 
 function notesFor(
@@ -107,11 +205,20 @@ function notesFor(
   facts: {
     mission: string | null;
     hasWebsite: boolean;
+    websiteUrl: string | null;
     revoked: boolean | null;
     bmfReinstated: boolean;
+    foundationNote: string | null;
   },
 ): string[] {
-  const { mission, hasWebsite, revoked, bmfReinstated } = facts;
+  const {
+    mission,
+    hasWebsite,
+    websiteUrl,
+    revoked,
+    bmfReinstated,
+    foundationNote,
+  } = facts;
   const notes: string[] = [];
   if (record.name === null) notes.push("no name on record");
   if (record.address === null) notes.push("no address on record");
@@ -122,6 +229,10 @@ function notesFor(
         : "not in the current BMF: 501(c)(3) status unknown",
     );
   }
+  if (record.bmf === null || record.bmf.ntee === null) {
+    notes.push("no NTEE code on record");
+  }
+  if (foundationNote !== null) notes.push(foundationNote);
   if (record.pub78 === null) {
     notes.push("Pub 78 not yet imported: deductibility unknown");
   }
@@ -162,7 +273,47 @@ function notesFor(
     }
   }
   if (!hasWebsite) notes.push("no website on record");
+  else if (websiteUrl === null) {
+    notes.push("website is not a valid web address");
+  }
   return notes;
+}
+
+function toWebsiteUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  if (/^(?:n\/a|none|0)$/i.test(trimmed)) return null;
+  if (/[\s@]/.test(trimmed)) return null;
+
+  let candidate = trimmed;
+  const httpInput = /^http:\/\//i.test(candidate);
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  } else if (httpInput) {
+    candidate = `https://${candidate.slice(7)}`;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return null;
+  }
+
+  const hostname = url.hostname;
+  const labels = hostname.split(".");
+  const tld = labels.at(-1);
+  if (labels.length < 2 || tld === undefined) return null;
+  if (labels.some((label) => label.length === 0)) return null;
+  if (!/^[a-z]{2,}$/i.test(tld)) return null;
+
+  if (httpInput && url.port === "80") url.port = "";
+
+  const serialized = url.href.toLowerCase();
+  if (url.pathname === "/" && url.search === "" && url.hash === "") {
+    return serialized.slice(0, -1);
+  }
+  return serialized;
 }
 
 /** The 990's website wins over the e-Postcard's. */

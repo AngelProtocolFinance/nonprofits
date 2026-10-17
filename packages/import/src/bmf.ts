@@ -77,6 +77,7 @@ const FIELDS = [
   ["zip", "ZIP"],
   ["subsection", "SUBSECTION"],
   ["ntee", "NTEE_CD"],
+  ["foundation_code", "FOUNDATION"],
   ["ruling_date", "RULING"],
   ["deductibility_code", "DEDUCTIBILITY"],
   ["filing_requirement_code", "FILING_REQ_CD"],
@@ -88,6 +89,7 @@ const FIELDS = [
 const BMF_FACTS = [
   "subsection",
   "ntee",
+  "foundation_code",
   "ruling_date",
   "deductibility_code",
   "filing_requirement_code",

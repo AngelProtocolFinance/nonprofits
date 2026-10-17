@@ -138,7 +138,7 @@ afterAll(async () => {
 describe("importBmf", { timeout: 60_000 }, () => {
   test("loads the Red Cross with its DC address and subsection 03", async () => {
     const rows = await query(
-      "SELECT ein, name, street, city, state, zip, subsection, ruling_date FROM orgs WHERE ein = '530196605'",
+      "SELECT ein, name, street, city, state, zip, subsection, foundation_code, ruling_date FROM orgs WHERE ein = '530196605'",
     );
     expect(rows).toStrictEqual([
       {
@@ -149,8 +149,19 @@ describe("importBmf", { timeout: 60_000 }, () => {
         state: "DC",
         zip: "20006-5310",
         subsection: "03",
+        foundation_code: "15",
         ruling_date: "1938-12",
       },
+    ]);
+  });
+
+  test("stores the raw foundation code, including 00", async () => {
+    const rows = await query(
+      "SELECT ein, foundation_code FROM orgs WHERE ein IN ('010158948', '010414466') ORDER BY ein",
+    );
+    expect(rows).toStrictEqual([
+      { ein: "010158948", foundation_code: "00" },
+      { ein: "010414466", foundation_code: "04" },
     ]);
   });
 
@@ -309,7 +320,7 @@ describe("importBmf", { timeout: 60_000 }, () => {
   test("clears the BMF facts of an org the latest BMF dropped, keeping its name", async () => {
     await importFixture(["eo1.csv", "eo2.csv", "eo3.csv"], "dropped.load.sql");
     const rows = await query(
-      "SELECT name, bmf_run_id, subsection, ruling_date FROM orgs WHERE ein IN ('530196605', '200443614') ORDER BY ein",
+      "SELECT name, bmf_run_id, subsection, foundation_code, ruling_date FROM orgs WHERE ein IN ('530196605', '200443614') ORDER BY ein",
     );
     await importFixture(FIXTURE_FILES, "restore.load.sql");
     expect(rows).toStrictEqual([
@@ -317,12 +328,14 @@ describe("importBmf", { timeout: 60_000 }, () => {
         name: "INTERNATIONAL FACILITY MANAGEMENT ASSOCIATION INC",
         bmf_run_id: null,
         subsection: null,
+        foundation_code: null,
         ruling_date: null,
       },
       {
         name: "AMERICAN NATIONAL RED CROSS",
         bmf_run_id: expect.any(Number),
         subsection: "03",
+        foundation_code: "15",
         ruling_date: "1938-12",
       },
     ]);

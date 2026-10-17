@@ -52,6 +52,26 @@ describe("COLUMNS", () => {
       ).toEqual(columns);
     }
   });
+
+  test("places foundation_code, nullable text, immediately after ntee", async () => {
+    const db = await dataDatabase();
+    const rs = await db.execute({
+      sql: "SELECT * FROM pragma_table_info(?)",
+      args: ["orgs"],
+    });
+    const columns = rs.rows.map((column) => ({
+      name: String(column.name),
+      type: String(column.type),
+      notnull: Number(column.notnull),
+    }));
+    const ntee = columns.findIndex((column) => column.name === "ntee");
+
+    expect(columns[ntee + 1]).toStrictEqual({
+      name: "foundation_code",
+      type: "TEXT",
+      notnull: 0,
+    });
+  });
 });
 
 describe("date columns", () => {
@@ -135,6 +155,10 @@ describe("data table constraints", () => {
     [
       "an EIN with leading zeros",
       "INSERT INTO orgs (ein) VALUES ('001234567')",
+    ],
+    [
+      "a null foundation code",
+      "INSERT INTO orgs (ein, foundation_code) VALUES ('123456789', NULL)",
     ],
     [
       "a name with the run that gave it",

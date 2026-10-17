@@ -9,33 +9,33 @@ INSERT INTO import_runs (id, source, file_url, released_at, fetched_at, row_coun
 
 INSERT INTO orgs (
   ein, name, name_run_id, street, city, state, zip, address_run_id,
-  bmf_run_id, subsection, ntee, ruling_date, deductibility_code, filing_requirement_code,
+  bmf_run_id, subsection, ntee, foundation_code, ruling_date, deductibility_code, filing_requirement_code,
   in_pub78, revocation_date, reinstatement_date, files_990n, epostcard_website
 ) VALUES
   -- fully populated 501(c)(3), 990 filer
   ('530196605', 'AMERICAN NATIONAL RED CROSS', 1, '431 18TH ST NW', 'WASHINGTON', 'DC', '20006-5310', 1,
-   1, '03', 'P20', '1946-06', '1', '01', 1, NULL, NULL, 0, NULL),
+   1, '03', 'P20', '15', '1946-06', '1', '01', 1, NULL, NULL, 0, NULL),
   -- 990-N (e-Postcard) filer
   ('271234567', 'SUNNYSIDE YOUTH SOCCER LEAGUE', 1, '120 FIELD RD', 'BOISE', 'ID', '83702', 1,
-   1, '03', 'N64', '2011-03', '1', '06', 1, NULL, NULL, 1, 'sunnysidesoccer.example'),
+   1, '03', 'N64', '15', '2011-03', '1', '06', 1, NULL, NULL, 1, 'sunnysidesoccer.example'),
   -- private foundation, 990-PF filer
   ('136009999', 'HALVERSEN FAMILY FOUNDATION', 1, '50 PARK AVE', 'NEW YORK', 'NY', '10016-3005', 1,
-   1, '03', 'T20', '1958-11', '1', '01', 1, NULL, NULL, 0, NULL),
+   1, '03', 'T20', '04', '1958-11', '1', '01', 1, NULL, NULL, 0, NULL),
   -- revoked, still in the BMF
   ('201234567', 'LAPSED COMMUNITY THEATER INC', 1, '9 MAIN ST', 'DAYTON', 'OH', '45402', 1,
-   1, '03', 'A65', '2004-08', '1', '01', 0, '2023-05-15', NULL, 0, NULL),
+   1, '03', 'A65', '15', '2004-08', '1', '01', 0, '2023-05-15', NULL, 0, NULL),
   -- revoked, then recognized again per its BMF ruling date; the revocation list shows no reinstatement
   ('461234567', 'RESTORED NEIGHBORHOOD GARDEN CLUB', 1, '22 ORCHARD LN', 'AKRON', 'OH', '44308', 1,
-   1, '03', 'C30', '2022-03', '1', '01', 0, '2021-05-17', NULL, 0, NULL),
+   1, '03', 'C30', '15', '2022-03', '1', '01', 0, '2021-05-17', NULL, 0, NULL),
   -- revoked and dropped from the BMF: known only from the revocation list
   ('311234567', 'DEFUNCT ARTS COUNCIL', 3, '1 OLD RD', 'TOLEDO', 'OH', '43604', 3,
-   NULL, NULL, NULL, NULL, NULL, NULL, 0, '2019-05-15', NULL, 0, NULL),
+   NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, '2019-05-15', NULL, 0, NULL),
   -- 501(c)(4), not deductible, 990-EZ filer
   ('521234567', 'GREATER RIVERTON CIVIC LEAGUE', 1, '300 ELM ST', 'RIVERTON', 'WY', '82501', 1,
-   1, '04', 'S20', '1979-02', '2', '01', 0, NULL, NULL, 0, NULL),
+   1, '04', 'S20', '00', '1979-02', '2', '01', 0, NULL, NULL, 0, NULL),
   -- 990 filer whose mission field only says "SEE SCHEDULE O"
   ('010654321', 'HARBORVIEW LITERACY PROJECT', 1, '18 WHARF ST', 'PORTLAND', 'ME', '04101', 1,
-   1, '03', 'B60', '1998-04', '1', '01', 1, NULL, NULL, 0, NULL);
+   1, '03', 'B60', '15', '1998-04', '1', '01', 1, NULL, NULL, 0, NULL);
 
 INSERT INTO filings (
   ein, object_id, return_id, form_type, tax_period, tax_year, mission,
