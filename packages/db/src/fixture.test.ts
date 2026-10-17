@@ -39,4 +39,21 @@ WHERE o.ein = ?`,
       },
     ]);
   });
+
+  test("stores each seeded foundation code, null for an org off the BMF", async () => {
+    const rs = await data.client.execute(
+      "SELECT ein, foundation_code FROM orgs ORDER BY ein",
+    );
+
+    expect(rs.rows.map((row) => ({ ...row }))).toStrictEqual([
+      { ein: "010654321", foundation_code: "15" },
+      { ein: "136009999", foundation_code: "04" },
+      { ein: "201234567", foundation_code: "15" },
+      { ein: "271234567", foundation_code: "15" },
+      { ein: "311234567", foundation_code: null },
+      { ein: "461234567", foundation_code: "15" },
+      { ein: "521234567", foundation_code: "00" },
+      { ein: "530196605", foundation_code: "15" },
+    ]);
+  });
 });

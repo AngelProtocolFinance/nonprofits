@@ -51,6 +51,7 @@ export const COLUMNS = {
     "bmf_run_id",
     "subsection",
     "ntee",
+    "foundation_code",
     "ruling_date",
     "deductibility_code",
     "filing_requirement_code",
@@ -140,6 +141,8 @@ CREATE TABLE orgs (
   bmf_run_id INTEGER REFERENCES import_runs (id),
   subsection TEXT,
   ntee TEXT,
+  -- raw IRS EO BMF FOUNDATION code; null when the org is not in the current BMF or the field was empty
+  foundation_code TEXT,
   -- BMF RULING, as YYYY-MM
   ruling_date TEXT CHECK (${dateCheck("ruling_date", "yearMonth")}),
   deductibility_code TEXT,
