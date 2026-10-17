@@ -54,3 +54,4 @@ Other roots: `packages/api/vercel.json` (region, cron, build), `packages/api/.en
 - Never let a test reach the network.
 - Never store or log an API key in plaintext.
 - Never install without `--frozen-lockfile` in CI or in `.cursor/environment.json`, and never hand-edit `pnpm-lock.yaml`.
+- Never negate `.claude/skills` or `.claude/agents` in `.gitignore`. The cloud install lists those copies in `.git/info/exclude`, and a negation in `.gitignore` overrides that exclude.
