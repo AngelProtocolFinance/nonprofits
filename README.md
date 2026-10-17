@@ -1,6 +1,6 @@
 # nonprofits
 
-Look up any US tax-exempt organization by EIN or name: whether it's a 501(c)(3), whether gifts to it are tax-deductible, whether its exemption was revoked, plus its mission, top programs and finances from its latest Form 990. Every fact cites the IRS file it came from.
+Look up any US tax-exempt organization by EIN or name: whether it's a 501(c)(3), its NTEE code, whether it is a public charity or a private foundation, whether gifts to it are tax-deductible, whether its exemption was revoked, plus its mission, top programs, finances, and website from its latest Form 990. Every fact cites the IRS file it came from.
 
 **https://nonprofits.better.giving**, over REST or MCP.
 
@@ -30,9 +30,13 @@ One organization. `ein` is 9 digits, with or without the dash (`53-0196605`).
 | --- | --- |
 | `name`, `address` | As the IRS Business Master File lists them |
 | `is501c3` | A 501(c)(3); `null` when the org isn't in the current Business Master File |
+| `ntee` | Raw NTEE code from the Business Master File, for example `P20`. `null` when that file has none |
+| `foundationStatus` | `public_charity`, `private_foundation`, or `private_operating_foundation`, from the Business Master File foundation code. `null` when that code is missing, is not a 501(c)(3), is in suspense, is unrecognized, or the data build has no foundation column |
+| `foundationCode` | The raw foundation code from that file, or `null` |
 | `deductible` | Tri-state. `true`: listed in IRS Publication 78, so gifts are tax-deductible. `false`: Publication 78 is imported and the org is not listed. `null`: unknown, for example when Publication 78 has not been imported |
 | `revoked`, `revocationDate`, `reinstatementDate` | Exemption automatically revoked (and not reinstated since), with dates as `YYYY-MM-DD` |
-| `mission`, `activitySummary`, `website` | From its latest e-filed Form 990 or 990-EZ |
+| `mission`, `activitySummary`, `website` | From its latest e-filed Form 990 or 990-EZ. `website` is the raw value |
+| `websiteUrl` | `website` as an `https` URL, or `null` when the raw value is not a web address |
 | `programs` | Up to 3 program services, highest expense first |
 | `finances` | `revenue`, `expenses`, `assets` (end of year) and `taxYear`, from its latest e-filed return |
 | `notes` | Why a fact is `null` |

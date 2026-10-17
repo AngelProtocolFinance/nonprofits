@@ -353,8 +353,10 @@ describe("/mcp with a key", () => {
       text: [
         "AMERICAN NATIONAL RED CROSS, EIN 530196605, WASHINGTON, DC",
         "501(c)(3): yes. Tax-deductible (Pub 78): yes. Revoked: no.",
+        "NTEE: P20. Foundation: public charity (15).",
         "Mission: The American Red Cross prevents and alleviates human suffering in the face of emergencies by mobilizing the power of volunteers and the generosity of donors.",
         "Website: https://www.redcross.org",
+        "Website URL: https://www.redcross.org",
       ],
     },
     {
@@ -363,8 +365,10 @@ describe("/mcp with a key", () => {
       text: [
         "SUNNYSIDE YOUTH SOCCER LEAGUE, EIN 271234567, BOISE, ID",
         "501(c)(3): yes. Tax-deductible (Pub 78): yes. Revoked: no.",
+        "NTEE: N64. Foundation: public charity (15).",
         "Mission: none on record",
         "Website: sunnysidesoccer.example",
+        "Website URL: https://sunnysidesoccer.example",
         "Notes: 990-N filer: no mission on record",
       ],
     },
@@ -374,6 +378,7 @@ describe("/mcp with a key", () => {
       text: [
         "DEFUNCT ARTS COUNCIL, EIN 311234567, TOLEDO, OH",
         "501(c)(3): unknown. Tax-deductible (Pub 78): no. Revoked: yes.",
+        "NTEE: none on record. Foundation: none on record.",
         "Mission: none on record",
         "Notes: revoked; not in the current BMF; no NTEE code on record; no foundation code on record; no e-filed 990 in the last 3 release years; no website on record",
       ],
@@ -585,6 +590,9 @@ describe("/mcp without a key", () => {
     const search = tools.find((listed) => listed.name === "search_nonprofits");
     expect(search?.description).toContain("revoked-then-reinstated");
     expect(JSON.stringify(search?.outputSchema)).toContain("revocationDate");
+    const lookup = tools.find((listed) => listed.name === "lookup_nonprofit");
+    expect(lookup?.description).toContain("websiteUrl");
+    expect(lookup?.description).toContain("foundationStatus");
   });
 
   test("lookup_nonprofit answers 530196605 with the same JSON as GET /v1/orgs/530196605", async () => {
