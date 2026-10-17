@@ -46,7 +46,7 @@ export const ROWS_WRITTEN = { metered: 2, whitelisted: 1, refused: 0 };
 // Turso's free plan: 500M rows read and 10M rows written a month. A 31-day
 // month allows 16,129,032 reads and 322,580 writes a day.
 //
-// Reads bind. A search ranks up to MAX_CANDIDATES (1,000, org-searcher.ts)
+// Reads bind. A search ranks up to the search SQL's candidate limit (1,000, search-sql.ts)
 // FTS matches, visiting per match 3 rows: its FTS entry, its `orgs` row and
 // its `filings_size` index row on a current data database (revenue and assets
 // only; the mission text stays unread), measured with .scanstats: up to

@@ -208,6 +208,32 @@ describe("renderSummary's served line", () => {
   });
 });
 
+describe("renderSummary's warm-up", () => {
+  test("a warning is quoted in its own section", () => {
+    const md = renderSummary(
+      record({
+        warmup: {
+          queries: [],
+          skipped: 40,
+          seconds: 1,
+          summary: "warm-up: 2 queries in 1.0 s, 40 not started",
+          warnings: [
+            "WARNING: warm-up stopped after 2 of 42 queries: budget 600 s spent",
+          ],
+        },
+      }),
+    );
+
+    expect(md).toContain(
+      "### Warm-up\n\nwarm-up: 2 queries in 1.0 s, 40 not started\n\n- WARNING: warm-up stopped after 2 of 42 queries: budget 600 s spent\n",
+    );
+  });
+
+  test("a run that did not warm has no warm-up section", () => {
+    expect(renderSummary(record())).not.toContain("Warm-up");
+  });
+});
+
 describe("renderSummary's cleanup line", () => {
   test("names the command that removes a database the run left, on a line of its own", () => {
     const md = renderSummary(

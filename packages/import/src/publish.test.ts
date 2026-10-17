@@ -27,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { localDatabases } from "./database-host.ts";
 import {
   type DatabaseHost,
+  dataDatabaseName,
   type PublishOptions,
   publishDataFile,
 } from "./publish.ts";
@@ -112,7 +113,12 @@ function holdingToken(inner: DatabaseHost): DatabaseHost {
 async function publish(
   build: Built,
   through: DatabaseHost = host,
-  more: Partial<Pick<PublishOptions, "app" | "signal" | "sleep">> = {},
+  more: Partial<
+    Pick<
+      PublishOptions,
+      "app" | "signal" | "sleep" | "warmupBudgetMs" | "onWarmup"
+    >
+  > = {},
 ) {
   try {
     return await publishDataFile({
@@ -195,6 +201,10 @@ describe("publishing a verified file", () => {
           typeof statement === "string"
             ? { sql: statement, args: [] }
             : statement;
+        // warm-up is the step that reads pages; the check above it stays a seek
+        if (sql.includes("orgs_fts MATCH") || sql.includes("INDEXED BY")) {
+          continue;
+        }
         const plan = await file.execute({
           sql: `EXPLAIN QUERY PLAN ${sql}`,
           args: args ?? [],
@@ -211,6 +221,62 @@ describe("publishing a verified file", () => {
       file.close();
     }
   });
+});
+
+test("a warm-up query failing still switches", async () => {
+  const build = await built("2026-10-01T00:00:00Z");
+  const local = localDatabases(join(work, "databases"));
+  const failing = holdingToken({
+    ...local,
+    async open(database) {
+      const client = await local.open(database);
+      const execute = client.execute.bind(client);
+      client.execute = (statement: InStatement) => {
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        if (sql.includes("orgs_fts MATCH") || sql.includes("INDEXED BY")) {
+          return Promise.reject(new Error("cold read failed"));
+        }
+        return execute(statement);
+      };
+      return client;
+    },
+  });
+  let warnings: string[] = [];
+
+  const report = await publish(build, failing, {
+    onWarmup: (warmup) => {
+      warnings = warmup.warnings;
+    },
+  });
+
+  const pointer = await readServedDatabase(app.client);
+  expect(pointer.database?.name).toBe(dataDatabaseName(build.buildId));
+  expect(report.database.name).toBe(pointer.database?.name);
+  expect(printed.some((line) => line.includes("cold read failed"))).toBe(true);
+  expect(warnings.some((line) => line.includes("cold read failed"))).toBe(true);
+  expect(thrown).toEqual([]);
+});
+
+test("a warm-up that spends its budget still switches", async () => {
+  const build = await built("2026-10-02T00:00:00Z");
+  let warnings: string[] = [];
+
+  await publish(build, host, {
+    warmupBudgetMs: 0,
+    onWarmup: (warmup) => {
+      warnings = warmup.warnings;
+    },
+  });
+
+  const pointer = await readServedDatabase(app.client);
+  expect(pointer.database?.name).toBe(dataDatabaseName(build.buildId));
+  expect(
+    printed.some((line) => line.startsWith("WARNING: warm-up stopped")),
+  ).toBe(true);
+  expect(
+    warnings.some((line) => line.startsWith("WARNING: warm-up stopped")),
+  ).toBe(true);
+  expect(thrown).toEqual([]);
 });
 
 test("the previous database outlives the api's cached pointer: removed only after the grace period, once the switch serves", async () => {

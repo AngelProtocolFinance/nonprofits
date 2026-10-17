@@ -14,6 +14,7 @@ import {
 import { dataDbClient } from "@nonprofits/db/node";
 import { printable } from "./summary.ts";
 import { RED_CROSS } from "./verify.ts";
+import { type WarmupReport, warmUploadedDatabase } from "./warmup.ts";
 
 /**
  * Where data databases are made, filled and removed: Turso's Platform API, or
@@ -56,6 +57,12 @@ export interface PublishOptions {
   signal?: AbortSignal;
   /** Waits `ms`, the grace period, rejecting if `signal` aborts first; a timer unless given. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** How long warm-up may run before the switch; the module's default when unset. */
+  warmupBudgetMs?: number;
+  /** How long one warm-up query may run; the module's default when unset. */
+  warmupQueryTimeoutMs?: number;
+  /** The warm-up's report, called before the switch even when the switch later fails. */
+  onWarmup?: (report: WarmupReport) => void;
 }
 
 /**
@@ -110,6 +117,9 @@ async function publish(
     buildId,
     signal,
     sleep = (ms, stop) => delay(ms, undefined, { signal: stop }),
+    warmupBudgetMs,
+    warmupQueryTimeoutMs,
+    onWarmup,
   }: PublishOptions,
   say: (line: string) => void,
 ): Promise<PublishReport> {
@@ -150,6 +160,39 @@ async function publish(
   say(
     `checked ${name}: build ${buildId}, every table's last row as the file's`,
   );
+  await orRemove(async () => {
+    unlessStopped();
+    // a warm-up failure warns and the switch still happens; a stop removes the new database
+    let data: Client | undefined;
+    try {
+      data = await host.open(database);
+      const report = await warmUploadedDatabase({
+        db: data,
+        log: say,
+        ...(signal === undefined ? {} : { signal }),
+        ...(warmupBudgetMs === undefined ? {} : { budgetMs: warmupBudgetMs }),
+        ...(warmupQueryTimeoutMs === undefined
+          ? {}
+          : { queryTimeoutMs: warmupQueryTimeoutMs }),
+      });
+      onWarmup?.(report);
+    } catch (error) {
+      if (signal?.aborted) {
+        throw new Error(`stopped: ${errorMessage(signal.reason)}`);
+      }
+      const warning = `WARNING: warm-up failed: ${errorMessage(error)}`;
+      say(warning);
+      onWarmup?.({
+        queries: [],
+        skipped: 0,
+        seconds: 0,
+        summary: warning,
+        warnings: [warning],
+      });
+    } finally {
+      data?.close();
+    }
+  });
   await orRemove(async () => unlessStopped());
   let result: SwitchResult;
   try {
