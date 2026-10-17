@@ -13,6 +13,7 @@ export {
   FILING_SIZE_INDEX,
   type ImportSource,
 } from "./schema.ts";
+export { matchExpression, searchSql } from "./search-sql.ts";
 export {
   NEVER_BUILT,
   readServedDatabase,
