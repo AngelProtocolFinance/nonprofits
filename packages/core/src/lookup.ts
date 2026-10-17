@@ -129,8 +129,12 @@ interface FoundationFacts {
  * FOUNDATION CODE, https://www.irs.gov/pub/irs-soi/eo-info.pdf (00 all
  * organizations except 501(c)(3); 02 and 03 private operating foundations;
  * 04 private non-operating foundation; 09 suspense; 10–18 and 21–24 the
- * public-charity codes the sheet names). This API maps every code from `10`
- * through `24` inclusive to `public_charity`, including `19` and `20`.
+ * public-charity codes the sheet names). IRM 2.4.10,
+ * https://www.irs.gov/irm/part2/irm_02-004-010, accepts foundation code 25
+ * only when the subsection is 03. IRC 170(b)(1)(A)(ix) agricultural research
+ * organizations are public charities in the same 170(b)(1)(A) class as
+ * foundation codes 10–15. EO status code 25 (IRC 507(b)(1)(B)) is a different
+ * field and is not this mapping.
  */
 function foundationOf(record: OrgRecord): FoundationFacts {
   const source = record.bmf?.source ?? null;
@@ -153,7 +157,7 @@ function foundationOf(record: OrgRecord): FoundationFacts {
       codeSource: null,
     };
   }
-  const status = foundationStatus(code);
+  const status = foundationStatus(code, record.bmf?.subsection ?? null);
   return {
     status,
     code,
@@ -163,13 +167,30 @@ function foundationOf(record: OrgRecord): FoundationFacts {
   };
 }
 
-function foundationStatus(code: string): FoundationStatus | null {
+const PUBLIC_CHARITY_CODES = new Set([
+  "10",
+  "11",
+  "12",
+  "13",
+  "14",
+  "15",
+  "16",
+  "17",
+  "18",
+  "21",
+  "22",
+  "23",
+  "24",
+]);
+
+function foundationStatus(
+  code: string,
+  subsection: string | null,
+): FoundationStatus | null {
   if (code === "02" || code === "03") return "private_operating_foundation";
   if (code === "04") return "private_foundation";
-  if (code.length === 2) {
-    const n = Number(code);
-    if (Number.isInteger(n) && n >= 10 && n <= 24) return "public_charity";
-  }
+  if (PUBLIC_CHARITY_CODES.has(code)) return "public_charity";
+  if (code === "25" && subsection === "03") return "public_charity";
   return null;
 }
 
@@ -265,9 +286,10 @@ function toWebsiteUrl(raw: string): string | null {
   if (/[\s@]/.test(trimmed)) return null;
 
   let candidate = trimmed;
+  const httpInput = /^http:\/\//i.test(candidate);
   if (!/^https?:\/\//i.test(candidate)) {
     candidate = `https://${candidate}`;
-  } else if (/^http:\/\//i.test(candidate)) {
+  } else if (httpInput) {
     candidate = `https://${candidate.slice(7)}`;
   }
 
@@ -279,9 +301,13 @@ function toWebsiteUrl(raw: string): string | null {
   }
 
   const hostname = url.hostname;
-  const dot = hostname.lastIndexOf(".");
-  if (dot === -1) return null;
-  if (!/^[a-z]{2,}$/i.test(hostname.slice(dot + 1))) return null;
+  const labels = hostname.split(".");
+  const tld = labels.at(-1);
+  if (labels.length < 2 || tld === undefined) return null;
+  if (labels.some((label) => label.length === 0)) return null;
+  if (!/^[a-z]{2,}$/i.test(tld)) return null;
+
+  if (httpInput && url.port === "80") url.port = "";
 
   const serialized = url.href.toLowerCase();
   if (url.pathname === "/" && url.search === "" && url.hash === "") {

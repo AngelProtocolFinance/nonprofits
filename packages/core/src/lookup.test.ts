@@ -533,6 +533,9 @@ describe("lookupOrg", () => {
     ],
     ["http://EXAMPLE.org/Path/", "https://example.org/path/"],
     ["HTTP://EXAMPLE.ORG/Path", "https://example.org/path"],
+    ["http://example.org:80/path", "https://example.org/path"],
+    ["http://example.org:8080/path", "https://example.org:8080/path"],
+    ["https://example.org:80/path", "https://example.org:80/path"],
     ["N/A", null],
     ["NONE", null],
     ["0", null],
@@ -541,6 +544,10 @@ describe("lookupOrg", () => {
     ["user@example.org", null],
     ["example", null],
     ["https://example.c", null],
+    [".com", null],
+    ["https://.com", null],
+    ["foo..com", null],
+    [".example.com", null],
   ] as const)(
     "keeps the raw website %j and sets websiteUrl to %j",
     async (raw, websiteUrl) => {
@@ -553,17 +560,20 @@ describe("lookupOrg", () => {
     },
   );
 
-  test("notes an unusable website and cites only the raw string", async () => {
-    const org = await lookup({
-      ...redCross(),
-      efile: { filing: { ...redCrossFiling(), website: "user@example.org" } },
-    });
-    expect(org.website).toBe("user@example.org");
-    expect(org.websiteUrl).toBeNull();
-    expect(org.provenance.website).toStrictEqual(RED_CROSS_990);
-    expect(org.provenance.websiteUrl).toBeNull();
-    expect(org.notes).toStrictEqual(["website is not a valid web address"]);
-  });
+  test.each(["user@example.org", ".com"])(
+    "notes an unusable website %j and cites only the raw string",
+    async (raw) => {
+      const org = await lookup({
+        ...redCross(),
+        efile: { filing: { ...redCrossFiling(), website: raw } },
+      });
+      expect(org.website).toBe(raw);
+      expect(org.websiteUrl).toBeNull();
+      expect(org.provenance.website).toStrictEqual(RED_CROSS_990);
+      expect(org.provenance.websiteUrl).toBeNull();
+      expect(org.notes).toStrictEqual(["website is not a valid web address"]);
+    },
+  );
 
   test("notes a missing website without calling the address invalid", async () => {
     const org = await lookup({ ...redCross(), efile: { filing: null } });
@@ -709,7 +719,9 @@ describe("lookupOrg", () => {
     ["02", "private_operating_foundation"],
     ["03", "private_operating_foundation"],
     ["04", "private_foundation"],
-    ["19", "public_charity"],
+    ["10", "public_charity"],
+    ["18", "public_charity"],
+    ["21", "public_charity"],
     ["24", "public_charity"],
   ] as const)(
     "maps foundation code %s to %s and cites the BMF for both",
@@ -734,7 +746,9 @@ describe("lookupOrg", () => {
   test.each([
     ["00", "not a 501(c)(3): no foundation status"],
     ["09", "foundation status is in suspense"],
-    ["25", "unrecognized foundation code"],
+    ["19", "unrecognized foundation code"],
+    ["20", "unrecognized foundation code"],
+    ["99", "unrecognized foundation code"],
   ] as const)(
     "returns foundation code %s with null status and notes it",
     async (code, note) => {
@@ -754,6 +768,46 @@ describe("lookupOrg", () => {
       });
     },
   );
+
+  test("maps foundation code 25 to public_charity when the subsection is 03", async () => {
+    const org = await lookup(redCrossWithFoundation("25"));
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: "public_charity",
+      foundationCode: "25",
+      statusSource: BMF,
+      codeSource: BMF,
+      notes: [],
+    });
+  });
+
+  test("returns foundation code 25 with null status when the subsection is not 03", async () => {
+    const record = redCrossWithFoundation("25");
+    const bmf = record.bmf;
+    if (bmf === null) throw new Error("red cross is on the BMF");
+    const org = await lookup({
+      ...record,
+      bmf: { ...bmf, subsection: "04" },
+    });
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: null,
+      foundationCode: "25",
+      statusSource: null,
+      codeSource: BMF,
+      notes: ["unrecognized foundation code"],
+    });
+  });
 
   test("notes a null foundation code when the column is in the build", async () => {
     const org = await lookup(redCrossWithFoundation(null));
