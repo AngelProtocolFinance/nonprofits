@@ -1,6 +1,6 @@
 # nonprofits
 
-Look up any US tax-exempt organization by EIN or name: whether it's a 501(c)(3), its NTEE code, whether it is a public charity or a private foundation, whether gifts to it are tax-deductible, whether its exemption was revoked, plus its mission, top programs, finances, and website from its latest Form 990. Every fact cites the IRS file it came from.
+Look up any US tax-exempt organization by EIN or name: whether it's a 501(c)(3), its NTEE code, whether it is a public charity, a private foundation, or a private operating foundation, whether gifts to it are tax-deductible, whether its exemption was revoked, plus its mission, top programs, and finances from its latest Form 990, and its website. Every fact cites the IRS file it came from.
 
 **https://nonprofits.better.giving**, over REST or MCP.
 
