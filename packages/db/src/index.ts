@@ -11,6 +11,7 @@ export {
   COLUMNS,
   type DataTable,
   FILING_SIZE_INDEX,
+  FILING_SIZE_INDEX_DDL,
   type ImportSource,
 } from "./schema.ts";
 export { matchExpression, searchSql } from "./search-sql.ts";
