@@ -30,6 +30,9 @@ export type DataTable = (typeof DATA_TABLES)[number];
  */
 export const FILING_SIZE_INDEX = "filings_size";
 
+/** The `CREATE INDEX` statement `dataTablesDdl` runs for `FILING_SIZE_INDEX`. */
+export const FILING_SIZE_INDEX_DDL = `CREATE INDEX ${FILING_SIZE_INDEX} ON filings (ein, total_revenue, total_assets_eoy);`;
+
 export const COLUMNS = {
   import_runs: [
     "id",
@@ -190,7 +193,7 @@ CREATE TABLE filings (
 -- every candidate: a tie across a thousand United Ways times out on Turso.
 -- Covering, so that lookup reads neither text. Search names it with
 -- INDEXED BY; with no sqlite_stat1 the planner prefers the primary key.
-CREATE INDEX ${FILING_SIZE_INDEX} ON filings (ein, total_revenue, total_assets_eoy);
+${FILING_SIZE_INDEX_DDL}
 
 -- Replacing a filing's object_id fails while its old programs remain.
 CREATE TABLE programs (

@@ -1,6 +1,6 @@
 import type { Client, InStatement } from "@libsql/client";
 import type { OrgSearchResponse, SourceFile } from "@nonprofits/core";
-import { FILING_SIZE_INDEX } from "@nonprofits/db";
+import { FILING_SIZE_INDEX, FILING_SIZE_INDEX_DDL } from "@nonprofits/db";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { searchMatchPlan, searchNames } from "./org-searcher.ts";
 import { freshClient, type TestApi, testApi } from "./test-support.ts";
@@ -644,9 +644,11 @@ describe("GET /v1/search among names that score the same", () => {
     const plan = explained.rows.map((row) => String(row.detail)).join("\n");
 
     expect(records[0]?.ein).toBe("131635294");
-    // Plan of the statement searchNames sent. searchMatchPlan is a second call.
+    // A primary-key lookup would read mission and activity_summary for every
+    // candidate. The size index holds neither.
     expect(plan).toContain("USING COVERING INDEX filings_size");
     expect(plan).not.toContain("sqlite_autoindex_filings");
+    expect(plan).not.toMatch(/SCAN f\b/);
   });
 });
 
@@ -701,9 +703,7 @@ describe("GET /v1/search after a legacy database gains the size index", () => {
     const without = await searchNames(db, ["united", "way"], 5);
     expect(without[0]?.ein).toBe("131635294");
 
-    await db.execute(
-      `CREATE INDEX ${FILING_SIZE_INDEX} ON filings (ein, total_revenue, total_assets_eoy)`,
-    );
+    await db.execute(FILING_SIZE_INDEX_DDL);
     const calls: InStatement[][] = [];
     await searchNames(capturingBatch(db, calls), ["united", "way"], 5);
     const sent = calls.at(-1)?.[0];
