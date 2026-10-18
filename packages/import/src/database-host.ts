@@ -4,11 +4,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dataDbClient } from "@nonprofits/db/node";
 import { Agent, fetch, type RequestInit, type Response } from "undici";
-import {
-  type DatabaseHost,
-  errorMessage as message,
-  onlyDataDatabase,
-} from "./publish.ts";
+import { errorMessage as message } from "./error-message.ts";
+import { type DatabaseHost, onlyDataDatabase } from "./publish.ts";
 
 /** Where a local refresh keeps its data databases: beside the dev app database, `.turso/app.db`, which git ignores. */
 export const LOCAL_DATA_DIR = fileURLToPath(

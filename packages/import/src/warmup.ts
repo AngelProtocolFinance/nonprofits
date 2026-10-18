@@ -1,6 +1,6 @@
 import type { Client, InArgs } from "@libsql/client";
 import { FILING_SIZE_INDEX, matchExpression, searchSql } from "@nonprofits/db";
-import { errorMessage } from "./publish.ts";
+import { errorMessage } from "./error-message.ts";
 
 /** How long warm-up may run before the pointer switches anyway. */
 export const WARMUP_BUDGET_MS = 600_000;

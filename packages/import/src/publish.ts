@@ -12,6 +12,7 @@ import {
   switchServedDatabase,
 } from "@nonprofits/db";
 import { dataDbClient } from "@nonprofits/db/node";
+import { errorMessage } from "./error-message.ts";
 import { printable } from "./summary.ts";
 import { RED_CROSS } from "./verify.ts";
 import { type WarmupReport, warmUploadedDatabase } from "./warmup.ts";
@@ -444,19 +445,4 @@ async function failsAs<T>(doing: string, run: () => Promise<T>): Promise<T> {
   } catch (error) {
     throw new Error(`${doing} failed: ${errorMessage(error)}`);
   }
-}
-
-/**
- * `error`'s message, and its cause's: fetch fails with "fetch failed" alone,
- * its reason (undici's code and message) in `cause`. Redacted with the rest
- * where it is printed.
- */
-export function errorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
-  const { cause } = error;
-  if (!(cause instanceof Error)) return error.message;
-  const code = (cause as { code?: unknown }).code;
-  const why =
-    typeof code === "string" ? `${code}: ${cause.message}` : cause.message;
-  return `${error.message} (${why})`;
 }
