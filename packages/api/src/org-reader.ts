@@ -1,4 +1,4 @@
-import type { Client } from "@libsql/client";
+import { type Client, LibsqlError } from "@libsql/client";
 import type {
   FilingRecord,
   FormType,
@@ -17,6 +17,8 @@ interface OrgRow {
   state: string | null;
   zip: string | null;
   subsection: string | null;
+  ntee: string | null;
+  foundation_code: string | null;
   ruling_date: string | null;
   in_pub78: 0 | 1;
   revocation_date: string | null;
@@ -57,8 +59,12 @@ interface RunRow {
   fetched_at: string;
 }
 
-const ORG_SQL = `
-SELECT o.ein, o.name, o.street, o.city, o.state, o.zip, o.subsection, o.ruling_date,
+function orgSql(foundationCode: boolean): string {
+  // Unqualified: a missing column's prepare error names it as written,
+  // `no such column: foundation_code`, which is the miss this read retries.
+  const foundation = foundationCode ? "foundation_code, " : "";
+  return `
+SELECT o.ein, o.name, o.street, o.city, o.state, o.zip, o.subsection, o.ntee, ${foundation}o.ruling_date,
   o.in_pub78, o.revocation_date, o.reinstatement_date, o.files_990n, o.epostcard_website,
   n.file_url AS name_file, n.released_at AS name_released_at, n.fetched_at AS name_fetched_at,
   a.file_url AS address_file, a.released_at AS address_released_at, a.fetched_at AS address_fetched_at,
@@ -68,6 +74,21 @@ LEFT JOIN import_runs n ON n.id = o.name_run_id
 LEFT JOIN import_runs a ON a.id = o.address_run_id
 LEFT JOIN import_runs b ON b.id = o.bmf_run_id
 WHERE o.ein = ?1`;
+}
+
+function lacksFoundationCode(error: unknown): boolean {
+  return (
+    error instanceof LibsqlError &&
+    error.message.includes("no such column: foundation_code")
+  );
+}
+
+/**
+ * A database built before `foundation_code` fails the org batch at prepare
+ * time. The miss stays on this client: the served-data resolver keeps one
+ * client per served build and opens another when the build changes.
+ */
+const foundationCodeMissing = new WeakSet<Client>();
 
 const FILING_SQL = `
 SELECT f.object_id, f.form_type, f.tax_year, f.mission, f.activity_summary, f.website,
@@ -95,14 +116,33 @@ WHERE id IN (
   UNION ALL SELECT max(id) FROM import_runs WHERE source = 'efile_xml'
 )`;
 
-/** Reads one EIN in a single round trip to the data database: `OrgReader.read`. */
+/**
+ * Reads one EIN from the data database: `OrgReader.read`. One round trip,
+ * except the first read of a client whose database has no `foundation_code`
+ * column, which takes a second trip and then stays on one.
+ */
 export async function readOrg(
   db: Client,
   ein: string,
 ): Promise<OrgRecord | null> {
+  if (foundationCodeMissing.has(db)) return readOrgRows(db, ein, false);
+  try {
+    return await readOrgRows(db, ein, true);
+  } catch (error) {
+    if (!lacksFoundationCode(error)) throw error;
+    foundationCodeMissing.add(db);
+    return readOrgRows(db, ein, false);
+  }
+}
+
+async function readOrgRows(
+  db: Client,
+  ein: string,
+  foundationCode: boolean,
+): Promise<OrgRecord | null> {
   const [orgs, filings, programs, runs] = await db.batch(
     [
-      { sql: ORG_SQL, args: [ein] },
+      { sql: orgSql(foundationCode), args: [ein] },
       { sql: FILING_SQL, args: [ein] },
       { sql: PROGRAMS_SQL, args: [ein] },
       LATEST_RUNS_SQL,
@@ -122,6 +162,7 @@ export async function readOrg(
     org,
     filing ? toFiling(filing, rowsOf<Program>(programs).map(program)) : null,
     latest,
+    foundationCode,
   );
 }
 
@@ -149,6 +190,7 @@ function toRecord(
   row: OrgRow,
   filing: FilingRecord | null,
   latest: Map<ImportSource, SourceFile | null>,
+  foundationCodeInBuild: boolean,
 ): OrgRecord {
   const nameSource = source(
     row.name_file,
@@ -187,10 +229,15 @@ function toRecord(
       row.subsection !== null && bmfSource
         ? {
             subsection: row.subsection,
+            ntee: row.ntee,
+            foundationCode: foundationCodeInBuild
+              ? (row.foundation_code ?? null)
+              : null,
             rulingDate: row.ruling_date,
             source: bmfSource,
           }
         : null,
+    foundationCodeInBuild,
     pub78: pub78 ? { listed: row.in_pub78 === 1, source: pub78 } : null,
     revocation: revocation
       ? {

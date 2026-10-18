@@ -95,12 +95,26 @@ function redCross(): OrgRecord {
       },
       source: BMF,
     },
-    bmf: { subsection: "03", rulingDate: "1946-05", source: BMF },
+    bmf: {
+      subsection: "03",
+      ntee: "P20",
+      foundationCode: "15",
+      rulingDate: "1946-05",
+      source: BMF,
+    },
+    foundationCodeInBuild: true,
     pub78: { listed: true, source: PUB78 },
     revocation: { revokedOn: null, reinstatedOn: null, source: REVOCATION },
     epostcard: { filer: false, website: null, source: EPOSTCARD },
     efile: { filing: redCrossFiling() },
   };
+}
+
+function redCrossWithFoundation(code: string | null): OrgRecord {
+  const org = redCross();
+  const bmf = org.bmf;
+  if (bmf === null) throw new Error("red cross is on the BMF");
+  return { ...org, bmf: { ...bmf, foundationCode: code } };
 }
 
 const RED_CROSS_990 = {
@@ -152,6 +166,9 @@ describe("lookupOrg", () => {
           zip: "20006-5310",
         },
         is501c3: true,
+        ntee: "P20",
+        foundationStatus: "public_charity",
+        foundationCode: "15",
         deductible: true,
         revoked: false,
         revocationDate: null,
@@ -186,11 +203,15 @@ describe("lookupOrg", () => {
           taxYear: 2024,
         },
         website: "https://www.redcross.org",
+        websiteUrl: "https://www.redcross.org",
         notes: [],
         provenance: {
           name: BMF,
           address: BMF,
           is501c3: BMF,
+          ntee: BMF,
+          foundationStatus: BMF,
+          foundationCode: BMF,
           deductible: PUB78,
           revoked: REVOCATION,
           revocationDate: null,
@@ -200,6 +221,7 @@ describe("lookupOrg", () => {
           programs: RED_CROSS_990,
           finances: RED_CROSS_990,
           website: RED_CROSS_990,
+          websiteUrl: RED_CROSS_990,
         },
       },
     });
@@ -346,7 +368,13 @@ describe("lookupOrg", () => {
   test("answers an org re-recognized in the BMF after its revocation as reinstated", async () => {
     const org = await lookup({
       ...redCross(),
-      bmf: { subsection: "03", rulingDate: "2026-07", source: BMF },
+      bmf: {
+        subsection: "03",
+        ntee: "P20",
+        foundationCode: "15",
+        rulingDate: "2026-07",
+        source: BMF,
+      },
       revocation: {
         revokedOn: "2025-09-15",
         reinstatedOn: null,
@@ -372,10 +400,38 @@ describe("lookupOrg", () => {
     });
   });
 
+  test("answers a BMF org with no NTEE code as null and says so", async () => {
+    const org = await lookup({
+      ...redCross(),
+      bmf: {
+        subsection: "03",
+        ntee: null,
+        foundationCode: "15",
+        rulingDate: "1946-05",
+        source: BMF,
+      },
+    });
+    expect({
+      ntee: org.ntee,
+      nteeSource: org.provenance.ntee,
+      notes: org.notes,
+    }).toStrictEqual({
+      ntee: null,
+      nteeSource: null,
+      notes: ["no NTEE code on record"],
+    });
+  });
+
   test("answers is501c3 false for a subsection other than 03", async () => {
     const org = await lookup({
       ...redCross(),
-      bmf: { subsection: "04", rulingDate: "1946-05", source: BMF },
+      bmf: {
+        subsection: "04",
+        ntee: "P20",
+        foundationCode: "15",
+        rulingDate: "1946-05",
+        source: BMF,
+      },
     });
     expect(org.is501c3).toBe(false);
   });
@@ -463,6 +519,78 @@ describe("lookupOrg", () => {
     });
   });
 
+  test.each([
+    ["WWW.REDCROSS.ORG", "https://www.redcross.org"],
+    ["ARTANTIQUEDEALERSLEAG.ORG", "https://artantiquedealersleag.org"],
+    ["HTTPS://KRE8IVU.COM/", "https://kre8ivu.com"],
+    ["www.daretoloveministries.org", "https://www.daretoloveministries.org"],
+    ["http://granburywinewalk.com/", "https://granburywinewalk.com"],
+    ["AbortionAccessFund.Org", "https://abortionaccessfund.org"],
+    ["HTTPS://WWW.CVESD.ORG/SCHOOLS", "https://www.cvesd.org/schools"],
+    [
+      "https://www.flipcause.com/secure/cause_pdetai",
+      "https://www.flipcause.com/secure/cause_pdetai",
+    ],
+    ["http://EXAMPLE.org/Path/", "https://example.org/path/"],
+    ["HTTP://EXAMPLE.ORG/Path", "https://example.org/path"],
+    ["http://example.org:80/path", "https://example.org/path"],
+    ["http://example.org:8080/path", "https://example.org:8080/path"],
+    ["https://example.org:80/path", "https://example.org:80/path"],
+    ["N/A", null],
+    ["NONE", null],
+    ["0", null],
+    ["   ", null],
+    ["not a url", null],
+    ["user@example.org", null],
+    ["https://user:secret@example.org", null],
+    ["https://www.youtube.com/@Channel", "https://www.youtube.com/@channel"],
+    ["https://www.tiktok.com/@org", "https://www.tiktok.com/@org"],
+    ["http://www.youtube.com/@Channel/", "https://www.youtube.com/@channel/"],
+    ["https://example.org/search?q=@org", "https://example.org/search?q=@org"],
+    ["https://example.org/page#@org", "https://example.org/page#@org"],
+    ["example", null],
+    ["https://example.c", null],
+    [".com", null],
+    ["https://.com", null],
+    ["foo..com", null],
+    [".example.com", null],
+  ] as const)(
+    "keeps the raw website %j and sets websiteUrl to %j",
+    async (raw, websiteUrl) => {
+      const org = await lookup({
+        ...redCross(),
+        efile: { filing: { ...redCrossFiling(), website: raw } },
+      });
+      expect(org.website).toBe(raw);
+      expect(org.websiteUrl).toBe(websiteUrl);
+    },
+  );
+
+  test.each(["user@example.org", ".com"])(
+    "notes an unusable website %j and cites only the raw string",
+    async (raw) => {
+      const org = await lookup({
+        ...redCross(),
+        efile: { filing: { ...redCrossFiling(), website: raw } },
+      });
+      expect(org.website).toBe(raw);
+      expect(org.websiteUrl).toBeNull();
+      expect(org.provenance.website).toStrictEqual(RED_CROSS_990);
+      expect(org.provenance.websiteUrl).toBeNull();
+      expect(org.notes).toStrictEqual(["website is not a valid web address"]);
+    },
+  );
+
+  test("notes a missing website without calling the address invalid", async () => {
+    const org = await lookup({ ...redCross(), efile: { filing: null } });
+    expect(org.website).toBeNull();
+    expect(org.websiteUrl).toBeNull();
+    expect(org.provenance.website).toBeNull();
+    expect(org.provenance.websiteUrl).toBeNull();
+    expect(org.notes).toContain("no website on record");
+    expect(org.notes).not.toContain("website is not a valid web address");
+  });
+
   test("prefers the 990 website over the e-Postcard's and cites the filing", async () => {
     const org = await lookup({
       ...redCross(),
@@ -503,6 +631,7 @@ describe("lookupOrg", () => {
         source: REVOCATION,
       },
       bmf: null,
+      foundationCodeInBuild: true,
       pub78: { listed: false, source: PUB78 },
       revocation: {
         revokedOn: "2019-05-15",
@@ -515,20 +644,26 @@ describe("lookupOrg", () => {
     expect({
       name: org.name,
       is501c3: org.is501c3,
+      ntee: org.ntee,
       revoked: org.revoked,
       nameSource: org.provenance.name,
       addressSource: org.provenance.address,
       is501c3Source: org.provenance.is501c3,
+      nteeSource: org.provenance.ntee,
       notes: org.notes,
     }).toStrictEqual({
       name: "DEFUNCT ARTS COUNCIL",
       is501c3: null,
+      ntee: null,
       revoked: true,
       nameSource: REVOCATION,
       addressSource: REVOCATION,
       is501c3Source: null,
+      nteeSource: null,
       notes: [
         "revoked; not in the current BMF",
+        "no NTEE code on record",
+        "no foundation code on record",
         "no e-filed 990 in the last 3 release years",
         "no website on record",
       ],
@@ -539,7 +674,11 @@ describe("lookupOrg", () => {
     const org = await lookup({ ...redCross(), bmf: null });
     expect({ is501c3: org.is501c3, notes: org.notes }).toStrictEqual({
       is501c3: null,
-      notes: ["not in the current BMF: 501(c)(3) status unknown"],
+      notes: [
+        "not in the current BMF: 501(c)(3) status unknown",
+        "no NTEE code on record",
+        "no foundation code on record",
+      ],
     });
   });
 
@@ -579,6 +718,165 @@ describe("lookupOrg", () => {
       revocationDate: "2020-05-15",
       reinstatementDate: "2021-02-01",
       reinstatementSource: REVOCATION,
+    });
+  });
+
+  test.each([
+    ["02", "private_operating_foundation"],
+    ["03", "private_operating_foundation"],
+    ["04", "private_foundation"],
+    ["10", "public_charity"],
+    ["18", "public_charity"],
+    ["21", "public_charity"],
+    ["24", "public_charity"],
+  ] as const)(
+    "maps foundation code %s to %s and cites the BMF for both",
+    async (code, status) => {
+      const org = await lookup(redCrossWithFoundation(code));
+      expect({
+        foundationStatus: org.foundationStatus,
+        foundationCode: org.foundationCode,
+        statusSource: org.provenance.foundationStatus,
+        codeSource: org.provenance.foundationCode,
+        notes: org.notes,
+      }).toStrictEqual({
+        foundationStatus: status,
+        foundationCode: code,
+        statusSource: BMF,
+        codeSource: BMF,
+        notes: [],
+      });
+    },
+  );
+
+  test.each([
+    ["00", "not a 501(c)(3): no foundation status"],
+    ["09", "foundation status is in suspense"],
+    ["19", "unrecognized foundation code"],
+    ["20", "unrecognized foundation code"],
+    ["99", "unrecognized foundation code"],
+  ] as const)(
+    "returns foundation code %s with null status and notes it",
+    async (code, note) => {
+      const org = await lookup(redCrossWithFoundation(code));
+      expect({
+        foundationStatus: org.foundationStatus,
+        foundationCode: org.foundationCode,
+        statusSource: org.provenance.foundationStatus,
+        codeSource: org.provenance.foundationCode,
+        notes: org.notes,
+      }).toStrictEqual({
+        foundationStatus: null,
+        foundationCode: code,
+        statusSource: null,
+        codeSource: BMF,
+        notes: [note],
+      });
+    },
+  );
+
+  test("maps foundation code 25 to public_charity when the subsection is 03", async () => {
+    const org = await lookup(redCrossWithFoundation("25"));
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: "public_charity",
+      foundationCode: "25",
+      statusSource: BMF,
+      codeSource: BMF,
+      notes: [],
+    });
+  });
+
+  test("maps foundation code 15 to public_charity when the subsection is not 03", async () => {
+    const record = redCrossWithFoundation("15");
+    const bmf = record.bmf;
+    if (bmf === null) throw new Error("red cross is on the BMF");
+    const org = await lookup({
+      ...record,
+      bmf: { ...bmf, subsection: "04" },
+    });
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: "public_charity",
+      foundationCode: "15",
+      statusSource: BMF,
+      codeSource: BMF,
+      notes: [],
+    });
+  });
+
+  test("returns foundation code 25 with null status when the subsection is not 03", async () => {
+    const record = redCrossWithFoundation("25");
+    const bmf = record.bmf;
+    if (bmf === null) throw new Error("red cross is on the BMF");
+    const org = await lookup({
+      ...record,
+      bmf: { ...bmf, subsection: "04" },
+    });
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: null,
+      foundationCode: "25",
+      statusSource: null,
+      codeSource: BMF,
+      notes: ["unrecognized foundation code"],
+    });
+  });
+
+  test("notes a null foundation code when the column is in the build", async () => {
+    const org = await lookup(redCrossWithFoundation(null));
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: null,
+      foundationCode: null,
+      statusSource: null,
+      codeSource: null,
+      notes: ["no foundation code on record"],
+    });
+  });
+
+  test("notes only that an older build lacks the foundation code, even with no BMF row", async () => {
+    const org = await lookup({
+      ...redCross(),
+      bmf: null,
+      foundationCodeInBuild: false,
+    });
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: null,
+      foundationCode: null,
+      statusSource: null,
+      codeSource: null,
+      notes: [
+        "not in the current BMF: 501(c)(3) status unknown",
+        "no NTEE code on record",
+        "foundation code is not in this data build",
+      ],
     });
   });
 });

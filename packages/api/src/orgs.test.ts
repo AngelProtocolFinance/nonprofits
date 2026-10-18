@@ -1,3 +1,4 @@
+import type { Client, InStatement } from "@libsql/client";
 import type { OrgResponse } from "@nonprofits/core";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { freshClient, type TestApi, testApi } from "./test-support.ts";
@@ -50,6 +51,9 @@ describe("GET /v1/orgs/:ein", () => {
         zip: "20006-5310",
       },
       is501c3: true,
+      ntee: "P20",
+      foundationStatus: "public_charity",
+      foundationCode: "15",
       deductible: true,
       revoked: false,
       revocationDate: null,
@@ -88,11 +92,15 @@ describe("GET /v1/orgs/:ein", () => {
         taxYear: 2024,
       },
       website: "https://www.redcross.org",
+      websiteUrl: "https://www.redcross.org",
       notes: [],
       provenance: {
         name: bmf,
         address: bmf,
         is501c3: bmf,
+        ntee: bmf,
+        foundationStatus: bmf,
+        foundationCode: bmf,
         deductible: {
           file: "https://apps.irs.gov/pub/epostcard/data-download-pub78.zip",
           releasedAt: "2026-09-01T12:00:00.000Z",
@@ -110,6 +118,7 @@ describe("GET /v1/orgs/:ein", () => {
         programs: filing,
         finances: filing,
         website: filing,
+        websiteUrl: filing,
       },
     });
   });
@@ -163,15 +172,25 @@ describe("GET /v1/orgs/:ein", () => {
     expect(body).toMatchObject({
       name: "DEFUNCT ARTS COUNCIL",
       is501c3: null,
+      ntee: null,
       revoked: true,
       revocationDate: "2019-05-15",
     });
+    expect(body.provenance.ntee).toBeNull();
     expect(body.provenance.name).toStrictEqual({
       file: "https://apps.irs.gov/pub/epostcard/data-download-revocation.zip",
       releasedAt: "2026-09-02T12:00:00.000Z",
       fetchedAt: "2026-09-10T03:06:00.000Z",
     });
     expect(body.notes).toContain("revoked; not in the current BMF");
+    expect(body.notes).toContain("no NTEE code on record");
+    expect(body.notes).toContain("no foundation code on record");
+    expect(body.foundationStatus).toBeNull();
+    expect(body.foundationCode).toBeNull();
+    expect(body.provenance.foundationStatus).toBeNull();
+    expect(body.provenance.foundationCode).toBeNull();
+    const nteeAt = body.notes.indexOf("no NTEE code on record");
+    expect(body.notes[nteeAt + 1]).toBe("no foundation code on record");
   });
 
   test("answers 405 for a method other than GET", async () => {
@@ -214,6 +233,8 @@ describe("GET /v1/orgs/:ein", () => {
         taxYear: 2024,
       },
       notes: ["990-PF: no mission or programs on the form"],
+      foundationStatus: "private_foundation",
+      foundationCode: "04",
     });
     expect(body.provenance.finances).toMatchObject({
       objectId: "202501239349100500",
@@ -278,9 +299,95 @@ describe("GET /v1/orgs/:ein", () => {
     expect(body).toMatchObject({
       is501c3: false,
       deductible: false,
+      foundationStatus: null,
+      foundationCode: "00",
       mission:
         "Promote civic engagement and neighborhood improvement in Riverton.",
     });
+    expect(body.notes).toContain("not a 501(c)(3): no foundation status");
+    expect(body.provenance.foundationStatus).toBeNull();
+    expect(body.provenance.foundationCode).toStrictEqual({
+      file: "https://www.irs.gov/pub/irs-soi/eo_dc.csv",
+      releasedAt: "2026-09-08T12:00:00.000Z",
+      fetchedAt: "2026-09-10T03:00:00.000Z",
+    });
     expect(body.provenance.mission).toMatchObject({ formType: "990-EZ" });
+  });
+});
+
+/** Counts batch statements whose SQL names `foundation_code`. */
+function countingFoundationCode(
+  db: Client,
+  counts: { statements: number },
+): Client {
+  return new Proxy(db, {
+    get(target, property) {
+      if (property === "batch") {
+        return (statements: InStatement[], mode?: "read" | "write") => {
+          for (const statement of statements) {
+            const sql =
+              typeof statement === "string" ? statement : statement.sql;
+            if (sql.includes("foundation_code")) counts.statements += 1;
+          }
+          return target.batch(statements, mode);
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+describe("GET /v1/orgs/:ein on a database built before foundation_code", () => {
+  let legacy: TestApi;
+  const foundationCodeSql = { statements: 0 };
+
+  beforeAll(async () => {
+    legacy = await testApi({
+      fill: async (data) => {
+        await data.execute("ALTER TABLE orgs DROP COLUMN foundation_code");
+      },
+      dataDbAs: (db) => countingFoundationCode(db, foundationCodeSql),
+    });
+  });
+
+  afterAll(async () => {
+    await legacy.dispose();
+  });
+
+  test("answers 200 with null foundation fields and does not select the column again", async () => {
+    const first = await legacy.app.request("/v1/orgs/530196605", {
+      headers: freshClient(),
+    });
+    const firstBody = (await first.json()) as OrgResponse;
+
+    expect(first.status).toBe(200);
+    expect(firstBody.foundationStatus).toBeNull();
+    expect(firstBody.foundationCode).toBeNull();
+    expect(firstBody.ntee).toBe("P20");
+    expect(firstBody.websiteUrl).toBe("https://www.redcross.org");
+    expect(firstBody.notes).toContain(
+      "foundation code is not in this data build",
+    );
+    expect(firstBody.notes).not.toContain("no foundation code on record");
+    expect(firstBody.provenance.foundationStatus).toBeNull();
+    expect(firstBody.provenance.foundationCode).toBeNull();
+    expect(foundationCodeSql.statements).toBe(1);
+
+    foundationCodeSql.statements = 0;
+    const second = await legacy.app.request("/v1/orgs/530196605", {
+      headers: freshClient(),
+    });
+    const secondBody = (await second.json()) as OrgResponse;
+
+    expect(second.status).toBe(200);
+    expect(secondBody.foundationStatus).toBeNull();
+    expect(secondBody.foundationCode).toBeNull();
+    expect(secondBody.ntee).toBe("P20");
+    expect(secondBody.websiteUrl).toBe("https://www.redcross.org");
+    expect(secondBody.notes).toContain(
+      "foundation code is not in this data build",
+    );
+    expect(foundationCodeSql.statements).toBe(0);
   });
 });
