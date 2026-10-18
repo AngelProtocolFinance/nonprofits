@@ -35,7 +35,7 @@ Returns the organization's name, address, 501(c)(3) status, NTEE code, foundatio
 
 \`deductible\` is ${DEDUCTIBLE_TRISTATE}
 
-\`ntee\` is the raw NTEE code from the IRS Business Master File, for example "P20", or null when that file has none. \`foundationStatus\` is "public_charity", "private_foundation", or "private_operating_foundation", from the Business Master File foundation code. It is null when that code is missing, when the organization is not a 501(c)(3), when the code is in suspense, when the code is unrecognized, or when the data build has no foundation column. \`foundationCode\` is that raw code, or null. \`website\` is the raw value. \`websiteUrl\` is that value as an https URL, or null when it is not a web address. \`notes\` says which of these is null, and why.
+\`ntee\` is the raw NTEE code from the IRS Business Master File, for example "P20", or null when that file has none. \`foundationStatus\` is "public_charity", "private_foundation", or "private_operating_foundation", from the Business Master File foundation code. It is null when the code is missing, when the code is 00, when it is in suspense, when it is unrecognized (including 25 when the subsection is not 03), or when the data build has no foundation column. \`foundationCode\` is that raw code, or null. \`website\` is the raw value. \`websiteUrl\` is that value as an https URL, or null when it is not a web address. \`notes\` says which of these is null, and why.
 
 A fact is null when the IRS data doesn't carry it, and \`notes\` says why. For example, \`mission\` is null for an organization that files only a 990-N postcard, for a 990-PF private foundation, or when its latest 990 states none or puts it on Schedule O, which isn't extracted.
 
@@ -75,7 +75,9 @@ function foundationPhrase(
         ? "private foundation"
         : status === "private_operating_foundation"
           ? "private operating foundation"
-          : "none on record";
+          : code === null
+            ? "none on record"
+            : "no status";
   return code === null ? label : `${label} (${code})`;
 }
 
@@ -171,7 +173,7 @@ const LOOKUP_OUTPUT = z.object({
     ])
     .nullable()
     .describe(
-      '"public_charity", "private_foundation", or "private_operating_foundation", from the Business Master File foundation code. Null when that code is missing, when the organization is not a 501(c)(3), when the code is in suspense, when the code is unrecognized, or when the data build has no foundation column.',
+      '"public_charity", "private_foundation", or "private_operating_foundation", from the Business Master File foundation code. Null when the code is missing, when the code is 00, when it is in suspense, when it is unrecognized (including 25 when the subsection is not 03), or when the data build has no foundation column.',
     ),
   foundationCode: z
     .string()

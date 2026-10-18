@@ -403,6 +403,22 @@ describe("/mcp with a key", () => {
     },
   );
 
+  test("lookup_nonprofit renders foundation code 00 as no status and keeps the code", async () => {
+    await start();
+    const client = await connect(await keyed());
+
+    const result = await client.callTool({
+      name: "lookup_nonprofit",
+      arguments: { ein: "521234567" },
+    });
+
+    const rendered = result.content[0];
+    expect(rendered).toMatchObject({ type: "text" });
+    if (rendered?.type !== "text") throw new Error("lookup text is missing");
+    expect(rendered.text).toContain("no status (00)");
+    expect(rendered.text).not.toContain("none on record (00)");
+  });
+
   test.each([
     {
       query: "red cross",
@@ -593,6 +609,24 @@ describe("/mcp without a key", () => {
     const lookup = tools.find((listed) => listed.name === "lookup_nonprofit");
     expect(lookup?.description).toContain("websiteUrl");
     expect(lookup?.description).toContain("foundationStatus");
+  });
+
+  test("lookup description and output schema say foundationStatus is null for a missing, 00, suspense, or unrecognized code", async () => {
+    await start();
+    const client = await connect(freshClient());
+    const { tools } = await client.listTools();
+    const lookup = tools.find((listed) => listed.name === "lookup_nonprofit");
+    const foundationNull =
+      "when the code is missing, when the code is 00, when it is in suspense, when it is unrecognized (including 25 when the subsection is not 03), or when the data build has no foundation column";
+
+    expect(lookup?.description).toContain(foundationNull);
+    expect(JSON.stringify(lookup?.outputSchema)).toContain(foundationNull);
+    expect(lookup?.description).not.toContain(
+      "when the organization is not a 501(c)(3)",
+    );
+    expect(JSON.stringify(lookup?.outputSchema)).not.toContain(
+      "when the organization is not a 501(c)(3)",
+    );
   });
 
   test("lookup_nonprofit answers 530196605 with the same JSON as GET /v1/orgs/530196605", async () => {

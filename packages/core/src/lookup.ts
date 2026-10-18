@@ -283,7 +283,7 @@ function toWebsiteUrl(raw: string): string | null {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return null;
   if (/^(?:n\/a|none|0)$/i.test(trimmed)) return null;
-  if (/[\s@]/.test(trimmed)) return null;
+  if (/\s/.test(trimmed)) return null;
 
   let candidate = trimmed;
   const httpInput = /^http:\/\//i.test(candidate);
@@ -299,6 +299,9 @@ function toWebsiteUrl(raw: string): string | null {
   } catch {
     return null;
   }
+
+  // Reject userinfo only: an @ in the path, query, or fragment is still an address.
+  if (url.username !== "" || url.password !== "") return null;
 
   const hostname = url.hostname;
   const labels = hostname.split(".");

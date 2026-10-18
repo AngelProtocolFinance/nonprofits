@@ -542,6 +542,12 @@ describe("lookupOrg", () => {
     ["   ", null],
     ["not a url", null],
     ["user@example.org", null],
+    ["https://user:secret@example.org", null],
+    ["https://www.youtube.com/@Channel", "https://www.youtube.com/@channel"],
+    ["https://www.tiktok.com/@org", "https://www.tiktok.com/@org"],
+    ["http://www.youtube.com/@Channel/", "https://www.youtube.com/@channel/"],
+    ["https://example.org/search?q=@org", "https://example.org/search?q=@org"],
+    ["https://example.org/page#@org", "https://example.org/page#@org"],
     ["example", null],
     ["https://example.c", null],
     [".com", null],
@@ -780,6 +786,29 @@ describe("lookupOrg", () => {
     }).toStrictEqual({
       foundationStatus: "public_charity",
       foundationCode: "25",
+      statusSource: BMF,
+      codeSource: BMF,
+      notes: [],
+    });
+  });
+
+  test("maps foundation code 15 to public_charity when the subsection is not 03", async () => {
+    const record = redCrossWithFoundation("15");
+    const bmf = record.bmf;
+    if (bmf === null) throw new Error("red cross is on the BMF");
+    const org = await lookup({
+      ...record,
+      bmf: { ...bmf, subsection: "04" },
+    });
+    expect({
+      foundationStatus: org.foundationStatus,
+      foundationCode: org.foundationCode,
+      statusSource: org.provenance.foundationStatus,
+      codeSource: org.provenance.foundationCode,
+      notes: org.notes,
+    }).toStrictEqual({
+      foundationStatus: "public_charity",
+      foundationCode: "15",
       statusSource: BMF,
       codeSource: BMF,
       notes: [],

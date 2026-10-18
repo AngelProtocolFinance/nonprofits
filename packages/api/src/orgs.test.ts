@@ -372,7 +372,7 @@ describe("GET /v1/orgs/:ein on a database built before foundation_code", () => {
     expect(firstBody.notes).not.toContain("no foundation code on record");
     expect(firstBody.provenance.foundationStatus).toBeNull();
     expect(firstBody.provenance.foundationCode).toBeNull();
-    expect(foundationCodeSql.statements).toBeLessThanOrEqual(1);
+    expect(foundationCodeSql.statements).toBe(1);
 
     foundationCodeSql.statements = 0;
     const second = await legacy.app.request("/v1/orgs/530196605", {

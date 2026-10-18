@@ -31,7 +31,7 @@ One organization. `ein` is 9 digits, with or without the dash (`53-0196605`).
 | `name`, `address` | As the IRS Business Master File lists them |
 | `is501c3` | A 501(c)(3); `null` when the org isn't in the current Business Master File |
 | `ntee` | Raw NTEE code from the Business Master File, for example `P20`. `null` when that file has none |
-| `foundationStatus` | `public_charity`, `private_foundation`, or `private_operating_foundation`, from the Business Master File foundation code. `null` when that code is missing, is not a 501(c)(3), is in suspense, is unrecognized, or the data build has no foundation column |
+| `foundationStatus` | `public_charity`, `private_foundation`, or `private_operating_foundation`, from the Business Master File foundation code. `null` when the code is missing, when the code is 00, when it is in suspense, when it is unrecognized (including 25 when the subsection is not 03), or when the data build has no foundation column |
 | `foundationCode` | The raw foundation code from that file, or `null` |
 | `deductible` | Tri-state. `true`: listed in IRS Publication 78, so gifts are tax-deductible. `false`: Publication 78 is imported and the org is not listed. `null`: unknown, for example when Publication 78 has not been imported |
 | `revoked`, `revocationDate`, `reinstatementDate` | Exemption automatically revoked (and not reinstated since), with dates as `YYYY-MM-DD` |
