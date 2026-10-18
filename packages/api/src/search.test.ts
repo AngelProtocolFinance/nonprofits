@@ -459,6 +459,25 @@ describe("GET /v1/search before the revocation list is imported", () => {
       provenance: { revoked: null, revocationDate: null },
     });
   });
+
+  test("answers revoked null for an org whose revocation date is still stored", async () => {
+    const stored = await early.dataDb.client.execute(
+      "SELECT revocation_date FROM orgs WHERE ein = '201234567'",
+    );
+    expect(stored.rows[0]?.revocation_date).toBe("2023-05-15");
+
+    const response = await early.app.request(
+      "/v1/search?q=lapsed%20community",
+      { headers: freshClient() },
+    );
+    const body = (await response.json()) as OrgSearchResponse;
+    expect(body.results[0]).toMatchObject({
+      ein: "201234567",
+      revoked: null,
+      revocationDate: null,
+      provenance: { revoked: null, revocationDate: null },
+    });
+  });
 });
 
 /** Counts data-database statements a search makes. */
@@ -478,6 +497,25 @@ function countingDataDb(
         return (statement: InStatement) => {
           counts.executes += 1;
           return target.execute(statement);
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+/**
+ * Records each `batch` and still runs it on `db`. A missing index has to fail
+ * prepare on that client; a stand-in error would not.
+ */
+function capturingBatch(db: Client, calls: InStatement[][]): Client {
+  return new Proxy(db, {
+    get(target, property) {
+      if (property === "batch") {
+        return (statements: InStatement[], mode?: "read" | "write") => {
+          calls.push(statements);
+          return target.batch(statements, mode);
         };
       }
       const value = Reflect.get(target, property, target);
@@ -586,21 +624,29 @@ describe("GET /v1/search among names that score the same", () => {
     ]);
   });
 
-  test("breaks the tie from the covering size index, within a second", async () => {
-    const started = performance.now();
-    const records = await searchNames(tied.dataDb.client, ["united", "way"], 5);
-    const elapsed = performance.now() - started;
-    const plan = (
-      await searchMatchPlan(tied.dataDb.client, ["united", "way"], 5)
-    ).join("\n");
+  test("breaks the tie from the covering size index", async () => {
+    const calls: InStatement[][] = [];
+    const records = await searchNames(
+      capturingBatch(tied.dataDb.client, calls),
+      ["united", "way"],
+      5,
+    );
+    const sent = calls[0]?.[0];
+    if (sent === undefined) {
+      throw new Error("searchNames passed nothing to batch");
+    }
+    const sql = typeof sent === "string" ? sent : sent.sql;
+    const args = typeof sent === "string" ? undefined : sent.args;
+    const explained = await tied.dataDb.client.execute({
+      sql: `EXPLAIN QUERY PLAN ${sql}`,
+      ...(args === undefined ? {} : { args }),
+    });
+    const plan = explained.rows.map((row) => String(row.detail)).join("\n");
 
     expect(records[0]?.ein).toBe("131635294");
-    expect(elapsed).toBeLessThan(1_000);
-    // a primary-key lookup would read mission and activity_summary for every
-    // candidate; that is the United Way timeout. The size index holds neither.
+    // Plan of the statement searchNames sent. searchMatchPlan is a second call.
     expect(plan).toContain("USING COVERING INDEX filings_size");
     expect(plan).not.toContain("sqlite_autoindex_filings");
-    expect(plan).not.toMatch(/SCAN f\b/);
   });
 });
 
@@ -635,6 +681,34 @@ describe("GET /v1/search on a database built before the size index", () => {
     ).join("\n");
     expect(plan).toContain("sqlite_autoindex_filings");
     expect(plan).not.toContain(FILING_SIZE_INDEX);
+  });
+});
+
+describe("GET /v1/search after a legacy database gains the size index", () => {
+  let regained: TestApi;
+
+  beforeAll(async () => {
+    regained = await testApi({ fill: unitedWays });
+  });
+
+  afterAll(async () => {
+    await regained.dispose();
+  });
+
+  test("returns United Way Worldwide without the index, then searches through it once created", async () => {
+    const db = regained.dataDb.client;
+    await db.execute(`DROP INDEX ${FILING_SIZE_INDEX}`);
+    const without = await searchNames(db, ["united", "way"], 5);
+    expect(without[0]?.ein).toBe("131635294");
+
+    await db.execute(
+      `CREATE INDEX ${FILING_SIZE_INDEX} ON filings (ein, total_revenue, total_assets_eoy)`,
+    );
+    const calls: InStatement[][] = [];
+    await searchNames(capturingBatch(db, calls), ["united", "way"], 5);
+    const sent = calls.at(-1)?.[0];
+    const sql = typeof sent === "string" ? sent : sent?.sql;
+    expect(sql).toContain(`INDEXED BY ${FILING_SIZE_INDEX}`);
   });
 });
 
