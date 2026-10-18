@@ -101,7 +101,7 @@ interface Query {
   args: InArgs;
 }
 
-/** The search SQL the api runs, then the two indexes a search reads per candidate. */
+/** The search SQL the api runs, then one row that opens each index. A missing index warns, and neither read scans it. */
 function queries(): Query[] {
   const searches = WARMUP_TERMS.map((term) => ({
     label: term,
@@ -116,10 +116,11 @@ function queries(): Query[] {
 }
 
 /**
- * Reads the pages a live search will touch, one query at a time, on a database
- * that is not served yet. A query that fails or runs out its own time is a
- * warning. Once `budgetMs` is spent, the rest are not started. Rejects only
- * when `signal` aborts, which is a stop, not a warning.
+ * Runs the searches, then opens each index with one row, on a database that
+ * is not served yet. A missing index warns, and neither read scans the index.
+ * A query that fails or runs out its own time is a warning. Once `budgetMs`
+ * is spent, the rest are not started. Rejects only when `signal` aborts,
+ * which is a stop, not a warning.
  */
 export async function warmUploadedDatabase(
   options: WarmupOptions,
