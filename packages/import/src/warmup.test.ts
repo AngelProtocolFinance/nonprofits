@@ -4,9 +4,9 @@ import { dataDbFixture, type LocalDb } from "@nonprofits/db/fixture";
 import { afterEach, describe, expect, test } from "vitest";
 import { WARMUP_TERMS, warmUploadedDatabase } from "./warmup.ts";
 
-const FILINGS_SIZE_SQL = `SELECT count(total_revenue) FROM filings INDEXED BY ${FILING_SIZE_INDEX}`;
+const FILINGS_SIZE_SQL = `SELECT total_revenue FROM filings INDEXED BY ${FILING_SIZE_INDEX} LIMIT 1`;
 const ORGS_KEY_SQL =
-  "SELECT count(ein) FROM orgs INDEXED BY sqlite_autoindex_orgs_1";
+  "SELECT ein FROM orgs INDEXED BY sqlite_autoindex_orgs_1 LIMIT 1";
 
 const empty = {
   columns: [],
@@ -138,6 +138,22 @@ describe("warmUploadedDatabase", () => {
       warmUploadedDatabase({ db, signal: signal.signal, now: () => 0 }),
     ).rejects.toThrow("stopped: SIGTERM");
     expect(calls).toBe(1);
+  });
+
+  test("a query failure names its cause's code and message in the warning", async () => {
+    const db = client(async () => {
+      throw new Error("fetch failed", {
+        cause: Object.assign(new Error("Headers Timeout Error"), {
+          code: "UND_ERR_HEADERS_TIMEOUT",
+        }),
+      });
+    });
+
+    const report = await warmUploadedDatabase({ db, now: () => 0 });
+
+    expect(report.warnings[0]).toBe(
+      'WARNING: warm-up "united way" failed after 0.0 s: fetch failed (UND_ERR_HEADERS_TIMEOUT: Headers Timeout Error)',
+    );
   });
 });
 

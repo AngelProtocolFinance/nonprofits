@@ -1,5 +1,6 @@
 import type { Client, InArgs } from "@libsql/client";
 import { FILING_SIZE_INDEX, matchExpression, searchSql } from "@nonprofits/db";
+import { errorMessage } from "./error-message.ts";
 
 /** How long warm-up may run before the pointer switches anyway. */
 export const WARMUP_BUDGET_MS = 600_000;
@@ -56,11 +57,16 @@ export const WARMUP_TERMS = [
   "education",
 ] as const;
 
-const FILINGS_SIZE_SQL = `SELECT count(total_revenue) FROM filings INDEXED BY ${FILING_SIZE_INDEX}`;
+/**
+ * One row through the index, not a count of the table, for both reads below.
+ * A count scans every row and keeps scanning after it loses its race, past
+ * the pointer switch.
+ */
+const FILINGS_SIZE_SQL = `SELECT total_revenue FROM filings INDEXED BY ${FILING_SIZE_INDEX} LIMIT 1`;
 
 /** SQLite's automatic index on `orgs.ein`, the primary key. */
 const ORGS_KEY_SQL =
-  "SELECT count(ein) FROM orgs INDEXED BY sqlite_autoindex_orgs_1";
+  "SELECT ein FROM orgs INDEXED BY sqlite_autoindex_orgs_1 LIMIT 1";
 
 export interface WarmupQuery {
   label: string;
@@ -95,7 +101,11 @@ interface Query {
   args: InArgs;
 }
 
-/** The search SQL the api runs, then the two indexes a search reads per candidate. */
+/**
+ * The search SQL the api runs, then one row through each index. Each read
+ * opens the index and walks it for one row, then stops, unlike the counts
+ * they replaced. A missing index warns.
+ */
 function queries(): Query[] {
   const searches = WARMUP_TERMS.map((term) => ({
     label: term,
@@ -110,10 +120,12 @@ function queries(): Query[] {
 }
 
 /**
- * Reads the pages a live search will touch, one query at a time, on a database
- * that is not served yet. A query that fails or runs out its own time is a
- * warning. Once `budgetMs` is spent, the rest are not started. Rejects only
- * when `signal` aborts, which is a stop, not a warning.
+ * Runs the searches, then one row through each index, on a database that is
+ * not served yet. Each read opens the index and walks it for one row, then
+ * stops, unlike the counts they replaced. A missing index warns. A query
+ * that fails or runs out its own time is a warning. Once `budgetMs` is spent,
+ * the rest are not started. Rejects only when `signal` aborts, which is a
+ * stop, not a warning.
  */
 export async function warmUploadedDatabase(
   options: WarmupOptions,
@@ -146,7 +158,7 @@ export async function warmUploadedDatabase(
     } catch (error) {
       if (signal?.aborted) throw abortError(signal);
       const seconds = (now() - at) / 1000;
-      const warning = `WARNING: warm-up "${query.label}" failed after ${seconds.toFixed(1)} s: ${message(error)}`;
+      const warning = `WARNING: warm-up "${query.label}" failed after ${seconds.toFixed(1)} s: ${errorMessage(error)}`;
       ran.push({ label: query.label, ok: false, seconds, warning });
       warnings.push(warning);
       log(warning);
@@ -172,10 +184,6 @@ function summaryLine(ran: number, seconds: number, skipped: number): string {
 
 function abortError(signal: AbortSignal): Error {
   return signal.reason instanceof Error ? signal.reason : new Error("aborted");
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 class QueryTimeout extends Error {
