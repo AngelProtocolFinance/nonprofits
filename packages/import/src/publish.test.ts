@@ -223,6 +223,40 @@ describe("publishing a verified file", () => {
   });
 });
 
+test("warms the uploaded database before the served pointer switches to it", async () => {
+  const build = await built("2026-10-01T00:00:00Z");
+  const order: string[] = [];
+  const watching = new Proxy(app.client, {
+    get(target, key, receiver) {
+      const value = Reflect.get(target, key, receiver);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        if (key === "batch") {
+          const [statements] = args as Parameters<Client["batch"]>;
+          const switches = statements.some((statement) =>
+            sqlOf(statement).includes("UPDATE served_database"),
+          );
+          if (switches) order.push("switch");
+        }
+        return value.apply(target, args);
+      };
+    },
+  });
+  let warmed = 0;
+
+  await publish(build, host, {
+    app: watching,
+    onWarmup: (warmup) => {
+      warmed = warmup.queries.length;
+      order.push("warmup");
+    },
+  });
+
+  // a search after the monthly switch reads pages this step already fetched
+  expect(warmed).toBeGreaterThan(0);
+  expect(order).toStrictEqual(["warmup", "switch"]);
+});
+
 test("a warm-up query failing still switches", async () => {
   const build = await built("2026-10-01T00:00:00Z");
   const local = localDatabases(join(work, "databases"));
@@ -619,6 +653,12 @@ test("a file over the cap fails before any call to the host, naming its size and
   );
   expect(calls).toStrictEqual([]);
 });
+
+function sqlOf(statement: Parameters<Client["batch"]>[0][number]): string {
+  if (typeof statement === "string") return statement;
+  if (Array.isArray(statement)) return statement[0] ?? "";
+  return statement.sql;
+}
 
 async function exists(database: ServedDatabase): Promise<boolean> {
   return readFile(fileURLToPath(database.url)).then(
