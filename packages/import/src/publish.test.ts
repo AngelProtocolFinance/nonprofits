@@ -223,6 +223,33 @@ describe("publishing a verified file", () => {
   });
 });
 
+test("warms the uploaded database before the served pointer switches to it", async () => {
+  await publish(await built("2026-09-01T00:00:00Z"));
+  const build = await built("2026-10-01T00:00:00Z");
+  const previous = await readServedDatabase(app.client);
+  let warmed = 0;
+  let servedDuringWarmup: Promise<void> | undefined;
+
+  const report = await publish(build, host, {
+    onWarmup: (warmup) => {
+      warmed = warmup.queries.length;
+      const seen = readServedDatabase(app.client).then((pointer) => {
+        // still the database already served: this publish's file is not live yet
+        expect(pointer.database).toStrictEqual(previous.database);
+      });
+      // publish does not await onWarmup; keep the rejection for the test
+      seen.catch(() => {});
+      servedDuringWarmup = seen;
+    },
+  });
+
+  await servedDuringWarmup;
+  const served = await readServedDatabase(app.client);
+  expect(served.database).toStrictEqual(report.database);
+  expect(served.build_id).toBe(build.buildId);
+  expect(warmed).toBeGreaterThan(0);
+});
+
 test("a warm-up query failing still switches", async () => {
   const build = await built("2026-10-01T00:00:00Z");
   const local = localDatabases(join(work, "databases"));
