@@ -224,37 +224,30 @@ describe("publishing a verified file", () => {
 });
 
 test("warms the uploaded database before the served pointer switches to it", async () => {
+  await publish(await built("2026-09-01T00:00:00Z"));
   const build = await built("2026-10-01T00:00:00Z");
-  const order: string[] = [];
-  const watching = new Proxy(app.client, {
-    get(target, key, receiver) {
-      const value = Reflect.get(target, key, receiver);
-      if (typeof value !== "function") return value;
-      return (...args: unknown[]) => {
-        if (key === "batch") {
-          const [statements] = args as Parameters<Client["batch"]>;
-          const switches = statements.some((statement) =>
-            sqlOf(statement).includes("UPDATE served_database"),
-          );
-          if (switches) order.push("switch");
-        }
-        return value.apply(target, args);
-      };
-    },
-  });
+  const previous = await readServedDatabase(app.client);
   let warmed = 0;
+  let servedDuringWarmup: Promise<void> | undefined;
 
-  await publish(build, host, {
-    app: watching,
+  const report = await publish(build, host, {
     onWarmup: (warmup) => {
       warmed = warmup.queries.length;
-      order.push("warmup");
+      const seen = readServedDatabase(app.client).then((pointer) => {
+        // still the database already served: this publish's file is not live yet
+        expect(pointer.database).toStrictEqual(previous.database);
+      });
+      // publish does not await onWarmup; keep the rejection for the test
+      seen.catch(() => {});
+      servedDuringWarmup = seen;
     },
   });
 
-  // a search after the monthly switch reads pages this step already fetched
+  await servedDuringWarmup;
+  const served = await readServedDatabase(app.client);
+  expect(served.database).toStrictEqual(report.database);
+  expect(served.build_id).toBe(build.buildId);
   expect(warmed).toBeGreaterThan(0);
-  expect(order).toStrictEqual(["warmup", "switch"]);
 });
 
 test("a warm-up query failing still switches", async () => {
@@ -653,12 +646,6 @@ test("a file over the cap fails before any call to the host, naming its size and
   );
   expect(calls).toStrictEqual([]);
 });
-
-function sqlOf(statement: Parameters<Client["batch"]>[0][number]): string {
-  if (typeof statement === "string") return statement;
-  if (Array.isArray(statement)) return statement[0] ?? "";
-  return statement.sql;
-}
 
 async function exists(database: ServedDatabase): Promise<boolean> {
   return readFile(fileURLToPath(database.url)).then(
